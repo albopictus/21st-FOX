@@ -44,7 +44,14 @@ import {
   supportsLlmCredentials,
   type LlmCredentialRow,
 } from './amsgLlmCredentials';
+import {
+  chunkClientStateEntries,
+  pickSidechannelShellKeys,
+  supportsClientStateDelete,
+} from './amsgClientStateDelete';
+import { observeRemoteStateUpdatedAt, stampStateUpdatedAt } from './amsgStateClock';
 import { flattenContentPartsToText } from './promptMessageCleanup';
+import { resolveBlobRefsDeep } from './blobRef';
 import {
   AMSG_FIRE_PACK_KEY,
   FIRE_PACK_VERSION,
@@ -67,6 +74,12 @@ import {
   packStateValue,
   parseLastSkip,
 } from './amsgFirePack';
+import {
+  AMSG_BACKGROUND_JOB_SUBTYPE,
+  AMSG_JOB_ID_KEY,
+  AMSG_JOB_NAMESPACE,
+  AMSG_TASK_KIND_KEY,
+} from './amsgTaskKinds';
 import type { AmsgFireScene } from './amsgFireScene';
 import { buildSongPool } from './charMusicSchedule';
 import { getDailyScheduleForChar } from './dailySchedule';
@@ -99,10 +112,12 @@ import {
   SUBSCRIBE_SETTLE_MS,
   type SubscribeFailureKind,
 } from './pushSubscribeShared';
+import { isUnifiedPushPlatform } from './unifiedPushPlugin';
 
 export const NATIVE_PUSH_TOKEN_STORAGE_KEY = 'amsg2_fcm_token_v1';
 const nativePushBuildEnabled = () => import.meta.env.VITE_AMSG_NATIVE_PUSH === 'true';
 const readNativePushToken = () => nativePushBuildEnabled() && typeof localStorage !== 'undefined'
+  && !isUnifiedPushPlatform()
   ? localStorage.getItem(NATIVE_PUSH_TOKEN_STORAGE_KEY)?.trim() || ''
   : '';
 
@@ -112,6 +127,9 @@ export interface ActiveMsg2PushStatus {
   hasSubscription: boolean;
   vapidConfigured: boolean;
   detail?: string;
+  transport?: 'web-push' | 'unified-push';
+  distributor?: string | null;
+  needsDistributor?: boolean;
 }
 
 /** worker 上登记的那份订阅（一个用户一行）。读不到时调用方拿 null。 */
@@ -325,6 +343,21 @@ export interface AmsgSelfUpdateResult {
   code?: string;
 }
 
+/**
+ * 后台任务的定时触发（Worker 的 cron trigger）现在开着没有（`GET /cron-trigger`，
+ * 见 worker/amsg/src/cronTrigger.ts）。
+ * supported 为 false 是端点在、但 Worker 自己查不了（多半是没配 CF_API_TOKEN），code 说明卡在哪。
+ */
+export interface AmsgCronTriggerState {
+  supported: boolean;
+  /** 开着 = true。supported 为 false 时没有这一项。 */
+  enabled?: boolean;
+  /** worker 报的代号（`CF_TOKEN_MISSING` / `SCRIPT_NAME_UNKNOWN` 之类），supported 为 false 时才有。 */
+  code?: string;
+  /** 给人看的一句，supported 为 false 时才有。 */
+  message?: string;
+}
+
 /** init-tenant 没成功时按 HTTP 状态归类：三种状态要用户去改的地方完全不同。 */
 const resolveInitFailKind = (status: number): AmsgFailKind => {
   if (status === 401 || status === 403) return '鉴权失败';   // 共享密钥两边对不上
@@ -368,6 +401,62 @@ const ensureWorkerReady = async () => {
 // 即时对话把它放上了发送热路径（拿到 202 之前的串行延迟）和 60s 状态点名（一跳最多
 // 两次），逐次重新握手纯属白付 RTT。键取会影响握手的三个字段；配置一变（换 worker /
 // 换密钥 / 清空重连）键就换，旧缓存自然作废。失败的握手不缓存，下一次重新来过。
+/**
+ * 「这台 worker 认不认识后台任务」的探测结果（见 probeBackgroundJobSupport）。
+ * 只在内存里存，换 workerUrl 自然作废——用户中途换后端时不该拿旧结论当数。
+ */
+let backgroundJobProbe: { workerUrl: string; supported: boolean; at: number } | null = null;
+
+/**
+ * 存量答案是「不支持」时，最多隔这么久就再问一遍。
+ *
+ * 下面那个 forget 只盖得住「在设置页点按钮更新 Worker」这一条路，而换 bundle 不止这
+ * 一条：文档里那条 GitHub「Sync fork」→ Cloudflare Workers Builds 更新完，地址没变、
+ * 整个过程也不经过前端，缓存里那句「不支持」就会一直活到用户刷新页面为止——这段时间
+ * 每一轮消化都在前台跑那一两分钟的整理，页面一关就死。即时对话那条探测对同样的状态
+ * 就是「存着 false 就重探」（见 reprobeInstantChatSupport）。
+ *
+ * 正面答案不设冷却：一份认识后台任务的 bundle 不会自己变回不认识。
+ */
+const BACKGROUND_JOB_UNSUPPORTED_RECHECK_MS = 5 * 60_000;
+
+/**
+ * 把探测结论作废，下次重新问一遍。
+ *
+ * 缓存是按 workerUrl 键的，而「更新 Worker」换的是同一个地址上的 bundle——地址没变，
+ * 结论却过期了。不作废的话用户刚把后端升上去，前端还认着升级前那句「不支持」，得刷新
+ * 页面才好。所以凡是**在同一个地址上换 bundle** 的路径都要调一次：设置页的「重新连接
+ * 并验证」、以及「更新 Worker」（POST /self-update）。
+ *
+ * 从零部署那条路不用调：它换的是 workerUrl 本身，键一变旧缓存自然作废。
+ */
+export const forgetBackgroundJobProbe = (): void => { backgroundJobProbe = null; };
+
+/**
+ * 后台任务能力探测的三种结论。
+ *
+ * `unsupported` 和 `unknown` 分开是有用的：前者是「这条路断了」（老 bundle，重试也一样），
+ * 后者是「这次没问到」（网络抖一下、CF 边缘抽风、D1 冷启动超时）。调用方对这两种的处置
+ * 不一样——路断了就该退回本地把活儿干了，而只是没问到时，手上要是还有一份任务在云端跑，
+ * 退回本地就是拿同一份快照再烧一次 API、两份结果先后落地互相盖。
+ */
+export type BackgroundJobProbeOutcome = 'supported' | 'unsupported' | 'unknown';
+
+const BACKGROUND_JOB_MAYBE_CREATED_PROP = '__amsgBackgroundJobMaybeCreated';
+
+/**
+ * 这次失败的后台任务，**有没有可能其实已经在远端建起来了**。
+ *
+ * 只有「`POST /schedule-message` 发出去之后没等到答复」才算——那一刻请求可能已经到了
+ * 服务端。服务端答复了「不行」不算（确定没建），上传输入、传凭据那几步失败也不算
+ * （它们排在建任务之前）。
+ *
+ * 调用方靠它区分「没交出去」和「不知道交没交出去」：前者该退回本地把活儿干了，后者
+ * 绝不能——那会拿同一份快照在两条路上各跑一次，白烧一次 API，两份结果还先后落地互相盖。
+ */
+export const mayHaveCreatedBackgroundJob = (error: unknown): boolean =>
+  (error as Record<string, unknown> | null | undefined)?.[BACKGROUND_JOB_MAYBE_CREATED_PROP] === true;
+
 let cachedClientEntry: { key: string; promise: ReturnType<typeof createAndInitClient> } | null = null;
 
 /**
@@ -404,9 +493,9 @@ const initializeClient = (config: ActiveMsg2GlobalConfig) => {
   // 「装好之后再没进过设置页、Worker 还停在旧版」的人。
   // 不 await：它只影响**之后**几轮的路由判断，拿它挡住握手等于给每条消息加一次 RTT。
   void ActiveMsgClient.probeInstantChatSupport().catch(() => {});
-  // 同理顺手探一次「凭据能不能存成表里的一行」（credRefs 的唯一版本门槛，见
-  // isLlmCredentialsReady）。探不到就按老路走，不影响任何一条消息发出去。
-  void ActiveMsgClient.probeLlmCredentialsSupport().catch(() => {});
+  // 同理顺手探一次按特性位存的几个结论（凭据存表 credRefs、云端状态删行，见
+  // probeWorkerFeatures）。探不到就按老路走，不影响任何一条消息发出去。
+  void ActiveMsgClient.probeWorkerFeatures().catch(() => {});
   return promise;
 };
 
@@ -457,6 +546,21 @@ const resolveTaskCredentialUpdates = (
 export const isLlmCredentialsReady = async (): Promise<boolean> => {
   try {
     return (await ActiveMsgStore.getGlobalConfig()).llmCredentialsSupported === true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * 这台 worker 现在认不认 `PUT /client-state` 里 `value: null` 的删行语义
+ * （能力位 'client-state-delete'，握手时探一次存进全局配置，见 probeWorkerFeatures）。
+ *
+ * undefined（还没探过）按 false 处理：写空串在哪台 worker 上都能跑，而 null 发到
+ * 老 worker 上是逐条被拒。取回旁路内容后的清理、删角色、存量空壳清理三处都读这一份。
+ */
+export const isClientStateDeleteReady = async (): Promise<boolean> => {
+  try {
+    return (await ActiveMsgStore.getGlobalConfig()).clientStateDeleteSupported === true;
   } catch {
     return false;
   }
@@ -711,6 +815,19 @@ export const buildFirePack = async (
     '【本次任务】',
     AMSG_SLOT_TASK_INSTRUCTION,
     '',
+    // 「这件事是不是已经聊过了」是语义问题，只有看得到完整对话的角色判得了。代码那道闸
+    // （utils/amsg2ExpireGuard.ts）只判「到点那会儿用户在不在聊天」这一件确定的事——早先
+    // 它还兼管一次性任务的「排完之后用户再开过口就作废」，那条规则没有时间窗，跨夜任务
+    // 几乎必然被误杀，现在整条交给这里。
+    // 判据必须是「这件事发生过没有」这种能对照上下文查证的事实。写成「你觉得合不合适」
+    // 的话，模型会拿「怕打扰」「时机不太对」当理由沉默，主动消息就整体哑掉了。
+    // 一个字都不输出 → worker 走 skip-push 出口：不推送、不占连发额度、面板照实说明。
+    '【开口之前】',
+    '先对照上面的【最近对话上下文】：这条任务要说的事，是不是已经在你们的对话里发生过、或者已经聊完了？',
+    '已经发生过 → 什么都不要输出。一个字都不要写，也不要解释自己为什么不说。这次就当没有这条任务。',
+    '还没发生 → 照常说你要说的话。',
+    '判据只有「这件事发生过没有」这一条。不要因为「怕打扰」「时机好像不太对」而沉默，那些不归你判。',
+    '',
     // recency 末位人声锚：上面【角色系统设定】里已带「回到你自己」钢印，但被任务说明压在后面、
     // 失了 recency。这里在最后一句把它拎回来，让主动消息也从「你这个人」长出来，而不是滑回均值腔。
     `（开口前回到你自己：这条得是 ${char.name} 会发的那一条——语气、用词、节奏都只属于你。哪怕只是随口一句，也要是你。）`,
@@ -805,6 +922,9 @@ const CHAT_CONTENT_BUDGET_BYTES = 2 * 1024 * 1024;
 
 const utf8ByteLength = (text: string): number => new TextEncoder().encode(text).length;
 
+/** 字节数 → 给人看的 MB（体积类报错共用一份口径）。 */
+const formatMegabytes = (bytes: number): string => (bytes / 1024 / 1024).toFixed(1);
+
 /** 结构化分段里有没有图片这类非文字内容（只有文字段的数组拆了也省不下什么）。 */
 const hasNonTextPart = (content: unknown): boolean =>
   Array.isArray(content) && content.some((part: any) => part?.type !== 'text');
@@ -812,6 +932,34 @@ const hasNonTextPart = (content: unknown): boolean =>
 // 「图片消息 → 文字占位」的拍平内核与本地 stripImages 路径共用同一份
 // （promptMessageCleanup.flattenContentPartsToText）：超预算降级产物必须与
 // 本地拍平产物严格同源，否则同一条历史消息在两条生成路上渲染成两种样子。
+
+/**
+ * 上云前把聊天消息里的图片令牌（`blobref:<id>`）还原成 data URL，返回一份独立副本。
+ *
+ * 两条理由，缺一条都不能省这一步：
+ *   · worker 那边没有 IndexedDB，令牌到了云端谁也解不开。浏览器里那层「发请求前统一
+ *     还原」（utils/apiBlobRefs.ts）够不到 worker 自己发出去的请求，图会静默消失；
+ *   · 令牌只有几十字节，而它代表的图可能几 MB。先算预算再还原的话，一份「看着没超」
+ *     的包还原后照样超限，下面那道体积闸等于白设。所以顺序是死的：**先还原，再算预算**。
+ *
+ * resolveBlobRefsDeep 原地改对象，所以先深拷贝再交给它——调用方那串 fullMessages
+ * 本地这一轮还要用，一个字节都不能被改。拷贝发生在还原之前，拷的是还带着短令牌的
+ * 小结构，不是几 MB 的 base64。
+ */
+export const resolveChatMessagesForUpload = async (
+  messages: Array<{ role: string; content: unknown }>,
+): Promise<Array<{ role: string; content: unknown }>> => {
+  const copy = messages.map((message) => ({
+    role: message.role,
+    content: message.content === null || typeof message.content !== 'object'
+      ? message.content
+      : (typeof structuredClone === 'function'
+        ? structuredClone(message.content)
+        : JSON.parse(JSON.stringify(message.content))),
+  }));
+  await resolveBlobRefsDeep(copy);
+  return copy;
+};
 
 /**
  * 本地那串 fullMessages → fire_pack 的 `chat.messages`。
@@ -867,7 +1015,7 @@ export const toFirePackChatMessages = (
   }
 
   if (totalBytes > CHAT_CONTENT_BUDGET_BYTES) {
-    const mb = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+    const mb = formatMegabytes;
     // 走到这里，能拍的图全拍平了，还带着图的只可能是受保护的最新那条用户消息。
     // 报错前先算一笔账：把它的图也拍掉能不能进预算。能 → 罪魁确实是这张图，让用户
     // 删图/换小图是条真出路；不能 → 超限的是纯文本本身（长角色卡 + 世界书 + 近史），
@@ -911,6 +1059,24 @@ export const describeInstantChatFailure = (status: number, body: any): string =>
   if (status === 503) {
     return '即时对话没发出去：Worker 的环境变量没配齐（设置页点「重新连接并验证」能看到缺什么）。';
   }
+  // 任务正文超过存储的单行上限（amsg-server 2.6.0-next.21 起在建任务时就回 400，
+  // 以前要一路走到落库才撞上 D1 的 `string or blob too big`）。上游把两个数放在
+  // details 里，照着念就是了——重试没有意义，得先把带上去的内容减下来。
+  //
+  // 跟 CHAT_CONTENT_BUDGET_BYTES 那道闸不是一回事：那道量的是 fire_pack 里的对话
+  // （走 client_state，5 MiB 一条），这道量的是任务正文本身（约 1 MB）。
+  const tooLarge = body?.error?.upstream?.error?.code === 'TASK_PAYLOAD_TOO_LARGE'
+    ? body?.error?.upstream?.error
+    : (code === 'TASK_PAYLOAD_TOO_LARGE' ? body?.error : null);
+  if (tooLarge) {
+    const bytes = Number(tooLarge?.details?.bytes);
+    const maxBytes = Number(tooLarge?.details?.maxBytes);
+    const sizes = Number.isFinite(bytes) && Number.isFinite(maxBytes)
+      ? `（约 ${formatMegabytes(bytes)} MB，上限 ${formatMegabytes(maxBytes)} MB）`
+      : '';
+    return `即时对话没发出去：这一轮的任务内容超过了云端单条任务的上限${sizes}。`
+      + '精简一下角色设定 / 世界书 / 携带的历史条数，或先关掉即时对话走本地生成。';
+  }
   // 上游打回「时间必须在未来」：firstSendTime 是设备的钟加提前量算出来的，被打回
   // 说明提前量在路上被吃光了——要么整包状态上传得太慢，要么设备时钟本身偏慢。
   // 这两种用户能做的事是一样的：重试，或去检查自动对时。别让它掉进下面那句
@@ -918,6 +1084,13 @@ export const describeInstantChatFailure = (status: number, body: any): string =>
   if (body?.error?.upstream?.error?.code === 'INVALID_TIMESTAMP') {
     return '即时对话没发出去：没赶上服务端的时间校验——网络太慢，或设备时钟偏慢。'
       + '重试一次通常就好；每次都这样的话，检查一下设备的「自动设置时间」开没开。';
+  }
+  // 走到这里说明连自愈那一轮（读回云端时间戳对齐再发一次）都没盖上去：要么云端状态
+  // 读不回来，要么真的有另一台设备/另一个标签页在同时写同一个角色。
+  if (code === 'INSTANT_CHAT_STATE_STALE') {
+    return '即时对话没发出去：云端那份状态比这台设备的新，对齐之后重发也没能盖上去。'
+      + '另一台设备或另一个标签页开着同一个角色的话，先关掉再发；只有这一台的话，'
+      + '检查一下设备的「自动设置时间」开没开。';
   }
   return `即时对话没发出去（HTTP ${status}${code ? ` / ${code}` : ''}）${detail ? `：${detail}` : '。'}`;
 };
@@ -931,6 +1104,15 @@ export const describeInstantChatFailure = (status: number, body: any): string =>
 export const isCredentialNotFound = (body: any): boolean =>
   body?.error?.code === 'CREDENTIAL_NOT_FOUND'
   || body?.error?.upstream?.error?.code === 'CREDENTIAL_NOT_FOUND';
+
+/**
+ * 这个错误体是不是「云端拒收了这一轮的状态」——条件写把 fire_pack 拦下了。
+ *
+ * 这个码由包装层判出来（`worker/amsg/src/instantChat.ts`），所以只在顶层，不用像
+ * 凭据那个一样再往 `error.upstream` 里剥一层。
+ */
+export const isInstantChatStateStale = (body: any): boolean =>
+  body?.error?.code === 'INSTANT_CHAT_STATE_STALE';
 
 /** client_state 上传每次尝试前等多久：数组长度即总尝试次数（首次不等）。 */
 const CLIENT_STATE_BACKOFF_MS = [0, 400, 1200];
@@ -951,7 +1133,8 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 export const putClientStateOrThrow = async (
   client: ReiClient,
-  entries: Array<{ namespace: string; key: string; value: string; updatedAt: number }>,
+  // value 为 null 表示删掉这一行（只在 isClientStateDeleteReady 为 true 时才能发）。
+  entries: Array<{ namespace: string; key: string; value: string | null; updatedAt: number }>,
   phase: string,
 ): Promise<void> => {
   let lastError: unknown;
@@ -986,22 +1169,55 @@ export const putClientStateOrThrow = async (
 };
 
 /**
- * 把一个 namespace 下还有内容的条目全部清空，返回被清掉的键名。
+ * 被条件写拦下之后，照云端那几行的时间戳把本地水位抬上去；返回水位有没有真的动。
  *
- * 先读一遍再逐条写空，而不是照着已知键名盲写，有两个原因：
+ * 为什么非得读一遍：拦下只说明「你盖的戳不够新」，没说云端那行是几点。不读回来就只能
+ * 猜偏移多少，而这个偏移取决于当初设备时钟跑偏了多少，猜不出来。对齐之后下一次盖的戳
+ * 自然就跨得过去了（见 amsgStateClock）。
+ *
+ * 读失败不抛：调用方拿 false 当「没对齐上」处理，该报的错照报——自愈是加分项，不该
+ * 把原本清清楚楚的失败盖成一句「读云端状态失败」。
+ */
+const alignStateClockWithRemote = async (
+  client: ReiClient,
+  namespaces: string[],
+): Promise<boolean> => {
+  let aligned = false;
+  for (const namespace of namespaces) {
+    try {
+      const response = await client.getClientState(namespace) as
+        { data?: { entries?: Array<{ updatedAt?: unknown }> } } | undefined;
+      for (const entry of response?.data?.entries ?? []) {
+        if (observeRemoteStateUpdatedAt(entry?.updatedAt)) aligned = true;
+      }
+    } catch (error) {
+      console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 读云端状态时间戳失败，这一轮不对齐`, error);
+    }
+  }
+  return aligned;
+};
+
+/**
+ * 把一个 namespace 下的条目全部清掉，返回被清掉的键名。
+ *
+ * 先读一遍再逐条清，而不是照着已知键名盲写，有两个原因：
  *   1. 旁路存储的键名带 clientTaskId（`xhs_session:<id>`），任务记录被
  *      pruneStaleTasks 清掉之后就再也拼不出来，只能靠读回来才知道有哪些；
  *   2. 盲写会把本来不存在的条目 upsert 出来 —— putClientState 是 upsert，
  *      "清理" 反倒变成新建。
  *
- * 和 clearClientStateValue 一样是写空串而不是删行（HTTP 的 PUT /client-state 没有
- * 删除语义，value: null 会被当无效条目跳过），留下的是几字节的空壳，内容本身没了。
+ * 清法跟 clearClientStateValue 同一套，按 worker 的能力位分两条路：
+ *   - worker 认删行（isClientStateDeleteReady）：读回来的每一行都发 `value: null`
+ *     真删，已经是空壳的行也在内——它们正是过去写空留下的，现在能一起删干净；
+ *   - 老 worker：只对还有内容的行写空串，留下几字节的空壳；已经是空壳的跳过，
+ *     再写一遍不会更干净，只是白占一次请求体。
+ * 条目多过上游单批上限时切批发。
  */
 export const clearNamespaceValuesOrThrow = async (
   client: ReiClient,
   namespace: string,
 ): Promise<string[]> => {
-  // 全局 namespace 不许走这条路：里面的 tool_config 只在配置变更时才重传，被清成空壳
+  // 全局 namespace 不许走这条路：里面的 tool_config 只在配置变更时才重传，被清掉
   // 之后没有任何一条路会把它补回来，而 worker 到点读不到它就整条任务硬失败。
   // 这个函数目前只服务「删角色」（每角色一个 namespace），加道护栏免得将来被顺手复用。
   if (namespace === AMSG_GLOBAL_NAMESPACE) {
@@ -1012,17 +1228,88 @@ export const clearNamespaceValuesOrThrow = async (
     throw new Error(response?.error?.message || '读取云端状态失败。');
   }
   const entries = (response.data?.entries ?? []) as Array<{ key?: string; value?: string }>;
-  // 已经是空壳的条目跳过：再写一遍不会更干净，只是白占一次请求体。
-  const keys = entries.filter((e) => e?.key && e?.value).map((e) => e.key as string);
+  const deleteSupported = await isClientStateDeleteReady();
+  const keys = entries
+    .filter((e) => e?.key && (deleteSupported || e?.value))
+    .map((e) => e.key as string);
   if (keys.length === 0) return [];
 
-  const now = Date.now();
-  await putClientStateOrThrow(
-    client,
-    keys.map((key) => ({ namespace, key, value: '', updatedAt: now })),
-    '清空云端状态',
-  );
+  const updatedAt = stampStateUpdatedAt();
+  const value = deleteSupported ? null : '';
+  for (const batch of chunkClientStateEntries(keys)) {
+    await putClientStateOrThrow(
+      client,
+      batch.map((key) => ({ namespace, key, value, updatedAt })),
+      '清空云端状态',
+    );
+  }
   return keys;
+};
+
+/**
+ * 旁路存储的存量空壳清理：把这几个角色命名空间里历史积累的空壳行扫一遍删掉，
+ * 每个角色只扫一次。
+ *
+ * 在 worker 认删行之前，取回旁路内容后是写空串；即时对话每轮的键都是新的
+ * （`reasoning:<uuid>` 这类），于是每个角色的命名空间里躺着一堆只涨不跌的空壳，
+ * 而 worker 每次生成都要把整个命名空间读一遍。现在取回即删、不再新增，这里负责清旧账：
+ *   - 只在探到 'client-state-delete' 时做，老 worker 收到 null 是逐条被拒；
+ *   - 每个角色读一次命名空间，挑出旁路键且值为空串的行（见 pickSidechannelShellKeys），
+ *     按上游单批上限切开发 null。别的键一律不碰；
+ *   - 扫完（不管有没有空壳）把角色 id 记进全局配置的已扫列表，之后的同步不再为它多读一次；
+ *   - 哪一步失败只 warn、这个角色不记进列表，下一次同步再试。
+ *
+ * 挂在 syncCharFirePacks 的末尾：那条路每次聊完都会为每个角色跑到，正好顺路。放在
+ * 正常同步之后，这里的成败不影响同步本身。
+ */
+const sweepSidechannelShells = async (client: ReiClient, charIds: string[]): Promise<void> => {
+  let config: ActiveMsg2GlobalConfig;
+  try {
+    config = await ActiveMsgStore.getGlobalConfig();
+  } catch {
+    return;
+  }
+  if (config.clientStateDeleteSupported !== true) return;
+  const swept = new Set(config.sidechannelShellsSweptCharIds ?? []);
+  const pending = [...new Set(charIds)].filter((charId) => !swept.has(charId));
+  if (pending.length === 0) return;
+
+  const newlySwept: string[] = [];
+  for (const charId of pending) {
+    const namespace = amsgStateNamespace(charId);
+    try {
+      const response = await client.getClientState(namespace) as {
+        success?: boolean;
+        data?: { entries?: Array<{ key?: unknown; value?: unknown }> };
+        error?: { message?: string };
+      } | undefined;
+      if (!response?.success) {
+        throw new Error(response?.error?.message || '读取云端状态失败。');
+      }
+      const shellKeys = pickSidechannelShellKeys(response.data?.entries);
+      if (shellKeys.length > 0) {
+        const updatedAt = stampStateUpdatedAt();
+        for (const batch of chunkClientStateEntries(shellKeys)) {
+          await putClientStateOrThrow(
+            client,
+            batch.map((key) => ({ namespace, key, value: null, updatedAt })),
+            '清理旁路存储空壳',
+          );
+        }
+      }
+      newlySwept.push(charId);
+    } catch (error) {
+      console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 角色 ${charId} 的旁路存储空壳没清完（下次同步再试）`, error);
+    }
+  }
+  if (newlySwept.length === 0) return;
+
+  try {
+    await ActiveMsgStore.saveGlobalConfig({ sidechannelShellsSweptCharIds: [...swept, ...newlySwept] });
+  } catch (error) {
+    // 列表没存下来只是下次会再扫一遍（再读一次、发现没空壳），已经删掉的行不会回来。
+    console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 已扫过的角色列表没存下来（下次同步会再扫一遍）`, error);
+  }
 };
 
 /**
@@ -1191,6 +1478,7 @@ const fetchWorkerVapidKey = async (client: ReiClient): Promise<string> => {
 /** 共用层的失败分类 → 上报用的失败代号。两边都是源码里写死的枚举。 */
 const SUBSCRIBE_FAIL_KIND: Record<SubscribeFailureKind, AmsgFailKind> = {
   'channel-unreachable': '推送通道不通',
+  'no-subscription': '没拿到订阅',
   unsupported: '不支持推送',
   permission: '权限被拒',
   state: '订阅失败',
@@ -1224,6 +1512,52 @@ const resubscribeAndRegister = async (client: ReiClient): Promise<void> => {
 };
 
 /**
+ * 请求体超过这么多字节才压。跟 amsg-client 的 `compressRequest` 用同一个数
+ * （16 KB）：小请求压缩省下的字节还不够抵一次 CompressionStream 的开销，而这条路上
+ * 真正的大件（fire_pack、整轮聊天）动辄几百 KB 起步，一个数就分得开。
+ */
+const REQUEST_GZIP_THRESHOLD_BYTES = 16 * 1024;
+
+/**
+ * 超阈值的请求体先 gzip 再上网线。
+ *
+ * 收益比 instant-push 那条路小一截，得说清楚：这里的正文进 HTTP 之前已经是**密文**，
+ * 而 fire_pack 真正的压缩早在交给上游加密之前就做过了（见 amsgFirePack 的
+ * packStateValue，省 60%）。所以这一层压掉的只是密文那层 base64 的膨胀，约 25%。
+ * 慢网和 iOS 上行那几秒里，这 25% 仍然是实打实少传的字节。
+ *
+ * 接收端：上游端点由 amsg-server 的 readRequestBody 解（2.6.0-next.21 起），包装层
+ * 自己的 `/instant-chat` 由 readMaybeGzippedBody 解。两边都按 gzip 魔数判断，所以
+ * 中途被边缘节点替我们解开、头还留着的那种情形也接得住。
+ *
+ * 压不动就退回明文：老 Safari 没有 CompressionStream，压缩本身出错也一样——这条路
+ * 只是省流量，绝不能变成发不出去的理由。
+ *
+ * export 只为单测。
+ */
+export const maybeGzipRequestBody = async (
+  body: BodyInit | null | undefined,
+): Promise<{ body: BodyInit | null | undefined; gzipped: boolean }> => {
+  if (typeof body !== 'string') return { body, gzipped: false };
+  // 快速排除：UTF-8 一个字符最多三字节（BMP 之外是四字节，但那是代理对、占两个
+  // char），所以字符数乘三还不到阈值的，字节数必然也不到，连量都不用量。反过来
+  // **不成立**——「字符数不到阈值」推不出「字节数不到阈值」，一段六千字的中文就是
+  // 六千字符、一万八千字节。绝大多数请求都在这条线以下，一次 encode 都不用做。
+  if (body.length * 3 < REQUEST_GZIP_THRESHOLD_BYTES) return { body, gzipped: false };
+  if (typeof CompressionStream !== 'function') return { body, gzipped: false };
+  try {
+    const raw = new TextEncoder().encode(body);
+    // 到这儿才量得准。压缩要用的也是这份字节，没有多算。
+    if (raw.byteLength < REQUEST_GZIP_THRESHOLD_BYTES) return { body, gzipped: false };
+    const stream = new Response(raw).body!.pipeThrough(new CompressionStream('gzip'));
+    return { body: await new Response(stream).arrayBuffer(), gzipped: true };
+  } catch (error) {
+    console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 请求体压缩失败，这一次照常发明文`, error);
+    return { body, gzipped: false };
+  }
+};
+
+/**
  * 带鉴权头请求 worker，同时把 HTTP 状态一起交出来。
  * 状态只有「连接」那条路用得上（401/404/其它要引导用户去改的地方不同），
  * 其余调用方走下面那层薄壳，签名跟以前一样只拿 body。
@@ -1238,10 +1572,14 @@ const fetchWithAuthRaw = async (
   if (config.serverToken) headers.set('X-Client-Token', config.serverToken);
   headers.set('X-User-Id', config.userId);
 
+  const { body, gzipped } = await maybeGzipRequestBody(init.body);
+  if (gzipped) headers.set('Content-Encoding', 'gzip');
+
   try {
     const response = await fetch(`${normalizeWorkerBase(config.workerUrl)}/${path}`, {
       ...init,
       headers,
+      body,
     });
 
     return { status: response.status, body: await safeResponseJson(response) };
@@ -1369,6 +1707,40 @@ export const ActiveMsgClient = {
   async getPushStatus(): Promise<ActiveMsg2PushStatus> {
     const config = await ensureGlobalReady();
     const workerConfigured = Boolean(config.workerUrl.trim());
+    if (isUnifiedPushPlatform()) {
+      try {
+        const { getUnifiedPushStatus } = await import('./unifiedPushPlugin');
+        const status = await getUnifiedPushStatus();
+        const needsDistributor = !status.distributor && status.distributors.length === 0;
+        return {
+          supported: !needsDistributor,
+          permission: status.permission === 'prompt' ? 'default' : status.permission,
+          hasSubscription: Boolean(status.subscription),
+          vapidConfigured: workerConfigured,
+          transport: 'unified-push',
+          distributor: status.distributor,
+          needsDistributor,
+          detail: needsDistributor
+            ? '尚未检测到 UnifiedPush 服务。请先安装并打开 ntfy 的无 Firebase 版本。'
+            : status.lastError
+              ? `UnifiedPush：${status.lastError}`
+              : !workerConfigured
+                ? '请先填写 Worker 地址。'
+                : status.distributor
+                  ? `UnifiedPush 服务：${status.distributor}`
+                  : undefined,
+        };
+      } catch (error) {
+        return {
+          supported: false,
+          permission: 'unsupported',
+          hasSubscription: false,
+          vapidConfigured: workerConfigured,
+          transport: 'unified-push',
+          detail: `UnifiedPush 原生桥不可用：${(error as Error)?.message || error}`,
+        };
+      }
+    }
     // 能力检测与 instant push / proactive push 共用 describePushCapabilityGap：
     // 它会说清缺的是三件套里的哪一件，「不支持」这三个字用户拿着没法action。
     const capabilityGap = describePushCapabilityGap();
@@ -1392,10 +1764,19 @@ export const ActiveMsgClient = {
       hasSubscription: Boolean(subscription),
       vapidConfigured: workerConfigured,
       detail: !workerConfigured ? '请先填写 Worker 地址。' : undefined,
+      transport: 'web-push',
     };
   },
 
   async ensurePushSubscription() {
+    if (isUnifiedPushPlatform()) {
+      const config = await ensureWorkerReady();
+      const client = createClient(config);
+      const vapidPublicKey = await fetchWorkerVapidKey(client);
+      const { ensureUnifiedPushSubscription } = await import('./unifiedPushPlugin');
+      return ensureUnifiedPushSubscription(vapidPublicKey);
+    }
+
     // 只需要「支不支持」这一个判断，不走 getPushStatus——那会把 KeepAlive.init /
     // serviceWorker.ready / getSubscription 整套先跑一遍，下面又原样跑一次。
     const capabilityGap = describePushCapabilityGap();
@@ -1502,6 +1883,19 @@ export const ActiveMsgClient = {
    * 按钮要治的病，不能自己再犯一遍。
    */
   async resetPushSubscription(): Promise<void> {
+    if (isUnifiedPushPlatform()) {
+      const config = await ensureWorkerReady();
+      const client = await initializeClient(config);
+      try {
+        await client.deletePushSubscription();
+      } catch (error) {
+        console.warn('[ActiveMsg] UnifiedPush 重置：删除 Worker 旧订阅失败，继续覆盖', error);
+      }
+      const subscription = await this.ensurePushSubscription();
+      await client.putPushSubscription(subscription);
+      return;
+    }
+
     const config = await requirePushReady();
     const client = await initializeClient(config);
 
@@ -1530,6 +1924,11 @@ export const ActiveMsgClient = {
    * 的 D1 里、跟 SW 无关，不用像 proactive-push 那样重新推排程回去。
    */
   async deepResetPushSubscription(): Promise<void> {
+    if (isUnifiedPushPlatform()) {
+      await this.resetPushSubscription();
+      return;
+    }
+
     const config = await requirePushReady();
     const client = await initializeClient(config);
 
@@ -1576,6 +1975,21 @@ export const ActiveMsgClient = {
    * 返回值只为单测断言：'registered' 补了 / 'skipped' 条件不满足 / 'failed' 补失败了。
    */
   async reconcilePushSubscription(): Promise<'registered' | 'skipped' | 'failed'> {
+    if (isUnifiedPushPlatform()) {
+      try {
+        const { readUnifiedPushSubscription } = await import('./unifiedPushPlugin');
+        const subscription = await readUnifiedPushSubscription();
+        if (!subscription?.endpoint || !subscription.keys?.p256dh || !subscription.keys?.auth) return 'skipped';
+        const config = await ensureWorkerReady();
+        const client = await initializeClient(config);
+        await client.putPushSubscription({ endpoint: subscription.endpoint, keys: subscription.keys });
+        return 'registered';
+      } catch (error) {
+        console.warn('[ActiveMsg] 连接后补登记 UnifiedPush 订阅失败', error);
+        return 'failed';
+      }
+    }
+
     try {
       if (describePushCapabilityGap()) return 'skipped';
       if (Notification.permission !== 'granted') return 'skipped';
@@ -1625,11 +2039,14 @@ export const ActiveMsgClient = {
     // 成功、界面报「连接成功」，此后每一次加密调用（排任务 / 即时对话 / 读云端状态）
     // worker 都解不开，只有整页刷新才能恢复。
     invalidateClientCache();
+    // 同理：那台 worker 上的 bundle 可能刚被换过（「更新 Worker」走的是同一个地址），
+    // 而「认不认识后台任务」这个结论是按地址缓存的，不作废就还认着升级前那句「不支持」。
+    forgetBackgroundJobProbe();
     await initializeClient(config);
     await ActiveMsgStore.saveGlobalConfig({ ...config, initializedAt: Date.now() });
-    // 「重新连接并验证」是用户显式的一次对表，凭据引用那个能力位也当场探准，别等下次握手。
+    // 「重新连接并验证」是用户显式的一次对表，按特性位存的能力位也当场探准，别等下次握手。
     // 排在保存之后：上面那句写的是握手前的配置快照，探测结论放它前面会被原样盖回去。
-    await this.probeLlmCredentialsSupport();
+    await this.probeWorkerFeatures();
     await this.reconcilePushSubscription();
     const nativeToken = readNativePushToken();
     if (nativeToken) await this.registerNativePushToken(nativeToken);
@@ -1942,10 +2359,6 @@ export const ActiveMsgClient = {
     const firePack = task.mode === 'fixed'
       ? null
       : await buildFirePack(char, userProfile, groups, realtimeConfig);
-    // 防穿帮闸锚点：排程这一刻的最后一条真实用户消息（见 utils/amsg2ExpireGuard.ts）。
-    // 与 fire_pack 的 lastUserMessageAt 同源，直接复用——各读各的就是同一段 200 条历史
-    // 扫两遍。fixed 任务恒 force，锚点用不到，也就不必去读。
-    const anchorMs = firePack?.lastUserMessageAt ?? 0;
     // 任务身份：客户端自造 clientTaskId——远端 uuid 要创建成功后才有，而 metadata
     // 必须在创建时就带上归属键；push 原样透传，送达归属全靠它。
     const clientTaskId = crypto.randomUUID();
@@ -1975,7 +2388,6 @@ export const ActiveMsgClient = {
         // 角色在 fire 里自排的任务也一样有，抄一份反而多一处会漏写的地方。
         amsgClientTaskId: clientTaskId,
         amsgExpirePolicy: resolveExpirePolicy(task.mode, task.expirePolicy),
-        amsgAnchorMs: anchorMs,
         // 自排标记：到点兜底闸只拦带它的任务（用户面板排的不带、不受连发上限管）。
         ...(task.selfScheduled ? { amsgSelfScheduled: true } : {}),
       },
@@ -2032,7 +2444,7 @@ export const ActiveMsgClient = {
     // 到点只能硬失败。tool_pack / tool_config 里没有 chat，照传。抽掉的那份不会就此作废：
     // 排完任务紧跟着的落库会打脏，等回复销账后由状态同步把最新的包补上去。
     if (firePack) {
-      const now = Date.now();
+      const now = stampStateUpdatedAt();
       const owesChat = owesInstantChatReply(char.id);
       if (owesChat) {
         console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 该角色还欠着一条即时对话回复，这次排程不覆盖云端 fire_pack（等回复销账后由状态同步补传）`);
@@ -2091,12 +2503,193 @@ export const ActiveMsgClient = {
 
     return {
       ...(response.data as { uuid: string; status: string; nextSendAt?: string }),
-      anchorMs,
       clientTaskId,
       replacedCancelFailed,
       // 解析好的绝对时刻（UTC ISO）。任务记录存这一份，字段口径才只有一种。
       firstSendAt: firstSendTime,
     };
+  },
+
+  /**
+   * 这台 worker 上的代码认不认识「后台任务」。
+   *
+   * 认的是 `GET /config-check` 里的 `backgroundJobs`——**这份 bundle 里有没有那段分派代码**，
+   * 不是版本号：自更新永远由用户那台 Worker 上的旧代码执行，「版本号对上了、新逻辑没生效」
+   * 是真实存在的中间态（即时对话那次踩过，见 probeInstantChatSupportDetailed）。
+   *
+   * 老 bundle 不报这个字段 → false，调用方留在本地跑。老 worker 会把后台任务当聊天任务
+   * 跑、卡在「本次任务指令缺失」终态失败，而那条任务行不在用户的清单里——面板一片正常，
+   * 活儿却永远不干。这道门就是为了别走到那儿。
+   *
+   * 探不到（网络抖 / 没连上）是单独一种结论 `unknown`，不跟「不支持」混：后台活儿本来
+   * 就有本地那条路，宁可这一轮在本地跑掉也别建一条注定失败的任务——但「这次没问到」时
+   * 手上可能还有一份任务正在云端跑，那时候退回本地是有害的（见 plateCloudGate）。
+   *
+   * 「问不到」也**不写进缓存**——只有拿到明确答复（不管支不支持）才按 workerUrl 记下来。
+   * 混着缓存的话，一次代理切换、一次 CF 边缘抖动、一次 D1 冷启动超时，就能把整个会话
+   * 钉死在本地整理，只有刷新页面才翻得回来。
+   *
+   * 缓存本身只为省掉「一轮里连着提交好几个 job」时的重复请求——这类任务几十轮才跑一次。
+   */
+  async probeBackgroundJobSupportDetailed(): Promise<BackgroundJobProbeOutcome> {
+    let config: ActiveMsg2GlobalConfig;
+    try {
+      config = await ensureWorkerReady();
+    } catch {
+      return 'unknown';
+    }
+    const cached = backgroundJobProbe;
+    if (
+      cached?.workerUrl === config.workerUrl
+      // 「不支持」只当阶段性结论：worker 可能在这个会话里被别的路径换掉了
+      // （见 BACKGROUND_JOB_UNSUPPORTED_RECHECK_MS）。
+      && (cached.supported || Date.now() - cached.at < BACKGROUND_JOB_UNSUPPORTED_RECHECK_MS)
+    ) {
+      return cached.supported ? 'supported' : 'unsupported';
+    }
+    try {
+      const { status, body } = await fetchWithAuthRaw(
+        'config-check', config, { method: 'GET' }, '后台任务能力探测',
+      );
+      if (status !== 200 || body?.success !== true) {
+        console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 后台任务能力问不到（HTTP ${status}），不记缓存`);
+        return 'unknown';
+      }
+      const supported = body?.data?.backgroundJobs === true;
+      backgroundJobProbe = { workerUrl: config.workerUrl, supported, at: Date.now() };
+      return supported ? 'supported' : 'unsupported';
+    } catch (error) {
+      console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 后台任务能力探测没发出去，不记缓存`, error);
+      return 'unknown';
+    }
+  },
+
+  /** 只问「能不能交」的那一版：问不到当不能交。要区分「问不到」用上面那个。 */
+  async probeBackgroundJobSupport(): Promise<boolean> {
+    return (await this.probeBackgroundJobSupportDetailed()) === 'supported';
+  },
+
+  /**
+   * 排一条**后台任务**：不说话的那种活儿（门牌整理是第一个），跑完把结果送回客户端。
+   *
+   * 跟排主动消息的那条路（scheduleCharacterTask）共用调度器，但要的东西少得多：
+   * 不传 fire_pack / tool_pack（那是聊天专用的云端状态，worker 的 kind 分派排在读它们
+   * 之前），不填「本次任务指令」，也不写防穿帮锚点——「到点还该不该说这句话」那一整套
+   * 判断对后台活儿都不适用。
+   *
+   * 只走凭据引用那条路，不做内联降级：这类任务用的往往是副 API（比如记忆宫殿那份），
+   * 内联三件套那条老路只有一个 chat 槽位，塞进去等于把副 API 冒充成聊天 API。凭据存不了
+   * 表的老 worker 上直接抛错，调用方据此留在本地跑。
+   *
+   * 顺序与排程那条路一致：**先传输入、成功了再建任务**。反过来失败的话，远端会留下一条
+   * 到点取不到输入的任务；这个方向的残留是无害的那一侧——没人引用的输入行会被
+   * clientStateTtl 清掉。
+   *
+   * @returns 远端任务 uuid
+   */
+  async scheduleBackgroundJob(params: {
+    /** 业务种类，worker 按它分派 handler（见 utils/amsgTaskKinds.ts） */
+    kind: string;
+    /** 任务归属的角色。worker 的 charId 是必填的，调度器也按它分组串行 */
+    charId: string;
+    charName: string;
+    /** 这一次的一次性输入在 amsg:job 命名空间下的 key */
+    jobKey: string;
+    /** 任务 metadata 上带的 job 编号，worker 靠它去抽屉里取输入 */
+    jobId: string;
+    /** 一次性输入本体（会被 JSON 序列化 + 压缩后上传） */
+    jobInput: unknown;
+    /** 这条任务该用哪一行凭据。行不在云端时这里负责补传 */
+    credRow: LlmCredentialRow;
+    /**
+     * 采样温度与输出上限：**同一件活儿在本地跑和在云端跑必须用同一组**。
+     * 不传的话上游整个省略这两个字段，落到供应商默认值（温度常为 1.0、输出上限常远小于
+     * 后台活儿需要的量）——同一批材料两条路会跑出不一样的结果，而界面上完全看不出来。
+     */
+    temperature?: number;
+    maxTokens?: number;
+  }): Promise<{ uuid: string }> {
+    const globalConfig = await ensureWorkerReady();
+    const client = await initializeClient(globalConfig);
+
+    if (!await isLlmCredentialsReady()) {
+      throw new Error('这台 Worker 还不支持凭据存表，后台任务跑不了（去设置页重新部署一次）。');
+    }
+
+    const now = stampStateUpdatedAt();
+    await putClientStateOrThrow(client, [{
+      namespace: AMSG_JOB_NAMESPACE,
+      key: params.jobKey,
+      value: await packStateValue(JSON.stringify(params.jobInput)),
+      updatedAt: now,
+    }], '上传后台任务输入');
+
+    await putLlmCredentialRows([params.credRow]);
+
+    const payload: Record<string, any> = {
+      contactName: params.charName,
+      messageType: 'auto',
+      // 任务清单跟远端对账时靠它把这些行挡在外面（见 amsg2Tasks 的 reconcileTasksWithRemote）。
+      messageSubtype: AMSG_BACKGROUND_JOB_SUBTYPE,
+      // 立刻可跑：到期时间由服务端自己盖，下一跳 cron（最多一分钟）就会捞起来。
+      // 不能改成客户端算一个 firstSendTime——那个时刻在上传输入、传凭据、加密、
+      // 发请求这一路上早就过去了，服务端一律打回「时间必须在未来」，整条云端路
+      // 每次都退回本地跑。即时对话那条路同样只用 immediate。
+      immediate: true,
+      recurrenceType: 'none',
+      metadata: {
+        charId: params.charId,
+        charName: params.charName,
+        source: 'active_msg_2',
+        [AMSG_TASK_KIND_KEY]: params.kind,
+        [AMSG_JOB_ID_KEY]: params.jobId,
+      },
+      credRefs: { chat: params.credRow.credId },
+      ...(typeof params.temperature === 'number' ? { temperature: params.temperature } : {}),
+      ...(params.maxTokens && params.maxTokens > 0 ? { maxTokens: params.maxTokens } : {}),
+      // 服务端要求「completePrompt 或 messages」二选一。到点真正发给 LLM 的 messages 由
+      // worker 的 kind handler 返回值覆盖，这条占位内容永远不参与生成。
+      messages: [{ role: 'user', content: AMSG2_PLACEHOLDER_PROMPT }],
+    };
+
+    const postSchedule = async () => {
+      const encrypted = await encryptPayload(client, payload);
+      try {
+        return await fetchWithAuth('schedule-message', globalConfig, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Payload-Encrypted': 'true',
+            'X-Encryption-Version': '1',
+          },
+          body: JSON.stringify(encrypted),
+        }, '创建后台任务');
+      } catch (error) {
+        // 请求发出去了却没等到答复（断网、超时、连接被掐）：这条任务可能已经在远端建
+        // 起来了。挂个标记交给调用方，别让它把这种情形当成「没交出去」——见
+        // mayHaveCreatedBackgroundJob。只包这一步：上面上传输入、传凭据那两步排在建任务
+        // 之前，它们失败时确定还没有任务。
+        if (error && typeof error === 'object') {
+          (error as Record<string, unknown>)[BACKGROUND_JOB_MAYBE_CREATED_PROP] = true;
+        }
+        throw error;
+      }
+    };
+
+    let response = await postSchedule();
+    // 与排程那条路同款自愈：本地指纹底账记着传过、云端其实没有（换过 master key /
+    // 点过「清空云端数据」）。绕过指纹强传一次再重排一次，只自愈一次。
+    if (!response?.success && response?.error?.code === 'CREDENTIAL_NOT_FOUND') {
+      console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 云端没有这行凭据，补传后重排一次`, params.credRow.credId);
+      forgetCredIds([params.credRow.credId]);
+      await putLlmCredentialRows([params.credRow], { force: true });
+      response = await postSchedule();
+    }
+
+    if (!response?.success) {
+      throw new Error(response?.error?.message || '后台任务创建失败。');
+    }
+    return response.data as { uuid: string };
   },
 
   /**
@@ -2158,7 +2751,9 @@ export const ActiveMsgClient = {
       && (char.activeMsg2Config?.tasks?.length ?? 0) === 0;
     const firePack: AmsgFirePack = {
       ...(await buildFirePack(char, userProfile, groups, realtimeConfig, undefined, { templateStub })),
-      chat: { messages: toFirePackChatMessages(chatMessages), builtAt: now },
+      // 先还原图片令牌再算体积预算——反过来会让一份「看着没超」的包在云端胀成几 MB，
+      // 而 worker 那边根本解不开令牌（见 resolveChatMessagesForUpload）。
+      chat: { messages: toFirePackChatMessages(await resolveChatMessagesForUpload(chatMessages)), builtAt: now },
     };
 
     const clientTaskId = crypto.randomUUID();
@@ -2255,21 +2850,29 @@ export const ActiveMsgClient = {
         // 老 worker 那条路还带着副 API 的 apiKey，它只能待在这个加密信封里——worker
         // 组推送前会把它摘掉，一个字节都不许跟着 push 出门。
         ...(emotionEvalSpec ? { amsgEmotionEval: emotionEvalSpec } : {}),
-        // 刻意不带 amsgExpirePolicy / amsgAnchorMs：防穿帮闸问的是「到点还该不该主动开口」，
+        // 刻意不带 amsgExpirePolicy：防穿帮闸问的是「到点还该不该主动开口」，
         // 对「回一句用户刚说的话」不适用，带上去反而会把用户等着的回复吞掉。
       },
     };
 
-    const stateEntries = {
-      entries: [
-        ...(await buildCharStateEntries(char, firePack, now)),
-        buildToolConfigEntry(realtimeConfig, now),
-      ],
-    };
-    const [statePayload, encryptedTask] = await Promise.all([
-      encryptPayload(client, stateEntries),
+    // 云端那一行的版本号走水位而不是墙钟（见 amsgStateClock）：设备时钟领先过真实时间
+    // 的话，云端会留着一个还没到的时刻，之后每次上传都被条件写判成「旧的」，这条路上
+    // 的表现就是每发一句都 409。
+    const stampedAt = stampStateUpdatedAt();
+    const stateEntries = [
+      ...(await buildCharStateEntries(char, firePack, stampedAt)),
+      buildToolConfigEntry(realtimeConfig, stampedAt),
+    ];
+    // 自愈那一轮只换戳、不重打包：value 里那份压好的 fire_pack 原样复用。
+    const encryptStateEntries = (updatedAt: number) => encryptPayload(client, {
+      entries: stateEntries.map((entry) => ({ ...entry, updatedAt })),
+    });
+    const [encryptedTask, initialState] = await Promise.all([
       encryptPayload(client, taskPayload),
+      encryptStateEntries(stampedAt),
     ]);
+    // 重发那一轮要换成新盖的戳，所以这份是可变的。
+    let statePayload = initialState;
 
     // 凭据行先落地再建任务（上游建任务前会挨个查引用）。只有值变过才真的发请求，
     // 所以常态下这一步是零请求——不给「用户正等着回复」这条路白加一次往返。
@@ -2291,6 +2894,16 @@ export const ActiveMsgClient = {
       await putLlmCredentialRows(credRows, { force: true });
       ({ status, body } = await postInstantChat());
     }
+    // 云端拒收了这一轮的状态：不是内容有问题，是这台设备盖的时间戳跨不过云端那一行
+    // （设备时钟被改过之后，云端会一直留着一个还没到的时刻）。读回云端那份对齐水位、
+    // 重新盖戳再发一次。对齐不动就不重发——那说明拦下它的不是时间戳，重发也是白发。
+    if (status !== 202 && isInstantChatStateStale(body)) {
+      if (await alignStateClockWithRemote(client, [amsgStateNamespace(char.id)])) {
+        console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 云端状态的时间戳比本机的钟新，对齐后重发这一轮`);
+        statePayload = await encryptStateEntries(stampStateUpdatedAt());
+        ({ status, body } = await postInstantChat());
+      }
+    }
 
     if (status !== 202 || typeof body?.uuid !== 'string' || !body.uuid) {
       throw new Error(describeInstantChatFailure(status, body));
@@ -2308,7 +2921,9 @@ export const ActiveMsgClient = {
       namespace: amsgStateNamespace(charId),
       key: AMSG_CHAT_PRESENCE_KEY,
       value: JSON.stringify(presence),
-      updatedAt: presence.activeAt,
+      // 行的版本号走水位，而不是 presence.activeAt：worker 读的是 value 里那个
+      // activeAt（45s TTL 判活跃），版本号只管「这一行能不能盖上去」，两者不是一回事。
+      updatedAt: stampStateUpdatedAt(),
     }]);
     if (!response?.success) {
       throw new Error(response?.error?.message || '上传活跃会话租约失败。');
@@ -2328,7 +2943,7 @@ export const ActiveMsgClient = {
     if (!items.length) return;
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
-    const now = Date.now();
+    const now = stampStateUpdatedAt();
     // 表情包全库与角色无关，整批读一次就够——放在循环里的话 N 个角色要跑 2N 次全表
     // getAll（表情记录带图片数据），拿回来的还是同一份。
     const emojiLibrary = await readEmojiLibrary();
@@ -2356,23 +2971,31 @@ export const ActiveMsgClient = {
         rejected.map((r) => `${r.namespace}/${r.key}: ${r.message || 'rejected'}`),
       );
     }
-    // amsg-server 2.6.0-next.15 起服务端按 updatedAt 做条件写（旧不盖新）。被拦 = 云端
-    // 已有**更新**的一份（多设备 / 多标签页竞写时晚到的旧包），是保护生效而不是错误，
-    // log 一句留个排障线索就好。
+    // amsg-server 2.6.0-next.15 起服务端按 updatedAt 做条件写（旧不盖新）。被拦有两种
+    // 成因，长得一模一样：云端确实有更新的一份（多设备 / 多标签页竞写），或者云端那行
+    // 的时间戳落在了未来（设备时钟被改过，见 amsgStateClock）。后者不管的话，这个角色
+    // 的云端上下文会一直停在旧版本、主动消息一直拿旧上下文说话，而这条路上除了这行 log
+    // 没有任何动静——比即时对话那条明着报 409 的还难发现。
+    //
+    // 对齐水位就够了，这一轮不重传：fire_pack 每轮聊天都是全量重建的，下一次打脏同步
+    // 带着更新的内容盖过去，比现在拿这份已经被判成「旧」的包硬挤进去更有道理。
     const skipped = (response as { data?: { skippedEntries?: Array<{ namespace: string; key: string }> } })
       .data?.skippedEntries;
     if (skipped && skipped.length > 0) {
-      console.log(
-        `${ACTIVE_MSG_RUNTIME_HEADER} 云端已有更新的一份，这批旧条目被拦下（条件写保护）`,
+      console.warn(
+        `${ACTIVE_MSG_RUNTIME_HEADER} 云端已有更新的一份，这批条目被条件写拦下`,
         skipped.map((s) => `${s.namespace}/${s.key}`),
       );
+      await alignStateClockWithRemote(client, [...new Set(skipped.map((s) => s.namespace))]);
     }
+    // 同步已经落定，顺路把这几个角色的存量空壳清一遍（每角色一次，失败只 warn）。
+    await sweepSidechannelShells(client, items.map((item) => item.char.id));
   },
 
   async syncToolConfig(realtimeConfig: RealtimeConfig | undefined): Promise<void> {
     const globalConfig = await ensureWorkerReady();
     const client = await initializeClient(globalConfig);
-    const response = await client.putClientState([buildToolConfigEntry(realtimeConfig, Date.now())]);
+    const response = await client.putClientState([buildToolConfigEntry(realtimeConfig, stampStateUpdatedAt())]);
     if (!response?.success) {
       throw new Error(response?.error?.message || '上传工具凭据失败。');
     }
@@ -2455,28 +3078,37 @@ export const ActiveMsgClient = {
   },
 
   /**
-   * 这台 worker 支不支持「凭据存表、任务带引用」（credRefs）。
+   * 一次 GET /capabilities，把按特性位存的几个结论一起刷新进全局配置：
+   *   llmCredentialsSupported     'llm-credentials'      凭据存表、任务带引用（见 isLlmCredentialsReady）
+   *   clientStateDeleteSupported  'client-state-delete'  PUT /client-state 认 value: null 删行（见 isClientStateDeleteReady）
    *
-   * 认的是 GET /capabilities 里的 features 有没有 'llm-credentials'。结论存进全局配置，
-   * 之后排程 / 即时对话 / 保存配置都只读那份存量（见 isLlmCredentialsReady）——路上不做
-   * 逐次预检，那等于给每条消息加一次 RTT。
+   * 之后排程 / 即时对话 / 清云端状态各条路都只读那份存量——路上不做逐次预检，
+   * 那等于给每条消息加一次 RTT。握手时（initializeClient）和「重新连接并验证」各探一次。
    *
    * 探不到（老 worker 没这个端点、网络不通）一律 false：老路在哪台 worker 上都能跑。
    */
-  async probeLlmCredentialsSupport(): Promise<boolean> {
-    let supported = false;
+  async probeWorkerFeatures(): Promise<{ llmCredentialsSupported: boolean; clientStateDeleteSupported: boolean }> {
+    let features: string[] | null = null;
     try {
-      const capabilities = await this.getCapabilities();
-      supported = supportsLlmCredentials(capabilities?.features);
+      features = (await this.getCapabilities())?.features ?? null;
     } catch {
-      supported = false;
+      features = null;
     }
+    const flags = {
+      llmCredentialsSupported: supportsLlmCredentials(features),
+      clientStateDeleteSupported: supportsClientStateDelete(features),
+    };
     try {
-      await ActiveMsgStore.saveGlobalConfig({ llmCredentialsSupported: supported });
+      await ActiveMsgStore.saveGlobalConfig(flags);
     } catch (error) {
-      console.warn('[AmsgLlmCred] 能力探测结果没存下来（下次按上一次的存量判断）', error);
+      console.warn(`${ACTIVE_MSG_RUNTIME_HEADER} 能力探测结果没存下来（下次按上一次的存量判断）`, error);
     }
-    return supported;
+    return flags;
+  },
+
+  /** 这台 worker 支不支持 credRefs（只关心凭据那一位的入口；探测本身见 probeWorkerFeatures）。 */
+  async probeLlmCredentialsSupport(): Promise<boolean> {
+    return (await this.probeWorkerFeatures()).llmCredentialsSupported;
   },
 
   /**
@@ -2558,6 +3190,10 @@ export const ActiveMsgClient = {
     }
     if (status === 200 && body?.success === true) {
       const data = body.data ?? {};
+      // 地址没变、bundle 换了，而「认不认识后台任务」这个结论是按地址缓存的。不作废的话
+      // 用户刚把后端升上去，接下来这几分钟每一轮消化还是照着升级前那句「不支持」在前台
+      // 跑那一两分钟的整理，页面一关就死。
+      forgetBackgroundJobProbe();
       return {
         ok: true,
         supported: true,
@@ -2569,6 +3205,75 @@ export const ActiveMsgClient = {
       ok: false,
       supported: true,
       message: body?.error?.message || `更新没成功（HTTP ${status}）。`,
+      code: typeof body?.error?.code === 'string' ? body.error.code : undefined,
+    };
+  },
+
+  /**
+   * 问一下这台 Worker 的定时触发（cron trigger）现在开着没有。
+   *
+   * 回 null 表示问不到：旧版 Worker 没有这个端点（404）、没填地址、或者这一次没连上。
+   * 三种都按「不支持」处理——设置页不显示那个按钮，也不报错。
+   */
+  async getCronTriggerState(): Promise<AmsgCronTriggerState | null> {
+    try {
+      const config = await ensureWorkerReady();
+      const { status, body } = await fetchWithAuthRaw('cron-trigger', config, { method: 'GET' }, '后台任务状态');
+      // 旧 worker 没有这个端点：可能回 404，也可能被上游当成未知路由回一段自己的 JSON。
+      if (status === 404 || body?.error?.code === 'NOT_FOUND') return null;
+      if (status === 200 && body?.success === true) {
+        const data = body.data ?? {};
+        if (data.supported === true && typeof data.enabled === 'boolean') {
+          return { supported: true, enabled: data.enabled };
+        }
+        return {
+          supported: false,
+          code: typeof data.code === 'string' ? data.code : undefined,
+          message: typeof data.message === 'string' ? data.message : undefined,
+        };
+      }
+      return {
+        supported: false,
+        code: typeof body?.error?.code === 'string' ? body.error.code : undefined,
+        message: body?.error?.message || `HTTP ${status}`,
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * 暂停（false）或恢复（true）后台任务：让 Worker 摘掉或加回自己的 cron trigger。
+   *
+   * 暂停期间到点的任务在 D1 里排着，一条都不丢；恢复后的第一跳一起补发。
+   * 成功和失败都带一句能直接显示的话；code 是 worker 报的代号，缺 CF_API_TOKEN 时
+   * 面板据此露出补钥匙那一块。网络层面的失败照常抛（跟 selfUpdateWorker 一样），调用方兜。
+   */
+  async setCronTriggerEnabled(enabled: boolean): Promise<{ ok: boolean; message: string; code?: string }> {
+    const config = await ensureWorkerReady();
+    const { status, body } = await fetchWithAuthRaw(
+      'cron-trigger',
+      config,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) },
+      enabled ? '恢复后台任务' : '暂停后台任务',
+    );
+    if (status === 404 || body?.error?.code === 'NOT_FOUND') {
+      return {
+        ok: false,
+        message: '这台 Worker 还是旧版本，没有暂停后台任务的能力。先点「更新 Worker」，之后就能在这儿点了。',
+      };
+    }
+    if (status === 200 && body?.success === true) {
+      return {
+        ok: true,
+        message: enabled
+          ? '后台任务已恢复，攒下的消息会在下一分钟一起补发。'
+          : '后台任务已暂停，到点的消息先攒着，恢复后一起补发。',
+      };
+    }
+    return {
+      ok: false,
+      message: body?.error?.message || `${enabled ? '恢复' : '暂停'}没成功（HTTP ${status}）。`,
       code: typeof body?.error?.code === 'string' ? body.error.code : undefined,
     };
   },
@@ -2772,23 +3477,25 @@ export const ActiveMsgClient = {
     const client = await initializeClient(config);
     await putClientStateOrThrow(
       client,
-      [{ namespace, key, value, updatedAt: Date.now() }],
+      [{ namespace, key, value, updatedAt: stampStateUpdatedAt() }],
       '写入云端状态',
     );
   },
 
   /**
-   * 取回落库后把云端那份的内容清掉，腾回 D1 空间。
-   *
-   * 这里是**写空串**而不是删除整行：`value: null` 的删除语义只有 hook 侧的
-   * `ctx.writeState` 有，HTTP 的 `PUT /client-state` 会把这条当无效条目跳过、
-   * 内容原封不动（harness S6b 钉住了这个差异）。留一个几字节的空壳无所谓——键是
-   * 每任务固定的，下次触发直接覆盖，存量本来就有上限。
+   * 取回落库后把云端那一行清掉，腾回 D1 空间。按 worker 的能力位分两条路：
+   *   - worker 认删行（isClientStateDeleteReady）：发 `value: null`，整行连大值的切片
+   *     一起删掉。即时对话每轮的旁路键都是新的（`reasoning:<uuid>` 这类），只有真删
+   *     才不会让角色的命名空间只涨不跌——worker 每次生成都要把它整个读一遍；
+   *   - 老 worker（没探到、或探到不认）：写空串，留一个几字节的空壳，内容本身没了。
+   *     null 发到老 worker 上会被当无效条目拒掉、内容原封不动，所以不认就不发。
+   * 历史积累的空壳由 syncCharFirePacks 末尾的存量清理扫掉。
    */
   async clearClientStateValue(namespace: string, key: string): Promise<void> {
     const config = await ensureWorkerReady();
     const client = await initializeClient(config);
-    await client.putClientState([{ namespace, key, value: '', updatedAt: Date.now() }]);
+    const value = (await isClientStateDeleteReady()) ? null : '';
+    await client.putClientState([{ namespace, key, value, updatedAt: stampStateUpdatedAt() }]);
   },
 
   /**
@@ -2837,7 +3544,7 @@ export const ActiveMsgClient = {
       const authed = await initializeClient(config);
       await putClientStateOrThrow(
         authed,
-        [buildToolConfigEntry(realtimeConfig, Date.now())],
+        [buildToolConfigEntry(realtimeConfig, stampStateUpdatedAt())],
         '重新上传工具凭据',
       );
     } catch (error) {

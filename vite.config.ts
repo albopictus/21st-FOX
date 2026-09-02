@@ -123,6 +123,18 @@ export default defineConfig({
         secure: true,
         rewrite: () => '/v1/tts',
       },
+      // ElevenLabs TTS：开发环境把同源查询参数改写到官方 voice_id 路径。
+      '/api/elevenlabs/tts': {
+        target: 'https://api.elevenlabs.io',
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => {
+          const parsed = new URL(path, 'http://localhost');
+          const voiceId = parsed.searchParams.get('voice_id') || '';
+          const outputFormat = parsed.searchParams.get('output_format') || 'mp3_44100_128';
+          return `/v1/text-to-speech/${encodeURIComponent(voiceId)}/stream?output_format=${encodeURIComponent(outputFormat)}`;
+        },
+      },
     }
   },
   build: {
@@ -131,7 +143,7 @@ export default defineConfig({
     chunkSizeWarningLimit: 2000,
     rollupOptions: {
       // 关键修复：将这些包排除在打包之外，让浏览器通过 index.html 的 importmap 加载
-      external: ['pdfjs-dist', 'katex'],
+      external: ['katex'],
       onwarn(warning, defaultHandler) {
         // 抑制动态导入与静态导入混合的无害警告
         if (warning.message?.includes('dynamic import will not move module into another chunk')) return;

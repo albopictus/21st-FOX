@@ -92,15 +92,26 @@ export const createFireSessionState = (): FireSessionState => ({
 export const MAX_DUPLICATE_TOOL_CALLS = 2;
 
 /**
- * 一次 fire 最多几轮 LLM。onBeforeFire 把这个数显式回传给上游（amsg-server 自己的
- * 默认值也是 5，但它没导出常量，各写各的迟早对不上），worker 这边据此判断「这是最后
- * 一轮了」。
+ * 普通内置工具最多几轮 LLM。搜索 / 记忆 / 排程通常 1~3 轮就能结束，继续保留原来的
+ * 5 轮预算，避免一次普通主动消息因为模型打转而烧太多请求。
  *
  * 为什么要自己判：上游在最后一轮遇到 tool-request 会直接抛 AGENTIC_LOOP_EXCEEDED，
  * 这次攒下的旁白全丢、任务不出清、下一分钟整条从头重跑再烧一遍 LLM。到最后一轮就不再
  * 放行工具请求、用手上的内容收尾，用户至少收得到角色已经写出来的那部分。
  */
-export const MAX_TOOL_ITERATIONS = 5;
+export const DEFAULT_TOOL_ITERATIONS = 5;
+
+/**
+ * 通用 MCP 的硬上限。游戏 / 论坛类 MCP 常见「读规则 → 查状态 → 执行动作 → 再查状态」；
+ * 5 轮会稳定地卡在真正动作之前。这里给到 12，但不是固定跑 12 次：模型一旦返回正文就
+ * 当场结束，连续重复调用也会由 MAX_DUPLICATE_TOOL_CALLS 提前收束，所以实际轮数仍是
+ * 1~12 自适应。
+ */
+export const MCP_MAX_TOOL_ITERATIONS = 12;
+
+/** 当前 fire 的工具预算：接了 MCP 才使用长预算，普通内置工具维持原成本。 */
+export const resolveToolIterationBudget = (hasMcp: boolean): number =>
+  hasMcp ? MCP_MAX_TOOL_ITERATIONS : DEFAULT_TOOL_ITERATIONS;
 
 /** 判本轮旁白里有没有 [[XHS_SHARE: n]]（与 classifier 的模式同口径，非全局免得带 lastIndex）。 */
 const XHS_SHARE_TAG_RE = /\[\[XHS_SHARE:\s*\d+\]\]/;
@@ -202,7 +213,15 @@ export type RoundDecision =
   | { decision: 'tool-request'; toolCalls: ToolCall[] }
   | { decision: 'finish'; pushPayloads: Array<Record<string, unknown>> }
   /** reason 直接进 last_skip，面板照实告诉用户那次为什么没响。 */
-  | { decision: 'skip-push'; reason: 'empty-generation' | 'side-effects-only' };
+  | {
+      decision: 'skip-push';
+      reason: 'empty-generation' | 'side-effects-only';
+      /**
+       * 这一轮被整条丢掉、但仍要送到客户端的日程改动（没有就没有这个字段）。
+       * 别的副作用丢了就丢了，日程不行——理由见下面 skip-push 那处的注释。
+       */
+      scheduleChanges?: Array<{ startTime: string; activity: string }>;
+    };
 
 /** 本轮的通用 MCP 识别输入（没配 MCP 的角色不传，行为与改动前完全一致）。 */
 export interface McpRoundInput {
@@ -311,8 +330,10 @@ export function processLLMRound(
   schedule?: ScheduleRoundInput | null,
   /** 本轮序号（上游 sessionCtx.iteration，0-based）。到最后一轮就不再放行工具请求。 */
   iteration?: number,
+  /** 与 onBeforeFire 回给上游的 maxToolIterations 必须是同一个值。 */
+  maxToolIterations: number = DEFAULT_TOOL_ITERATIONS,
 ): RoundDecision {
-  const isFinalRound = typeof iteration === 'number' && iteration >= MAX_TOOL_ITERATIONS - 1;
+  const isFinalRound = typeof iteration === 'number' && iteration >= maxToolIterations - 1;
   // 通用 MCP 两层识别（与前台同构）：native tool_calls 优先；没有 native 时
   // 用前台「兼容模式」同一个解析器从正文抠 tool_name({...})。两种来源都可能
   // 与数据标签同轮出现，最终合并成同一个 tool-request，executeToolCalls 按
@@ -435,7 +456,19 @@ export function processLLMRound(
     // 只有副作用标签、没有正文时同样放弃：角色一个字没说却在小红书点了赞、写了日记，
     // 用户看到的是「ta 什么都没说但做了事」，本身就穿帮。后台产生的副作用该等客户端
     // 上线时主动拉，不塞进一条没内容的推送里（amsg-sw README 里也是这个结论）。
-    return { decision: 'skip-push', reason: finishMeta ? 'side-effects-only' : 'empty-generation' };
+    //
+    // 日程改动是这条规矩里唯一的例外，单拎出来交给调用方走 emitResult。它不是做给用户
+    // 看的动作，是角色在纠正自己的表：一起丢掉的话，下一次 fire 读到的还是那条旧安排，
+    // 角色会反复想改又反复改不掉，用户那边则永远看到表和角色说的话对不上。emitResult
+    // 落的是服务端收件箱，不占聊天正文，也不用为它硬发一条空推送。
+    const scheduleChanges = directives
+      .filter((d): d is Extract<Directive, { type: 'change_schedule' }> => d.type === 'change_schedule')
+      .map((d) => ({ startTime: d.time, activity: d.activity }));
+    return {
+      decision: 'skip-push',
+      reason: finishMeta ? 'side-effects-only' : 'empty-generation',
+      ...(scheduleChanges.length > 0 ? { scheduleChanges } : {}),
+    };
   }
 
   const lastIdx = segments.length - 1;
