@@ -827,7 +827,7 @@ const initialCharacter = sullyV2;
 const osContextHmrGlobal = globalThis as typeof globalThis & {
   __SULLYOS_OS_CONTEXT_HMR__?: React.Context<OSContextType | undefined>;
 };
-const OSContext = import.meta.env.DEV
+export const OSContext = import.meta.env.DEV
   ? (osContextHmrGlobal.__SULLYOS_OS_CONTEXT_HMR__ ??= createContext<OSContextType | undefined>(undefined))
   : createContext<OSContextType | undefined>(undefined);
 

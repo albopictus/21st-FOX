@@ -7,6 +7,7 @@ import LifeRecordPanel from '../components/lifeRecord/LifeRecordPanel';
 import PerCharAvatarPicker from '../components/user/PerCharAvatarPicker';
 import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
+import { canClaimDailyAllowance, DAILY_ALLOWANCE_COINS } from '../utils/giftCatalog';
 
 const UserApp: React.FC = () => {
     const { closeApp, userProfile, updateUserProfile, addToast } = useOS();
@@ -106,6 +107,76 @@ const UserApp: React.FC = () => {
 
                 {/* 分角色聊天头像：上面的整体头像是宏观默认，这里可给每个角色的私聊单独换「你」的头像 */}
                 <PerCharAvatarPicker />
+
+                {/* 金币钱包卡片 */}
+                <div className="bg-white rounded-[1.75rem] shadow-[0_10px_30px_-12px_rgba(80,70,120,0.18)] border border-slate-100 p-5">
+                    <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-2">
+                            <span className="w-8 h-8 rounded-xl bg-amber-50 text-amber-500 border border-amber-200 flex items-center justify-center text-lg">
+                                🪙
+                            </span>
+                            <div>
+                                <h2 className="text-sm font-bold text-slate-800">心意金币钱包</h2>
+                                <p className="text-[11px] text-slate-400">用于在聊天中向角色赠送专属礼物与心意</p>
+                            </div>
+                        </div>
+
+                        <div className="text-right">
+                            <div className="text-2xl font-black text-amber-600 tracking-tight">
+                                {userProfile.coins ?? 300}
+                            </div>
+                            <div className="text-[10px] text-slate-400 font-medium">当前可用金币</div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 pt-2 border-t border-slate-100/80 flex-wrap">
+                        {canClaimDailyAllowance(userProfile.lastDailyAllowanceDate) ? (
+                            <button
+                                onClick={() => {
+                                    const today = new Date().toISOString().slice(0, 10);
+                                    const curCoins = userProfile.coins ?? 300;
+                                    updateUserProfile({
+                                        coins: curCoins + DAILY_ALLOWANCE_COINS,
+                                        lastDailyAllowanceDate: today
+                                    });
+                                    addToast(`已领取今日津贴 +${DAILY_ALLOWANCE_COINS} 金币 🪙`, 'success');
+                                    trackEvent('领取每日津贴');
+                                }}
+                                className="px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 text-white font-bold text-xs shadow-sm hover:opacity-95 active:scale-95 transition-all"
+                            >
+                                领取每日津贴 (+{DAILY_ALLOWANCE_COINS})
+                            </button>
+                        ) : (
+                            <span className="text-xs text-amber-700/60 bg-amber-50 px-3 py-1.5 rounded-full font-medium border border-amber-100">
+                                今日津贴已领 ✓
+                            </span>
+                        )}
+
+                        <div className="flex items-center gap-1.5 ml-auto">
+                            <span className="text-[10px] text-slate-400">沙盒充值:</span>
+                            <button
+                                onClick={() => {
+                                    const cur = userProfile.coins ?? 300;
+                                    updateUserProfile({ coins: cur + 100 });
+                                    addToast('已充值 100 金币 🪙', 'success');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-amber-50 hover:border-amber-200 active:scale-95 transition-all"
+                            >
+                                +100
+                            </button>
+                            <button
+                                onClick={() => {
+                                    const cur = userProfile.coins ?? 300;
+                                    updateUserProfile({ coins: cur + 500 });
+                                    addToast('已充值 500 金币 🪙', 'success');
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold hover:bg-amber-50 hover:border-amber-200 active:scale-95 transition-all"
+                            >
+                                +500
+                            </button>
+                        </div>
+                    </div>
+                </div>
 
                 {/* About / setting card */}
                 <div className="bg-white rounded-[1.75rem] shadow-[0_10px_30px_-12px_rgba(80,70,120,0.18)] border border-slate-100 p-5">

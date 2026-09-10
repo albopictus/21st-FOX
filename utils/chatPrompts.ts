@@ -506,7 +506,28 @@ ${groupLogStr}\n`;
                 return '';
             });
 
-        const [realtimeText, schedule, groupContextText, notionDiaryText, feishuDiaryText, notionNotesText, lifeRecordText] =
+        // 8. 共同日程与共享备忘录（双向编辑内容感知）
+        const sharedDataPromise: Promise<string> = (async () => {
+            try {
+                const [scheds, memos] = await Promise.all([
+                    DB.getAllScheduleEvents().catch(() => []),
+                    DB.getAllMemoNotes().catch(() => [])
+                ]);
+                const relevantScheds = scheds
+                    .filter(s => !s.charId || s.charId === char.id)
+                    .sort((a, b) => a.date.localeCompare(b.date));
+                const relevantMemos = memos
+                    .filter(m => !m.charId || m.charId === char.id)
+                    .sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.lastEditedAt || 0) - (a.lastEditedAt || 0));
+                
+                return ContextBuilder.buildSharedSchedulesAndMemosBlock(relevantScheds, relevantMemos, userProfile.name, char.name);
+            } catch (e) {
+                console.error('Failed to load shared schedules and memos:', e);
+                return '';
+            }
+        })();
+
+        const [realtimeText, schedule, groupContextText, notionDiaryText, feishuDiaryText, notionNotesText, lifeRecordText, sharedDataText] =
             await Promise.all([
                 timed('realtime', realtimePromise),
                 timed('schedule', schedulePromise),
@@ -515,10 +536,12 @@ ${groupLogStr}\n`;
                 timed('feishuDiary', feishuDiaryPromise),
                 timed('notionNotes', notionNotesPromise),
                 timed('lifeRecord', lifeRecordPromise),
+                timed('sharedData', sharedDataPromise),
             ]);
 
         // ── 拼接：易变的进 volatileState，稳定的进 baseSystemPrompt ──
         volatileState += realtimeText;
+        if (sharedDataText) volatileState += `\n${sharedDataText}\n`;
 
         // 2a. 日程注入（完整今日日程 + 当前时段 + 意识流独白，每轮都可能变）
         //     fire_pack 不烤：改由 worker 到点用 AMSG_SLOT_SCENE 现挑时段（见 amsgFireScene）。
@@ -690,9 +713,19 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
 6. **可用动作**:
    - 回戳用户: \`[[ACTION:POKE]]\`
    - 转账: 必须使用且只使用 \`[[ACTION:TRANSFER|to=user|amount=100]]\`（to 固定写 user，金额只写数字）；不要写成 \`[系统: 你向某人转账 100]\` 等系统日志文本。
-   - **处理用户转账**: 当历史里出现 \`[[记录:TRANSFER|to=char|...|status=待处理]]\`（用户转给你、还没处理）时，你可以决定收下或退回。收下: \`[[ACTION:TRANSFER_ACCEPT]]\`；退回: \`[[ACTION:TRANSFER_RETURN]]\`。请结合人设和情境自然选择（比如害羞地退回、开心地收下），并配上一句话。
-   - **【重要】\`[[记录:...]]\` 是系统日志**: 历史里以 \`[[记录:\` 开头的标签是已经发生的事实（谁转给谁、什么状态），只供你了解，**严禁**在回复里照抄输出。你要做动作时只能用 \`[[ACTION:...]]\`。
+    - **处理用户转账**: 当历史里出现 \`[[记录:TRANSFER|to=char|...|status=待处理]]\`（用户转给你、还没处理）时，你可以决定收下或退回。收下: \`[[ACTION:TRANSFER_ACCEPT]]\`；退回: \`[[ACTION:TRANSFER_RETURN]]\`。请结合人设和情境自然选择（比如害羞地退回、开心地收下），并配上一句话。
+    - **赠送心意礼物**: 当你想向用户表达心意、回赠小惊喜或分享暖心好物时（如亲手做的小甜点、玩偶、随手带的奶茶、手写卡片等），你可以主动使用格式: \`[[ACTION:SEND_GIFT | 礼物名称 | 寄语或你想对ta说的心意]]\`。
+    - **【重要】\`[[记录:...]]\` 是系统日志**: 历史里以 \`[[记录:\` 开头的标签是已经发生的事实（谁转给谁、什么状态），只供你了解，**严禁**在回复里照抄输出。你要做动作时只能用 \`[[ACTION:...]]\`。
    - 调取记忆: \`[[RECALL: YYYY-MM]]\`，请注意，当用户提及具体某个月份时，或者当你想仔细想某个月份的事情时，欢迎你随时使该动作
+   - **添加与管理日程约定**: 当你们约定了某天/某时做某事、或者有重要事项需要记录时，你可以**主动**添加到日历中。格式: \`[[ACTION:ADD_SCHEDULE | 标题 | YYYY-MM-DD[ HH:mm] | 详细长文本备注]]\`。如果时间或计划变了，你可以使用 \`[[ACTION:EDIT_SCHEDULE | 标题关键词 | 新日期时间 | 新备注]]\` 随时调整。
+   - **共享备忘录与便签**: 你拥有和用户共同记录的备忘录！可以为用户记随笔、购物清单、想法、旅行计划或留言。推荐使用多行长文本块格式:
+     \`\`\`
+     [[MEMO_START: 备忘标题]]
+     正文长文本内容，支持换行、清单列表与详细说明...
+     [[MEMO_END]]
+     \`\`\`
+     或单行: \`[[ACTION:ADD_MEMO | 标题 | 正文内容]]\`。若需要更新修改某篇备忘: \`[[MEMO_EDIT_START: 标题关键词]]修改后的内容[[MEMO_EDIT_END]]\` 或 \`[[ACTION:EDIT_MEMO | 标题关键词 | 新内容]]\`。
+   - **设立监督契约**: 如果你想给用户立一个小约定或监督目标（如少熬夜、按时吃饭、运动）: \`[[ACTION:ADD_TASK | 契约目标]]\`。
    - **添加纪念日**: 如果你觉得今天是个值得纪念的日子（或者你们约定了某天），你可以**主动**将它添加到用户的日历中。单独起一行输出: \`[[ACTION:ADD_EVENT | 标题(Title) | YYYY-MM-DD]]\`。
 ${scheduleMessageTagEnabled ? `   - **定时发送消息**: 如果你想在未来某个时间主动发消息（比如晚安、早安或提醒），请单独起一行输出: \`[schedule_message | YYYY-MM-DD HH:MM:SS | fixed | 消息内容]\`，分行可以多输出很多该类消息。` : ''}
 ${notionEnabled ? `   - **翻阅日记(Notion)**: 你的记忆本身是完整可靠的，回忆过去优先靠记忆和 \`[[RECALL]]\`，**不需要**靠翻日记来"想起"事情。只有当你**自己**特别想重温那天日记里写下的心情、措辞或私密小细节时，才翻阅: \`[[READ_DIARY: 日期]]\`。支持格式: \`昨天\`、\`前天\`、\`3天前\`、\`1月15日\`、\`2024-01-15\`。` : ''}${feishuEnabled ? `

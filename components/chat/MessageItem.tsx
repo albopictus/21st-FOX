@@ -1,8 +1,9 @@
 
 
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Message, ChatTheme } from '../../types';
+import React, { useEffect, useRef, useState, useContext } from 'react';
+import { Message, ChatTheme, AppID } from '../../types';
+import { OSContext } from '../../context/OSContext';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
@@ -897,6 +898,126 @@ const LifeRecordCard: React.FC<{
     );
 };
 
+const ScheduleEventCard: React.FC<{
+    m: Message;
+    charName: string;
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+    selectionMode: boolean;
+    onOpenSchedule?: () => void;
+}> = ({ m, charName, commonLayout, selectionMode, onOpenSchedule }) => {
+    const meta = m.metadata || {};
+    const title = meta.title || m.content?.replace(/^\[日程.*?\]\s*/, '') || '日程约定';
+    const dateStr = meta.date || '';
+    const timeStr = meta.time || '';
+    const remarks = meta.remarks || '';
+    const author = meta.authorName || charName;
+    const isEdit = meta.action === 'edit';
+
+    return commonLayout(
+        <div 
+            onClick={(e) => {
+                if (!selectionMode && onOpenSchedule) {
+                    e.stopPropagation();
+                    onOpenSchedule();
+                }
+            }}
+            className="w-64 rounded-2xl overflow-hidden shadow-sm border border-cyan-200/70 cursor-pointer hover:border-cyan-400 transition-all bg-gradient-to-br from-cyan-50/95 via-sky-50/80 to-blue-50/90 active:scale-[0.98]"
+        >
+            <div className="px-3.5 pt-3 pb-2.5">
+                <div className="flex items-center gap-2.5">
+                    <div className="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-lg shadow-sm border border-cyan-100">
+                        📅
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-800 truncate">
+                            {title}
+                        </div>
+                        <div className="text-[10px] text-cyan-700 font-semibold mt-0.5 font-mono">
+                            {dateStr}{timeStr ? ` · ${timeStr}` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                {remarks && (
+                    <div className="mt-2 text-[11px] text-slate-600 bg-white/80 rounded-xl px-2.5 py-1.5 leading-relaxed border border-cyan-100/60 line-clamp-3">
+                        {remarks}
+                    </div>
+                )}
+
+                <div className="mt-2.5 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400">由 {author} {isEdit ? '修改' : '创建'}</span>
+                    <span className="text-cyan-600 font-bold hover:underline flex items-center gap-0.5">
+                        查看日程 →
+                    </span>
+                </div>
+            </div>
+            <div className="px-3.5 py-1.5 bg-cyan-100/60 border-t border-cyan-200/50 text-[9px] text-cyan-800 font-semibold flex items-center justify-between">
+                <span>🗓️ 时光契约 · 日程</span>
+                <span className="opacity-75">{isEdit ? '已更新' : '新约定'}</span>
+            </div>
+        </div>
+    );
+};
+
+const MemoNoteCard: React.FC<{
+    m: Message;
+    charName: string;
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+    selectionMode: boolean;
+    onOpenMemo?: () => void;
+}> = ({ m, charName, commonLayout, selectionMode, onOpenMemo }) => {
+    const meta = m.metadata || {};
+    const title = meta.title || '共享备忘';
+    const preview = meta.preview || m.content?.replace(/^\[备忘录.*?\]\s*/, '') || '';
+    const author = meta.authorName || charName;
+    const isEdit = meta.action === 'edit';
+
+    return commonLayout(
+        <div 
+            onClick={(e) => {
+                if (!selectionMode && onOpenMemo) {
+                    e.stopPropagation();
+                    onOpenMemo();
+                }
+            }}
+            className="w-64 rounded-2xl overflow-hidden shadow-sm border border-amber-200/70 cursor-pointer hover:border-amber-400 transition-all bg-gradient-to-br from-amber-50/95 via-orange-50/80 to-yellow-50/90 active:scale-[0.98]"
+        >
+            <div className="px-3.5 pt-3 pb-2.5">
+                <div className="flex items-center gap-2.5">
+                    <div className="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-lg shadow-sm border border-amber-100">
+                        📝
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-800 truncate">
+                            {title}
+                        </div>
+                        <div className="text-[10px] text-amber-700 font-medium mt-0.5">
+                            由 {author} {isEdit ? '编辑' : '记录'}
+                        </div>
+                    </div>
+                </div>
+
+                {preview && (
+                    <div className="mt-2 text-[11px] text-slate-600 bg-white/80 rounded-xl px-2.5 py-1.5 leading-relaxed line-clamp-3 whitespace-pre-wrap border border-amber-100/60">
+                        {preview}
+                    </div>
+                )}
+
+                <div className="mt-2.5 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400">共享便签</span>
+                    <span className="text-amber-600 font-bold hover:underline flex items-center gap-0.5">
+                        查看备忘录 →
+                    </span>
+                </div>
+            </div>
+            <div className="px-3.5 py-1.5 bg-amber-100/60 border-t border-amber-200/50 text-[9px] text-amber-800 font-semibold flex items-center justify-between">
+                <span>📑 共享备忘</span>
+                <span className="opacity-75">{isEdit ? '已更新' : '新便签'}</span>
+            </div>
+        </div>
+    );
+};
+
 const TransferCard: React.FC<{
     m: Message;
     isUser: boolean;
@@ -1043,6 +1164,147 @@ const TransferCard: React.FC<{
                                 >关闭</button>
                             )}
                         </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+
+// ============================================================
+// GiftCard: 互赠礼物卡片与心意弹窗
+// ============================================================
+
+const GiftCard: React.FC<{
+    m: Message;
+    isUser: boolean;
+    charName: string;
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+    selectionMode: boolean;
+}> = ({ m, isUser, charName, commonLayout, selectionMode }) => {
+    const [open, setOpen] = useState(false);
+    const meta = m.metadata || {};
+    const giftName = meta.giftName || meta.name || '心意礼物';
+    const icon = meta.icon || meta.image || '🎁';
+    const cost = meta.cost ?? meta.price;
+    const note = meta.note || (m.content !== '[心意礼物]' && m.content !== '[收到礼物]' ? m.content : '');
+    const isAssistant = m.role === 'assistant';
+    const hasImage = isImageValue(icon);
+
+    const timeStr = (() => {
+        try {
+            const d = new Date(m.timestamp || Date.now());
+            return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+        } catch { return ''; }
+    })();
+
+    return (
+        <>
+            {commonLayout(
+                <div
+                    onClick={(e) => {
+                        if (selectionMode) return;
+                        e.stopPropagation();
+                        setOpen(true);
+                    }}
+                    className={`px-4 py-3.5 rounded-2xl shadow-sm border max-w-[280px] w-fit cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] ${
+                        isAssistant
+                            ? 'bg-gradient-to-br from-amber-50 via-rose-50/60 to-pink-50 border-rose-200/80 text-slate-700'
+                            : 'bg-gradient-to-br from-rose-50 via-pink-50/70 to-orange-50/50 border-rose-200/80 text-slate-700'
+                    }`}
+                >
+                    <div className="flex items-center justify-between gap-3 border-b border-rose-100/70 pb-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                            {hasImage ? (
+                                <TokenImg
+                                    value={icon}
+                                    alt={giftName}
+                                    className="w-10 h-10 object-contain rounded-xl bg-white/80 p-0.5 border border-rose-100 shrink-0"
+                                />
+                            ) : (
+                                <span className="text-2xl shrink-0 filter drop-shadow-sm">{icon}</span>
+                            )}
+                            <div className="min-w-0">
+                                <div className="text-[10px] text-rose-500 font-semibold">
+                                    {isAssistant ? `${charName} 送你的礼物` : '你送出的礼物'}
+                                </div>
+                                <div className="text-sm font-bold text-slate-800 truncate">
+                                    {giftName}
+                                </div>
+                            </div>
+                        </div>
+                        {cost !== undefined && cost > 0 && (
+                            <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100/70 px-2 py-0.5 rounded-full shrink-0 border border-amber-200/50">
+                                🪙 {cost}
+                            </span>
+                        )}
+                    </div>
+
+                    {note && (
+                        <div className="text-xs text-slate-600 leading-relaxed bg-white/75 backdrop-blur-sm rounded-xl px-2.5 py-1.5 border border-rose-100/60 break-words">
+                            “{note}”
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Gift Detail Modal */}
+            {open && (
+                <div
+                    onClick={() => setOpen(false)}
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in"
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl border border-rose-100 text-center relative overflow-hidden"
+                    >
+                        {/* Decorative background glow */}
+                        <div className="absolute -top-12 -right-12 w-32 h-32 bg-rose-200/40 rounded-full blur-2xl pointer-events-none" />
+                        <div className="absolute -bottom-12 -left-12 w-32 h-32 bg-amber-200/40 rounded-full blur-2xl pointer-events-none" />
+
+                        {/* Gift Icon / Image Display */}
+                        <div className="relative inline-block my-2">
+                            <div className="w-24 h-24 rounded-2xl bg-gradient-to-tr from-rose-100 via-pink-50 to-amber-100 flex items-center justify-center mx-auto shadow-inner border border-rose-200 overflow-hidden p-2">
+                                {hasImage ? (
+                                    <TokenImg
+                                        value={icon}
+                                        alt={giftName}
+                                        className="w-full h-full object-contain filter drop-shadow-sm"
+                                    />
+                                ) : (
+                                    <span className="text-4xl filter drop-shadow-md">{icon}</span>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="text-[11px] font-bold text-rose-500 uppercase tracking-widest mt-1">
+                            {isAssistant ? `${charName} 的心意` : '赠予心意'}
+                        </div>
+                        <h3 className="text-lg font-bold text-slate-800 mt-0.5">{giftName}</h3>
+                        {cost !== undefined && cost > 0 && (
+                            <div className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200 mt-2">
+                                <span>🪙</span>
+                                <span>价值 {cost} 金币</span>
+                            </div>
+                        )}
+
+                        {note && (
+                            <div className="mt-4 p-3.5 bg-rose-50/50 rounded-2xl border border-rose-100/70 text-xs text-slate-700 leading-relaxed text-left break-words">
+                                <div className="text-[10px] text-rose-400 font-bold mb-1">💌 附带寄语:</div>
+                                “{note}”
+                            </div>
+                        )}
+
+                        <div className="mt-3 text-[10px] text-slate-400">
+                            {timeStr && `记录于 ${timeStr}`}
+                        </div>
+
+                        <button
+                            onClick={() => setOpen(false)}
+                            className="mt-5 w-full py-2.5 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-xs shadow-md shadow-rose-200 hover:opacity-95 active:scale-95 transition-all"
+                        >
+                            收入心意藏品
+                        </button>
                     </div>
                 </div>
             )}
@@ -1479,6 +1741,8 @@ const MessageItem = React.memo(({
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
     const isSystem = m.role === 'system';
+    const os = useContext(OSContext);
+    const openApp = os?.openApp;
     const spacingClass = messageSpacing === 'compact' ? (isLastInGroup ? 'mb-3' : 'mb-0.5') : messageSpacing === 'spacious' ? (isLastInGroup ? 'mb-8' : 'mb-2.5') : (isLastInGroup ? 'mb-6' : 'mb-1.5');
     const marginBottom = spacingClass;
     const avatarSizeClass = avatarSize === 'small' ? 'w-7 h-7' : avatarSize === 'large' ? 'w-12 h-12' : 'w-9 h-9';
@@ -3278,8 +3542,20 @@ const MessageItem = React.memo(({
         return <TransferCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveTransfer={onResolveTransfer} />;
     }
 
+    if (m.type === 'gift') {
+        return <GiftCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} />;
+    }
+
     if (m.type === 'life_card') {
         return <LifeRecordCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveLifeRecord={onResolveLifeRecord} />;
+    }
+
+    if (m.type === 'schedule_card') {
+        return <ScheduleEventCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onOpenSchedule={() => openApp?.(AppID.Schedule)} />;
+    }
+
+    if (m.type === 'memo_card') {
+        return <MemoNoteCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onOpenMemo={() => openApp?.(AppID.Memo)} />;
     }
 
     if (m.type === 'collaboration_file') {

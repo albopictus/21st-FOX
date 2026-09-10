@@ -126,6 +126,18 @@ export function normalizeMessageContent(
         });
     }
 
+    if (type === 'gift') {
+        const meta = msg.metadata || {};
+        const giftName = meta.giftName || meta.name || '礼物';
+        const note = meta.note || '';
+        const senderName = msg.role === 'user' ? userName : charName;
+        const receiverName = msg.role === 'user' ? charName : userName;
+        const descPart = meta.description ? `（${meta.description}）` : '';
+        const costPart = meta.cost ? `（价值 ${meta.cost} 金币）` : '';
+        const notePart = note ? `，附言：“${note}”` : '';
+        return `[礼物心意] ${senderName} 向 ${receiverName} 赠送了「${giftName}」${descPart}${costPart}${notePart}`;
+    }
+
     // 结算卡：几种 app 产生，用字段逐一翻成自然文本
     if (type === 'score_card') {
         try {

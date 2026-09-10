@@ -43,6 +43,8 @@ import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import FavoritesPortal from '../components/chat/VoiceFavoritesPortal';
 import ChatModals from '../components/chat/ChatModals';
+import GiftModal from '../components/chat/GiftModal';
+import { DAILY_ALLOWANCE_COINS } from '../utils/giftCatalog';
 import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal';
 import type { ChatCleanupPlan } from '../utils/chatHistoryCleanup';
 import Modal from '../components/os/Modal';
@@ -140,7 +142,7 @@ type InstantToolUiStatus = {
 };
 
 const Chat: React.FC = () => {
-    const { characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
+    const { characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, updateUserProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -230,6 +232,7 @@ const Chat: React.FC = () => {
     const [allHistoryMessages, setAllHistoryMessages] = useState<Message[]>([]);
     const [transferAmt, setTransferAmt] = useState('');
     const [transferNote, setTransferNote] = useState('');
+    const [showGiftModal, setShowGiftModal] = useState(false);
     const [emojiImportText, setEmojiImportText] = useState('');
     const [settingsContextLimit, setSettingsContextLimit] = useState(500);
     const [settingsContextRangeMode, setSettingsContextRangeMode] = useState<ContextRangeMode>('manual');
@@ -1624,6 +1627,57 @@ const Chat: React.FC = () => {
         }
     };
 
+    const handleSendGift = async (gift: { id: string; name: string; icon: string; price: number; description?: string }, note: string) => {
+        if (!char) return;
+        const currentCoins = userProfile.coins ?? 300;
+        if (currentCoins < gift.price) {
+            addToast('金币不足，可通过每日津贴或契约任务获取金币', 'error');
+            return;
+        }
+
+        // 1. 扣除金币
+        updateUserProfile({ coins: currentCoins - gift.price });
+
+        // 2. 存入角色收到的礼物陈列柜
+        const record = {
+            id: `gift_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            giftId: gift.id,
+            giftName: gift.name,
+            icon: gift.icon,
+            cost: gift.price,
+            note: note || undefined,
+            description: gift.description,
+            timestamp: Date.now(),
+            sender: 'user' as const,
+        };
+        const updatedGifts = [record, ...(char.receivedGifts || [])];
+        updateCharacter(char.id, { receivedGifts: updatedGifts });
+
+        // 3. 发送 gift 类型的消息并触发 AI 反应
+        const descText = gift.description ? `（${gift.description}）` : '';
+        const contentText = note ? `[送出礼物: ${gift.name}${descText}] “${note}”` : `[送出礼物: ${gift.name}${descText}]`;
+        await handleSendText(contentText, 'gift', {
+            giftName: gift.name,
+            icon: gift.icon,
+            cost: gift.price,
+            note: note || undefined,
+            description: gift.description,
+            sender: 'user',
+        });
+
+        addToast(`已送出 ${gift.name} 🎁`, 'success');
+    };
+
+    const handleClaimAllowance = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const cur = userProfile.coins ?? 300;
+        updateUserProfile({
+            coins: cur + DAILY_ALLOWANCE_COINS,
+            lastDailyAllowanceDate: today,
+        });
+        addToast(`已领取今日津贴 +${DAILY_ALLOWANCE_COINS} 金币 🪙`, 'success');
+    };
+
     // 用户点开「收到的转账」卡（角色发来、待处理）选择接收 / 退回：
     // 标记原转账状态 + 补一张回执小卡（role=user，角色侧 prompt 会看到 [[记录:TRANSFER|to=user|...|status=已收下/已退回]]）。
     const handleResolveTransfer = useCallback(async (msg: Message, action: 'accepted' | 'returned') => {
@@ -1717,7 +1771,7 @@ const Chat: React.FC = () => {
         // 只统计「打开某个面板 / 开关某个能力」这几个固定入口，名单写死在这里；
         // 选表情、选分类之类的动作不上报。
         if ([
-            'transfer', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
+            'transfer', 'gift', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
             'meetup', 'proactive', 'active-msg-2', 'schedule', 'mcd-request', 'luckin-request',
             'html-mode-toggle', 'html-mode-settings', 'thinking-settings', 'favorites', 'collaboration',
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
@@ -1731,6 +1785,7 @@ const Chat: React.FC = () => {
             case 'memory-link': setShowPanel('none'); setMemoryRepairOpen(true); break;
             case 'favorites': setShowPanel('none'); setFavoritesOpen(true); break;
             case 'transfer': setModalType('transfer'); break;
+            case 'gift': setShowPanel('none'); setShowGiftModal(true); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
             case 'archive': setModalType('archive-settings'); break;
             case 'settings': setModalType('chat-settings'); break;
@@ -3827,6 +3882,17 @@ const Chat: React.FC = () => {
                     addToast('情绪状态已清除', 'info');
                 }}
              />
+
+             {showGiftModal && char && (
+                <GiftModal
+                    character={char}
+                    userProfile={userProfile}
+                    onClose={() => setShowGiftModal(false)}
+                    onSendGift={handleSendGift}
+                    onUpdateCoins={(newCoins) => updateUserProfile({ coins: newCoins })}
+                    onClaimAllowance={handleClaimAllowance}
+                />
+             )}
 
              {/* 小剧场播放器：窥视某个日程时段的角色行为演出 */}
              {theaterSlotIdx !== null && scheduleData && createPortal(

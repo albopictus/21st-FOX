@@ -1,5 +1,5 @@
 
-import { CharacterProfile, UserProfile, DailySchedule } from '../types';
+import { CharacterProfile, UserProfile, DailySchedule, ScheduleEvent, MemoNote } from '../types';
 import { normalizeUserImpression } from './impression';
 import { isScheduleFeatureOn } from './scheduleFeature';
 import { buildScheduleInjection as buildScheduleInjectionText } from './scheduleInjection';
@@ -664,5 +664,35 @@ ${addUsage}
 
 这些是偶尔才用的工具，不是每首歌都要回应。绝大多数时候什么都不做、安静陪着才是最自然的反应；只有当你**真的**被这首歌打动、或它恰好贴合此刻的对话气氛时，再插一次卡。不要把它当成"对方在听歌"的默认回礼。
 `;
+    },
+
+    /**
+     * 构建共同日程与共享备忘录上下文（双向感知注入）
+     */
+    buildSharedSchedulesAndMemosBlock: (
+        schedules: ScheduleEvent[],
+        memos: MemoNote[],
+        userName: string,
+        charName: string,
+    ): string => {
+        let block = '';
+        if (schedules && schedules.length > 0) {
+            block += `### 共同日程与约定 (Upcoming Schedules & Events)\n`;
+            schedules.slice(0, 6).forEach(s => {
+                const editor = s.lastEditedBy === 'user' ? userName : (s.authorName || charName);
+                block += `- [${s.date}${s.time ? ` ${s.time}` : ''}] ${s.title}${s.remarks ? `（备注: ${s.remarks}）` : ''} [由 ${editor} ${s.lastEditedAt ? '最近修改' : '创建'}]\n`;
+            });
+            block += `\n`;
+        }
+        if (memos && memos.length > 0) {
+            block += `### 共享备忘录与便签 (Shared Notes & Memos)\n`;
+            memos.slice(0, 6).forEach(m => {
+                const editor = m.lastEditedBy === 'user' ? userName : (m.authorName || charName);
+                const snippet = m.content.replace(/\r?\n/g, ' ').slice(0, 100);
+                block += `- 《${m.title}》: ${snippet}${m.content.length > 100 ? '...' : ''} [最后由 ${editor} 修改]\n`;
+            });
+            block += `\n`;
+        }
+        return block;
     },
 };
