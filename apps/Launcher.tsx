@@ -9,6 +9,7 @@ import { ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWid
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
 import { DesktopGalleryModal } from '../components/os/DesktopGalleryModal';
+import { ImagePickerModal } from '../components/os/ImagePickerModal';
 import { DesktopClockWidget } from '../components/os/widgets/DesktopClockWidget';
 import { CharacterCardWidget } from '../components/os/widgets/CharacterCardWidget';
 import {
@@ -502,6 +503,22 @@ const Launcher: React.FC = () => {
     _lastPageIndex = clamped;
   }, [commitPages]);
 
+  // 相框换图：写回某个 image 条目的 config.src
+  const [imagePicker, setImagePicker] = useState<{ pageIndex: number; itemId: string; src?: string } | null>(null);
+  const setItemConfigSrc = useCallback((pageIndex: number, itemId: string, src: string | undefined) => {
+    const p = pagesRef.current[pageIndex];
+    if (!p) return;
+    replacePage(pageIndex, {
+      ...p,
+      items: p.items.map(it => it.id === itemId ? { ...it, config: { ...(it.config || {}), src } } : it),
+    });
+  }, [replacePage]);
+  const openImagePicker = useCallback((item: PlacedItem) => {
+    const pi = pagesRef.current.findIndex(p => p.items.some(i => i.id === item.id));
+    if (pi < 0) return;
+    setImagePicker({ pageIndex: pi, itemId: item.id, src: item.config?.src });
+  }, []);
+
   // ───────── 主题派生 ─────────
   const contentColor = theme.contentColor || '#ffffff';
   const acnh = theme.skin === 'animalcrossing';
@@ -518,7 +535,7 @@ const Launcher: React.FC = () => {
     onOpenCharCard: () => openApp(AppID.Chat),
     scheduleData, scheduleChar,
     onOpenSchedule: () => { setScheduleViewerOpen(true); trackEvent('打开角色日程面板'); },
-    onEditImage: () => openApp(AppID.Appearance),
+    onEditImage: openImagePicker,
   };
 
   const dockAppsConfig = useMemo(() => {
@@ -824,6 +841,15 @@ const Launcher: React.FC = () => {
         placedAppIds={placedAppIds}
         targetLabel={`到第 ${activePageIndex + 1} 页`}
         initialTab={galleryInitialTab}
+        acnh={acnh}
+        paper={paper}
+      />
+
+      <ImagePickerModal
+        isOpen={!!imagePicker}
+        currentSrc={imagePicker?.src}
+        onSave={(src) => { if (imagePicker) setItemConfigSrc(imagePicker.pageIndex, imagePicker.itemId, src); }}
+        onClose={() => setImagePicker(null)}
         acnh={acnh}
         paper={paper}
       />

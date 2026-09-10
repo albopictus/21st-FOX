@@ -319,16 +319,22 @@ export const migrateLegacyLauncher = (
         ...(theme.launcherWidgets?.dsq ? { config: { src: theme.launcherWidgets.dsq } } : {}),
     }) || { page: page2 }).page;
 
-    // ── 待铺的流：主桌面 app + 自定义页小组件 ──
+    // ── 待铺的流：主桌面 app + 自定义页小组件 + 旧的 tl/tr/wide 条幅图 ──
     const appSpecs: NewItemSpec[] = dedupe(theme.launcherAppOrder || [], validAppIds)
         .map(id => ({ kind: 'app' as GridItemKind, refId: id }));
     const widgetSpecs: NewItemSpec[] = (theme.launcherCustomPages || [])
         .flatMap(p => p.widgets || [])
         .map(legacyWidgetSpec)
         .filter((s): s is NewItemSpec => !!s);
+    const lw = theme.launcherWidgets || {};
+    const legacyImageSpecs: NewItemSpec[] = ([
+        lw.tl ? { kind: 'image', w: 2, h: 2, config: { src: lw.tl } } : null,
+        lw.tr ? { kind: 'image', w: 2, h: 2, config: { src: lw.tr } } : null,
+        lw.wide ? { kind: 'image', w: 4, h: 2, config: { src: lw.wide } } : null,
+    ] as (NewItemSpec | null)[]).filter((s): s is NewItemSpec => s !== null);
 
-    // app 先铺（从 page1 开始，绕开锁定块），再铺自定义页小组件
-    let pages = flowItems([page1, page2], [...appSpecs, ...widgetSpecs]);
+    // app 先铺（从 page1 开始，绕开锁定块），再铺自定义页小组件 + 旧条幅图
+    let pages = flowItems([page1, page2], [...appSpecs, ...widgetSpecs, ...legacyImageSpecs]);
 
     return [page0, ...pages];
 };

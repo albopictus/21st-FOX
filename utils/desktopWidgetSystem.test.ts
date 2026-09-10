@@ -64,11 +64,12 @@ describe('桌面自由网格系统契约', () => {
     expect(launcherSource).toContain('dragPreview');
   });
 
-  it('黑胶小组件：支持本地音频导入与自定义旋转贴纸', () => {
-    expect(musicContextSource).toContain('importLocalAudio');
+  it('网易云黑胶小组件：只保留自定义旋转贴纸，不带本地音频导入按钮（本地音频归 musicLocal）', () => {
+    expect(musicContextSource).toContain('importLocalAudio'); // MusicContext 仍提供，给未来 musicLocal 用
     expect(nowPlayingSource).toContain('theme.customVinylSticker');
-    expect(nowPlayingSource).toContain('handleAudioImport');
     expect(nowPlayingSource).toContain('handleStickerUpload');
+    expect(nowPlayingSource).not.toContain('handleAudioImport');
+    expect(nowPlayingSource).not.toContain('导入本地歌曲');
   });
 
   it('自定义贴纸 token migration: migrateAppearancePresetBlobRefs 会迁移 customVinylSticker', async () => {

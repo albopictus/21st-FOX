@@ -4,7 +4,7 @@
  * — 填满父容器（由父的 aspect-square 约束成方形）。
  */
 import React, { useRef } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Disc, UploadSimple } from '@phosphor-icons/react';
+import { Play, Pause, SkipBack, SkipForward, Disc } from '@phosphor-icons/react';
 import { isPaperWallpaper, useOS } from '../../context/OSContext';
 import { useMusic } from '../../context/MusicContext';
 import { AppID } from '../../types';
@@ -20,7 +20,7 @@ const formatTime = (sec: number) => {
 
 const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentColor }) => {
   const { openApp, theme, updateTheme, addToast } = useOS();
-  const { current, playing, progress, duration, togglePlay, nextSong, prevSong, importLocalAudio } = useMusic();
+  const { current, playing, progress, duration, togglePlay, nextSong, prevSong } = useMusic();
   const acnh = theme.skin === 'animalcrossing'; // 动森：奶油卡片 + 薄荷进度
   const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
 
@@ -32,20 +32,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
   const albumPic = useBlobRefUrl(current?.albumPic);
   const displayCover = customStickerUrl || albumPic;
 
-  const audioInputRef = useRef<HTMLInputElement>(null);
   const stickerInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAudioImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    try {
-      await importLocalAudio(file);
-    } catch (err: any) {
-      addToast?.(`导入失败: ${err.message}`, 'error');
-    } finally {
-      e.target.value = '';
-    }
-  };
 
   const handleStickerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -87,18 +74,10 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
         className="relative w-full h-full rounded-[1.75rem] overflow-hidden cursor-pointer animate-fade-in transition-transform active:scale-[0.98] flex flex-col items-center justify-between p-3"
         style={{ background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)', color: '#725d42' }}
       >
-        <input ref={audioInputRef} type="file" accept="audio/*" className="hidden" onChange={handleAudioImport} />
         <input ref={stickerInputRef} type="file" accept="image/*" className="hidden" onChange={handleStickerUpload} />
 
         {/* 顶部快捷操作 */}
         <div className="absolute top-2 right-2 flex items-center gap-1 z-20" onClick={stopProp}>
-          <button
-            title="导入本地歌曲"
-            onClick={() => audioInputRef.current?.click()}
-            className="w-5 h-5 rounded-full bg-white/70 hover:bg-white text-[#725d42] flex items-center justify-center shadow-xs text-[10px] transition"
-          >
-            <UploadSimple size={11} />
-          </button>
           <button
             title={theme.customVinylSticker ? "更换贴纸 (长按恢复)" : "自定义黑胶贴纸"}
             onClick={() => stickerInputRef.current?.click()}
@@ -220,18 +199,10 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
         color: palette.textColor,
       }}
     >
-      <input ref={audioInputRef} type="file" accept="audio/*" className="hidden" onChange={handleAudioImport} />
       <input ref={stickerInputRef} type="file" accept="image/*" className="hidden" onChange={handleStickerUpload} />
 
       {/* 顶部快捷操作 */}
       <div className="absolute top-2 right-2 flex items-center gap-1 z-20" onClick={stopProp}>
-        <button
-          title="导入本地歌曲"
-          onClick={() => audioInputRef.current?.click()}
-          className="w-5 h-5 rounded-full bg-white/20 hover:bg-white/40 flex items-center justify-center text-[10px] transition"
-        >
-          <UploadSimple size={11} />
-        </button>
         <button
           title={theme.customVinylSticker ? "更换贴纸 (右键恢复)" : "自定义黑胶贴纸"}
           onClick={() => stickerInputRef.current?.click()}
