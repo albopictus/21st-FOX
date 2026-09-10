@@ -548,6 +548,7 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
         };
         await DB.saveMessage(userMsg);
         sessionStorage.setItem(`chat_pending_auto_trigger_${targetId}`, 'true');
+        window.dispatchEvent(new CustomEvent('chat-gen-reply-arrived', { detail: { charId: targetId, charName: targetChar.name } }));
         addToast(`已将《${targetMemo.title}》发送给 ${targetChar.name}`, 'success');
         setActiveCharacterId(targetId);
         openApp(AppID.Chat);
@@ -573,8 +574,9 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
             setMemos(prev => prev.map(m => m.id === savedMemo.id ? savedMemo : m).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt));
             addToast('备忘录已保存', 'success');
         } else {
+            const now = Date.now();
             savedMemo = {
-                id: `memo-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                id: `memo-${now}-${Math.floor(Math.random() * 1000)}`,
                 title,
                 content: memoContent,
                 category: memoCategory.trim() || '默认',
@@ -582,7 +584,9 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
                 pinned: memoPinned,
                 createdBy: 'user',
                 authorName: userProfile.name,
-                createdAt: Date.now(),
+                createdAt: now,
+                lastEditedAt: now,
+                lastEditedBy: 'user',
             };
             await DB.saveMemoNote(savedMemo);
             setMemos(prev => [savedMemo, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt));
