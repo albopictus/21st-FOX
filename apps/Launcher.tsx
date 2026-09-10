@@ -491,6 +491,32 @@ const Launcher: React.FC = () => {
       trackEvent('桌面恢复应用');
   }, [theme.launcherHiddenApps, updateTheme]);
 
+  /** 把一个 App 从主桌面/hidden池移到 -1 屏 */
+  const handleAddToMinusOne = useCallback(async (appId: string) => {
+      // Remove from main grid order
+      const nextOrder = launcherAppOrderRef.current.filter(id => id !== appId);
+      // Remove from hidden (in case it was hidden)
+      const nextHidden = (theme.launcherHiddenApps || []).filter(id => id !== appId);
+      // Add to -1 screen
+      const nextMinusOne = [...minusOneAppOrderRef.current.filter(id => id !== appId), appId];
+      launcherAppOrderRef.current = nextOrder;
+      minusOneAppOrderRef.current = nextMinusOne;
+      setLauncherAppOrder(nextOrder);
+      setMinusOneAppOrder(nextMinusOne);
+      await updateTheme({ launcherAppOrder: nextOrder, launcherHiddenApps: nextHidden, launcherMinusOneApps: nextMinusOne });
+  }, [theme.launcherHiddenApps, updateTheme]);
+
+  /** 从 -1 屏移除一个 App，放回主桌面 */
+  const handleRemoveFromMinusOne = useCallback(async (appId: string) => {
+      const nextMinusOne = minusOneAppOrderRef.current.filter(id => id !== appId);
+      const nextOrder = [...launcherAppOrderRef.current, appId];
+      minusOneAppOrderRef.current = nextMinusOne;
+      launcherAppOrderRef.current = nextOrder;
+      setMinusOneAppOrder(nextMinusOne);
+      setLauncherAppOrder(nextOrder);
+      await updateTheme({ launcherMinusOneApps: nextMinusOne, launcherAppOrder: nextOrder });
+  }, [updateTheme]);
+
   const handleAddPage = useCallback(async () => {
       const curCustom = theme.launcherCustomPages || [];
       const nextCustom = [...curCustom, { id: `page-${Date.now()}` }];
@@ -525,6 +551,10 @@ const Launcher: React.FC = () => {
       lastTarget?: string;
       targetElement?: HTMLElement;
       startPageIndex?: number;
+      /** True when this gesture has been identified as a page-swipe (not a drag) */
+      isScrolling?: boolean;
+      /** scrollLeft of the scroll container at gesture start */
+      scrollStartLeft?: number;
   } | null>(null);
   const suppressLayoutClickUntil = useRef(0);
   const layoutPageTurnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -547,14 +577,31 @@ const Launcher: React.FC = () => {
   const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
   const hiddenAppsSet = useMemo(() => new Set(theme.launcherHiddenApps || []), [theme.launcherHiddenApps]);
+
+  // -1 screen: separate app pool (stored in launcherMinusOneApps)
+  const [minusOneAppOrder, setMinusOneAppOrder] = useState<string[]>(() => theme.launcherMinusOneApps || []);
+  const minusOneAppOrderRef = useRef(minusOneAppOrder);
+  useEffect(() => { minusOneAppOrderRef.current = minusOneAppOrder; }, [minusOneAppOrder]);
+  // Sync from theme when not editing (same pattern as launcherDockOrder)
+  useEffect(() => {
+      if (layoutEditing) return;
+      setMinusOneAppOrder(theme.launcherMinusOneApps || []);
+  }, [layoutEditing, theme.launcherMinusOneApps]);
+  const minusOneAppsSet = useMemo(() => new Set(minusOneAppOrder), [minusOneAppOrder]);
+  const minusOneAppsConfig = useMemo(() => {
+      const byId = new Map(INSTALLED_APPS.map(app => [app.id, app]));
+      return minusOneAppOrder.map(id => byId.get(id as AppID)).filter(Boolean) as typeof INSTALLED_APPS;
+  }, [minusOneAppOrder]);
+
   const availableGridApps = useMemo(() => {
     return INSTALLED_APPS.filter(app =>
       !DOCK_APPS.includes(app.id)
       && !hiddenAppsSet.has(app.id)
+      && !minusOneAppsSet.has(app.id)   // exclude apps pinned to -1 screen
       // 「捏脸·开发」仅在开发模式（右下角开发徽标可见或手动解锁时）显示
       && (app.id !== AppID.CharCreatorDev || devDebugVisible)
     );
-  }, [devDebugVisible, hiddenAppsSet]);
+  }, [devDebugVisible, hiddenAppsSet, minusOneAppsSet]);
 
   const normalizeOrder = useCallback((saved: string[] | undefined, available: string[]) => {
       const valid = new Set(available);
@@ -888,37 +935,99 @@ const Launcher: React.FC = () => {
       if ((e.target as HTMLElement).closest('[data-launcher-action]')) return;
       const launcherRoot = e.currentTarget;
       const item = (e.target as HTMLElement).closest<HTMLElement>('[data-launcher-item]');
-      if (!item) return;
+      const currentScrollLeft = scrollContainerRef.current?.scrollLeft ?? 0;
+
+      if (!item) {
+          // Background touch: in edit mode, track for page-swipe; outside, ignore.
+          if (!layoutEditing) return;
+          layoutPointer.current = {
+              pointerId: e.pointerId, key: '', kind: 'scroll',
+              x: e.clientX, y: e.clientY, active: false, element: launcherRoot,
+              startPageIndex: activePageIndexRef.current,
+              scrollStartLeft: currentScrollLeft, isScrolling: true,
+          };
+          return;
+      }
+
       const key = item.dataset.launcherItem;
       const kind = item.dataset.launcherKind;
       if (!key || !kind) return;
       clearLayoutPressTimer();
-      layoutPointer.current = { pointerId: e.pointerId, key, kind, x: e.clientX, y: e.clientY, active: layoutEditing, element: item, startPageIndex: activePageIndexRef.current };
+
+      layoutPointer.current = {
+          pointerId: e.pointerId, key, kind, x: e.clientX, y: e.clientY,
+          active: false, element: item,
+          startPageIndex: activePageIndexRef.current,
+          scrollStartLeft: currentScrollLeft,
+      };
+
       if (layoutEditing) {
-          activateLayoutDrag(layoutPointer.current);
-          launcherRoot.setPointerCapture(e.pointerId);
-          e.preventDefault();
-          return;
+          // Edit mode: short press timer (200ms) before drag activates → allows horizontal swipe
+          layoutPressTimer.current = setTimeout(() => {
+              const p = layoutPointer.current;
+              if (!p || p.pointerId !== e.pointerId || p.isScrolling) return;
+              p.active = true;
+              activateLayoutDrag(p);
+              launcherRoot.setPointerCapture(e.pointerId);
+              suppressLayoutClickUntil.current = Date.now() + 400;
+          }, 200);
+      } else {
+          // Normal mode: long press (520ms) to enter edit mode
+          layoutPressTimer.current = setTimeout(() => {
+              if (!layoutPointer.current || layoutPointer.current.pointerId !== e.pointerId) return;
+              layoutPointer.current.active = true;
+              activateLayoutDrag(layoutPointer.current);
+              launcherRoot.setPointerCapture(e.pointerId);
+              isDragging.current = false;
+              suppressLayoutClickUntil.current = Date.now() + 700;
+              setLayoutEditing(true);
+              trackEvent('进入桌面整理模式');
+          }, 520);
       }
-      layoutPressTimer.current = setTimeout(() => {
-          if (!layoutPointer.current || layoutPointer.current.pointerId !== e.pointerId) return;
-          layoutPointer.current.active = true;
-          activateLayoutDrag(layoutPointer.current);
-          launcherRoot.setPointerCapture(e.pointerId);
-          isDragging.current = false;
-          suppressLayoutClickUntil.current = Date.now() + 700;
-          setLayoutEditing(true);
-          trackEvent('进入桌面整理模式');
-      }, 520);
   };
 
   const handleLayoutPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
       const pointer = layoutPointer.current;
       if (!pointer || pointer.pointerId !== e.pointerId) return;
+
+      // ── Manual page-scroll mode (background touch or horizontal swipe detected) ──
+      if (pointer.isScrolling) {
+          const dx = e.clientX - pointer.x;
+          const container = scrollContainerRef.current;
+          if (container && pointer.scrollStartLeft !== undefined) {
+              const newLeft = pointer.scrollStartLeft - dx;
+              container.scrollLeft = newLeft;
+              // Live-update dot indicator
+              const idx = Math.round(newLeft / container.clientWidth);
+              const clamped = Math.max(0, Math.min(totalPages - 1, idx));
+              if (clamped !== activePageIndexRef.current) {
+                  activePageIndexRef.current = clamped;
+                  setActivePageIndex(clamped);
+              }
+          }
+          return;
+      }
+
       if (!pointer.active) {
-          if (Math.hypot(e.clientX - pointer.x, e.clientY - pointer.y) > 9) {
-              clearLayoutPressTimer();
-              layoutPointer.current = null;
+          const dx = Math.abs(e.clientX - pointer.x);
+          const dy = Math.abs(e.clientY - pointer.y);
+          const dist = Math.hypot(dx, dy);
+          if (dist > 8) {
+              if (dx > dy * 1.5 && dx > 10) {
+                  // Horizontal swipe → switch to scroll mode
+                  clearLayoutPressTimer();
+                  pointer.isScrolling = true;
+                  const container = scrollContainerRef.current;
+                  const rawDx = e.clientX - pointer.x;
+                  if (container && pointer.scrollStartLeft !== undefined) {
+                      container.scrollLeft = pointer.scrollStartLeft - rawDx;
+                  }
+              } else if (!layoutEditing) {
+                  // Non-edit mode: any significant movement cancels drag preparation
+                  clearLayoutPressTimer();
+                  layoutPointer.current = null;
+              }
+              // In edit mode with mostly vertical movement: let the timer handle drag
           }
           return;
       }
@@ -953,6 +1062,22 @@ const Launcher: React.FC = () => {
       if (e && pointer && pointer.pointerId !== e.pointerId) return;
       clearLayoutPressTimer();
       clearLayoutPageTurn();
+
+      // If this was a manual scroll gesture, snap to nearest page
+      if (pointer?.isScrolling) {
+          const container = scrollContainerRef.current;
+          if (container) {
+              const page = Math.round(container.scrollLeft / container.clientWidth);
+              const clamped = Math.max(0, Math.min(totalPages - 1, page));
+              container.scrollTo({ left: clamped * container.clientWidth, behavior: 'smooth' });
+              setActivePageIndex(clamped);
+              activePageIndexRef.current = clamped;
+              _lastPageIndex = clamped;
+          }
+          layoutPointer.current = null;
+          return;
+      }
+
       if (pointer?.active) {
           suppressLayoutClickUntil.current = Date.now() + 500;
           pointer.element.style.pointerEvents = '';
@@ -1192,43 +1317,58 @@ const Launcher: React.FC = () => {
             WebkitOverflowScrolling: 'touch',
         }}
       >
-          {/* Screen 0: 负一屏 (-1 屏 / 完整日程小组件页，与原版 WidgetsPage 完全一致) */}
+          {/* Screen 0: 负一屏 — 标准桌面页，app 区 6 行 (4×6 = 24 槽位) */}
           <div
             key="screen-minus-one"
-            className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar"
+            className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-12 pb-8 h-full"
             style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
           >
-              {minusOneWidgets.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-24 text-center opacity-60">
-                      <div className="w-14 h-14 rounded-3xl bg-white/10 flex items-center justify-center mb-3">
-                          <Plus size={24} weight="bold" style={{ color: contentColor }} />
-                      </div>
-                      <div className="text-sm font-bold" style={{ color: contentColor }}>暂无小组件</div>
-                      <div className="text-xs opacity-75 mt-1" style={{ color: contentColor }}>轻触下方按钮添加组件</div>
-                      <button
-                          onClick={() => { setGalleryTarget('minus_one'); setGalleryInitialTab('widgets'); setGalleryOpen(true); }}
-                          className="mt-4 px-4 py-2 rounded-full font-bold text-xs bg-white/20 hover:bg-white/30 active:scale-95 transition"
-                          style={{ color: contentColor }}
-                      >
-                          ＋ 添加小组件
-                      </button>
-                  </div>
-              ) : (
-                  minusOneWidgets.map((widget) => renderWidgetInstance(widget, () => handleRemoveMinusOneWidget(widget.id)))
-              )}
-
-              {minusOneWidgets.length > 0 && layoutEditing && (
-                  <div className="pt-2 pb-6">
-                      <button
-                          onClick={() => { setGalleryTarget('minus_one'); setGalleryInitialTab('widgets'); setGalleryOpen(true); }}
-                          className="w-full py-4 rounded-3xl border-2 border-dashed border-white/30 hover:border-white/50 bg-white/5 hover:bg-white/10 flex items-center justify-center gap-2 text-xs font-bold active:scale-98 transition shadow-xs backdrop-blur-sm"
-                          style={{ color: contentColor }}
-                      >
-                          <Plus size={16} weight="bold" />
-                          <span>添加小组件</span>
-                      </button>
-                  </div>
-              )}
+              {/* 4×6 app grid: show up to 24 slots */}
+              <div className={`grid grid-cols-4 gap-y-6 gap-x-2 place-items-center`}>
+                  {Array.from({ length: 24 }, (_, i) => {
+                      const app = minusOneAppsConfig[i];
+                      if (app) {
+                          return (
+                              <div
+                                  key={app.id}
+                                  data-launcher-item={app.id}
+                                  data-launcher-kind="app"
+                                  className={`relative transition-transform duration-200 active:scale-95 ${layoutEditing ? 'launcher-edit-item' : ''}`}
+                              >
+                                  {layoutEditing && (
+                                      <button
+                                          data-launcher-action="remove"
+                                          onClick={(e) => { e.stopPropagation(); handleRemoveFromMinusOne(app.id); }}
+                                          className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white font-bold text-xs flex items-center justify-center shadow-md active:scale-90 z-30 transition-transform hover:bg-red-600 cursor-pointer"
+                                          title="移除应用"
+                                      >
+                                          <Minus size={11} weight="bold" />
+                                      </button>
+                                  )}
+                                  <AppIcon
+                                      app={app}
+                                      onClick={() => { if (!layoutEditing) openApp(app.id); }}
+                                      size="md"
+                                  />
+                              </div>
+                          );
+                      }
+                      // Empty slot
+                      return layoutEditing ? (
+                          <button
+                              key={`m1-empty-${i}`}
+                              data-launcher-action="gallery"
+                              onClick={() => { setGalleryTarget('minus_one'); setGalleryInitialTab('apps'); setGalleryOpen(true); }}
+                              className="w-14 h-14 rounded-[1.35rem] border-2 border-dashed flex items-center justify-center transition active:scale-95"
+                              style={{ borderColor: `${contentColor}28`, color: `${contentColor}40` }}
+                          >
+                              <Plus size={14} weight="bold" />
+                          </button>
+                      ) : (
+                          <div key={`m1-empty-${i}`} className="w-14 h-14" />
+                      );
+                  })}
+              </div>
           </div>
 
           {/* Render App Pages */}

@@ -162,6 +162,8 @@ export interface OSTheme {
   customVinylSticker?: string;
   /** 负一屏（-1屏）小组件列表。未设置时默认装载日历与纪念日组件。 */
   launcherMinusOneWidgets?: DesktopWidgetInstance[];
+  /** 负一屏（-1屏）App ID 列表（独立于主桌面的 app 池，4×6 共 24 槽）。 */
+  launcherMinusOneApps?: string[];
   /** 自定义新增桌面页面（Page 2+）。 */
   launcherCustomPages?: DesktopCustomPage[];
   /** 桌面已隐藏/删除的 App ID 列表。可在小组件/应用库中重新添加回桌面。 */
