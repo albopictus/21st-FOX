@@ -1848,6 +1848,7 @@ const MessageItem = React.memo(({
     // 无条件解析一次（hook 不能进条件分支）。挂件/头像挂件走 TokenImg，各自组件内解析。
     const bubbleBgUrl = useBlobRefUrl(styleConfig.backgroundImage);
     const [showVoiceText, setShowVoiceText] = useState(false);
+    const [retractRevealed, setRetractRevealed] = useState(false);
     const [openingCollaborationFile, setOpeningCollaborationFile] = useState(false);
     const [replyOffset, setReplyOffset] = useState(0);
     const [isReplyGestureActive, setIsReplyGestureActive] = useState(false);
@@ -2001,6 +2002,43 @@ const MessageItem = React.memo(({
             </div>
         );
     };
+
+    // --- RETRACTED MESSAGE RENDERING ---
+    // 撤回后的消息：居中灰条「X 撤回了一条消息」，点一下展开原文（原文只留在本地，不进 AI 上下文）。
+    if (m.metadata?.retracted) {
+        const rc = m.metadata.retracted as { by: 'user' | 'assistant'; originalContent: string; originalType: string };
+        const who = rc.by === 'assistant' ? charName : '你';
+        return (
+            <div className={`flex flex-col items-center ${marginBottom} w-full animate-fade-in relative transition-[padding] duration-300 ${selectionMode ? 'pl-8' : ''}`}>
+                {selectionMode && (
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer z-20" onClick={() => onToggleSelect(m.id)}>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'border-slate-300 bg-white/80'}`}>
+                            {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
+                        </div>
+                    </div>
+                )}
+                <div className="text-[10px] text-slate-400 mb-1 opacity-70">{formatTime(m.timestamp)}</div>
+                <div
+                    className="text-[11px] text-slate-500 bg-slate-200/50 backdrop-blur-sm px-4 py-1.5 rounded-full flex items-center gap-1.5 border border-white/40 shadow-sm select-none cursor-pointer active:scale-95 transition-transform"
+                    onClick={() => !selectionMode && setRetractRevealed(v => !v)}
+                >
+                    <span className="opacity-80 font-medium">{who}</span>
+                    <span className="opacity-60">撤回了一条消息</span>
+                    <span className="opacity-40 text-[10px]">{retractRevealed ? '收起' : '查看'}</span>
+                </div>
+                {retractRevealed && (
+                    <div className="mt-1.5 max-w-[75%] rounded-2xl bg-slate-100 border border-slate-200 px-3 py-2 text-[12px] text-slate-500 leading-relaxed whitespace-pre-wrap break-words">
+                        {rc.originalType === 'image'
+                            ? <TokenImg value={rc.originalContent} alt="" className="max-h-48 rounded-lg object-contain" loading="lazy" />
+                            : rc.originalType === 'voice' ? '[语音]'
+                            : rc.originalType === 'emoji' ? <TokenImg value={rc.originalContent} alt="" className="w-20 h-20 object-contain" loading="lazy" />
+                            : (rc.originalContent || '[空]')}
+                        <div className="mt-1 text-[9px] text-slate-400">{rc.by === 'assistant' ? 'AI 收到了撤回通知和这条原文' : '原文仅本地可见，AI 只收到「用户撤回了一条消息」'}</div>
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {

@@ -129,6 +129,46 @@ export interface DesktopCustomPage {
   appIds?: string[];
 }
 
+/* ─────────────────────────────────────────────────────────────
+ * 自由网格桌面（Android 式）—— 每页是固定格子矩阵，App 与小组件都按
+ * (x,y,w,h) 摆在格子上，允许任意留空。取代旧的 launcherAppOrder /
+ * launcherCustomPages / launcherMinusOne* / launcherPinwheelOrder。
+ * 详见 utils/desktopGrid.ts。
+ * ───────────────────────────────────────────────────────────── */
+
+/** 网格条目类型。'app' 用 refId 存 AppID；clock/charCard/schedule 是默认锁定的三块。 */
+export type GridItemKind =
+  | 'app'
+  | 'clock'
+  | 'charCard'
+  | 'schedule'
+  | 'music'
+  | 'image'
+  | 'calendar'
+  | 'anniversary'
+  | 'memo';
+
+/** 网格上的一个条目。x/y 是左上角格子坐标（0 起），w/h 是横竖占用格数。 */
+export interface PlacedItem {
+  id: string;
+  kind: GridItemKind;
+  /** kind==='app' 时为 AppID；其余类型忽略。 */
+  refId?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 锁定后不可拖动 / 改大小 / 删除；编辑态点徽标切换。默认预设给 clock/charCard/schedule 打 true。 */
+  locked?: boolean;
+  title?: string;
+  config?: Record<string, any>;
+}
+
+export interface DesktopPage {
+  id: string;
+  items: PlacedItem[];
+}
+
 export interface OSTheme {
   hue: number;
   saturation: number;
@@ -156,6 +196,8 @@ export interface OSTheme {
   launcherWidgets?: Record<string, string>; // slots: 'tl' | 'tr' | 'wide' | 'dsq' (legacy 'bl' / 'br' are banned)
   /** 默认桌面长按编辑后的 App / Dock / 第二页风车组件顺序。 */
   launcherAppOrder?: string[];
+  /** 每页桌面 App ID 列表。例如 page 0 (第1页), page 1 (第2页风车), page 2+ (自定义页)。 */
+  launcherPageApps?: string[][];
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
   /** 黑胶音乐小组件自定义中心旋转贴纸。未设置时显示当前歌曲封面。 */
@@ -166,6 +208,12 @@ export interface OSTheme {
   launcherMinusOneApps?: string[];
   /** 自定义新增桌面页面（Page 2+）。 */
   launcherCustomPages?: DesktopCustomPage[];
+  /**
+   * 自由网格桌面（Android 式）。存在即为已迁移，Launcher 只读这一份；
+   * 不存在时由 migrateLegacyLauncher 从上面那些旧字段算一次并落库。
+   * 页序：[0] = 负一屏，[1] = 主屏，[2+] = 后续页。见 utils/desktopGrid.ts。
+   */
+  launcherPages?: DesktopPage[];
   /** 桌面已隐藏/删除的 App ID 列表。可在小组件/应用库中重新添加回桌面。 */
   launcherHiddenApps?: string[];
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
@@ -3873,15 +3921,29 @@ export interface GameSession {
 
 export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'schedule_card' | 'memo_card' | 'gift';
 
+/**
+ * 撤回标记（metadata.retracted）。撤回后 `Message.content` 会被就地改写成「给 AI 看的那句」：
+ *   - by='user'      → `[用户撤回了一条消息]`（AI 只知道撤回了，看不到原文）
+ *   - by='assistant' → `[你撤回了刚发出的消息，原内容：「…」]`（AI 知道撤回了 + 原文）
+ * 所有 AI 上下文读取口都直接吃改写后的 content，因此天然安全，无需额外过滤。
+ * 原文只留在这里，供 UI 折叠气泡「查看原文」和 5 秒内撤销用。
+ */
+export interface RetractedMeta {
+    by: 'user' | 'assistant';
+    originalContent: string;
+    originalType: MessageType;
+    at: number;
+}
+
 export interface Message {
     id: number;
-    charId: string; 
-    groupId?: string; 
+    charId: string;
+    groupId?: string;
     role: 'user' | 'assistant' | 'system';
     type: MessageType;
     content: string;
     timestamp: number;
-    metadata?: any; 
+    metadata?: any;
     replyTo?: {
         id: number;
         content: string;

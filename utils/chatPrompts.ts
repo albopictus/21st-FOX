@@ -712,6 +712,7 @@ ${uname} 的化身正挂在《彼方》的【${roomName}】${act ? `，状态写
    - 如果用户发送了图片，请对图片内容进行评论。
 6. **可用动作**:
    - 回戳用户: \`[[ACTION:POKE]]\`
+   - 撤回你自己刚说的话: \`[[ACTION:RETRACT]]\` 撤回你上一条消息；\`[[ACTION:RETRACT|2]]\` 撤回往前数第 2 条你自己的消息。用在你说错了、抢答了、或想收回口的时候。别频繁用。
    - 转账: 必须使用且只使用 \`[[ACTION:TRANSFER|to=user|amount=100]]\`（to 固定写 user，金额只写数字）；不要写成 \`[系统: 你向某人转账 100]\` 等系统日志文本。
     - **处理用户转账**: 当历史里出现 \`[[记录:TRANSFER|to=char|...|status=待处理]]\`（用户转给你、还没处理）时，你可以决定收下或退回。收下: \`[[ACTION:TRANSFER_ACCEPT]]\`；退回: \`[[ACTION:TRANSFER_RETURN]]\`。请结合人设和情境自然选择（比如害羞地退回、开心地收下），并配上一句话。
     - **赠送心意礼物**: 当你想向用户表达心意、回赠小惊喜或分享暖心好物时（如亲手做的小甜点、玩偶、随手带的奶茶、手写卡片等），你可以主动使用格式: \`[[ACTION:SEND_GIFT | 礼物名称 | 寄语或你想对ta说的心意]]\`。
@@ -1177,6 +1178,12 @@ ${userProfile.name} 给你反馈时，别当成约束，当成信任——ta 在
             apiMessages: historySlice.map((m, index) => {
                 let content: any = m.content;
                 const timeStr = `[${ChatPrompts.formatDate(m.timestamp, charTz)}]`;
+
+                // 撤回的消息：m.content 已是「给 AI 看的那句」（用户撤回 = 只有通知；AI 自己撤回 = 通知+原文）。
+                // 直接原样带时间戳送出，跳过引用 / 图片 / 卡片等所有分支，避免把占位文本再套一层壳。
+                if (m.metadata?.retracted) {
+                    return { role: m.role, content: `${timeStr} ${m.content}` };
+                }
                 const sourceTag = (() => {
                     const source = m.metadata?.source;
                     if (source === 'call') return '[通话]';

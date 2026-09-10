@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
 import { Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
+import { isRetractable, retractMessageInDb } from '../utils/retractMessage';
 import { processImage, processImageToBlob } from '../utils/file';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
@@ -256,6 +257,10 @@ const Chat: React.FC = () => {
         waterlineAlreadyAhead: boolean;
     } | null>(null);
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+    // 撤回后 5 秒内可撤销：暂存被撤回消息的原始 content / metadata / type
+    const [retractUndo, setRetractUndo] = useState<{ id: number; content: string; metadata: any; type: MessageType } | null>(null);
+    const retractUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => { if (retractUndoTimer.current) clearTimeout(retractUndoTimer.current); }, []);
     const [selectedEmoji, setSelectedEmoji] = useState<Emoji | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<EmojiCategory | null>(null); // For deletion modal
     const [editContent, setEditContent] = useState('');
@@ -2961,6 +2966,47 @@ const Chat: React.FC = () => {
         trackEvent('删除一条消息');
     };
 
+    /** 撤回一条消息：原文就地改写成「给 AI 看的那句」，原文留 metadata.retracted 供 UI 折叠与撤销 */
+    const handleRetractMessage = async () => {
+        if (!selectedMessage || !isRetractable(selectedMessage)) return;
+        const msg = selectedMessage;
+        const by = msg.role === 'assistant' ? 'assistant' : 'user';
+
+        const { aiFacingContent, retracted, originalContent, originalMetadata, originalType } =
+            await retractMessageInDb(msg);
+        // 撤回的语音要连音频一起作废，否则语音条还会播放撤回前的内容
+        if (originalType === 'voice' || by === 'assistant') discardVoiceForMessages([msg.id]);
+        // 同删除：云端 fire_pack 到点会从 DB 重读，必须打脏
+        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+
+        setMessages(prev => prev.map(m => m.id === msg.id
+            ? { ...m, content: aiFacingContent, metadata: { ...(m.metadata || {}), retracted } }
+            : m));
+        setModalType('none');
+        setSelectedMessage(null);
+
+        // 5 秒撤销窗口
+        if (retractUndoTimer.current) clearTimeout(retractUndoTimer.current);
+        setRetractUndo({ id: msg.id, content: originalContent, metadata: originalMetadata, type: originalType });
+        retractUndoTimer.current = setTimeout(() => setRetractUndo(null), 5000);
+
+        trackEvent('撤回一条消息', { by });
+    };
+
+    /** 撤销刚才的撤回：把原始 content / metadata 写回去 */
+    const undoRetract = async () => {
+        if (!retractUndo) return;
+        const { id, content, metadata } = retractUndo;
+        if (retractUndoTimer.current) { clearTimeout(retractUndoTimer.current); retractUndoTimer.current = null; }
+        setRetractUndo(null);
+        await DB.updateMessage(id, content);
+        await DB.updateMessageMetadata(id, () => metadata ?? undefined);
+        discardVoiceForMessages([id]);
+        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, content, metadata } : m));
+        addToast('已恢复', 'success');
+    };
+
     const confirmEditMessage = async () => {
         if (!selectedMessage) return;
         const contentChanged = editContent !== selectedMessage.content;
@@ -3847,7 +3893,7 @@ const Chat: React.FC = () => {
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
-                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage}
+                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onRetractMessage={handleRetractMessage} onCopyMessage={handleCopyMessage}
                 messageFavorited={!!(selectedMessage && contentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)))}
                 onToggleMessageFavorite={selectedMessage ? () => handleToggleContentFavorite(selectedMessage) : undefined}
                 onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
@@ -4417,6 +4463,16 @@ const Chat: React.FC = () => {
                         {/* 引用的是图片 / 表情时这里显示占位符，跟落库的快照同一口径 */}
                         <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{buildReplySnapshotContent(replyTarget)}</span></div>
                         <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
+                    </div>
+                )}
+
+                {/* 撤回后 5 秒撤销条 */}
+                {retractUndo && (
+                    <div className="px-4 pb-1.5 flex justify-center animate-fade-in">
+                        <div className="flex items-center gap-2 bg-slate-800/90 text-white text-xs font-medium px-3.5 py-2 rounded-full shadow-lg">
+                            <span>已撤回一条消息</span>
+                            <button onClick={undoRetract} className="font-bold text-amber-300 active:scale-95 transition-transform">撤销</button>
+                        </div>
                     </div>
                 )}
 

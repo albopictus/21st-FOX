@@ -11,6 +11,8 @@ import { describe, expect, it } from 'vitest';
 //   · OSContext 往 assets 表写 widget_<slot> 时不能按 `data:` 前缀挑着存：令牌不带这个
 //     前缀，挑的结果是图只剩 localStorage 一份，下次启动小组件直接没了。
 const launcherSource = readFileSync(path.resolve(__dirname, '../apps/Launcher.tsx'), 'utf8');
+// DesktopSquareImage 抽到了 components/os/widgets/DesktopImageWidget.tsx（自由网格化）。
+const desktopImageSource = readFileSync(path.resolve(__dirname, '../components/os/widgets/DesktopImageWidget.tsx'), 'utf8');
 const appearanceSource = readFileSync(path.resolve(__dirname, '../apps/Appearance.tsx'), 'utf8');
 const osContextSource = readFileSync(path.resolve(__dirname, '../context/OSContext.tsx'), 'utf8');
 
@@ -33,15 +35,11 @@ describe('桌面小组件图的 blobref 读写路径', () => {
     expect(upload).not.toContain('skipCompression');
   });
 
-  it('桌面（Launcher）的三个槽位都走 TokenImg，不是裸 <img>', () => {
-    // 首页方图（DesktopSquareImage）
-    expect(launcherSource).toContain('<TokenImg value={image} alt="" className="w-full h-full object-cover" loading="lazy" />');
-    expect(launcherSource).not.toContain('<img src={image} alt="" className="w-full h-full object-cover" loading="lazy" />');
-    // 第三页的 tl / tr 与 wide
-    expect(launcherSource).toContain('<TokenImg value={w[key]}');
-    expect(launcherSource).toContain("<TokenImg value={w['wide']}");
-    expect(launcherSource).not.toContain('<img src={w[key]}');
-    expect(launcherSource).not.toContain("<img src={w['wide']}");
+  it('首页方图小组件走 TokenImg，不是裸 <img>', () => {
+    // DesktopImageWidget（原 DesktopSquareImage）。自由网格化后 tl/tr/wide 多槽位
+    // 旧渲染已从 Launcher 删除（由可自由摆放的 image 网格组件取代），只保留 dsq 形态这一处。
+    expect(desktopImageSource).toContain('<TokenImg value={image} alt="" className="w-full h-full object-cover" loading="lazy" />');
+    expect(desktopImageSource).not.toContain('<img src={image} alt="" className="w-full h-full object-cover" loading="lazy" />');
   });
 
   it('外观设置页的槽位缩略图与 DIY 预览都走 TokenImg', () => {
