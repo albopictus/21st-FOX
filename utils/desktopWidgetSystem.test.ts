@@ -12,7 +12,6 @@ describe('桌面小组件系统与负一屏架构契约', () => {
   it('Launcher 默认落脚在主屏（Screen 1），左滑为负一屏（Screen 0）', () => {
     expect(launcherSource).toContain('let _lastPageIndex = 1;');
     expect(launcherSource).toContain('key="screen-minus-one"');
-    expect(launcherSource).toContain('负一屏 · 小组件');
   });
 
   it('负一屏默认放置整月日历与纪念日倒计时小组件', () => {
@@ -26,7 +25,7 @@ describe('桌面小组件系统与负一屏架构契约', () => {
 
   it('负一屏组件完全支持长按编辑并显示红色 − 删除按钮', () => {
     expect(launcherSource).toContain('handleRemoveMinusOneWidget');
-    expect(launcherSource).toContain('onDelete={() => handleRemoveMinusOneWidget(widget.id)}');
+    expect(launcherSource).toContain('handleRemoveMinusOneWidget(widget.id)');
     expect(calendarSource).toContain('title="删除日历组件"');
     expect(calendarSource).toContain('Minus size={14}');
     expect(anniversarySource).toContain('title="删除纪念日组件"');

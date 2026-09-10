@@ -164,6 +164,8 @@ export interface OSTheme {
   launcherMinusOneWidgets?: DesktopWidgetInstance[];
   /** 自定义新增桌面页面（Page 2+）。 */
   launcherCustomPages?: DesktopCustomPage[];
+  /** 桌面已隐藏/删除的 App ID 列表。可在小组件/应用库中重新添加回桌面。 */
+  launcherHiddenApps?: string[];
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */

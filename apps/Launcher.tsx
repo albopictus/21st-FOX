@@ -258,11 +258,13 @@ const AppGridPage = React.memo(({
     openApp,
     acnh = false,
     editing = false,
+    onRemoveApp,
 }: {
     apps: typeof INSTALLED_APPS,
     openApp: (id: AppID) => void,
     acnh?: boolean,
     editing?: boolean,
+    onRemoveApp?: (id: AppID) => void,
 }) => {
     return (
         <div className={`grid place-items-center animate-fade-in relative ${acnh ? 'grid-cols-4 gap-y-6 gap-x-2' : 'grid-cols-4 gap-y-6 gap-x-2'}`}>
@@ -273,6 +275,18 @@ const AppGridPage = React.memo(({
                     data-launcher-kind="app"
                     className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}
                  >
+                     {editing && onRemoveApp && (
+                         <button
+                             onClick={(e) => {
+                                 e.stopPropagation();
+                                 onRemoveApp(app.id);
+                             }}
+                             className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 text-white font-bold text-xs flex items-center justify-center shadow-md active:scale-90 z-30 transition-transform hover:bg-red-600 cursor-pointer"
+                             title="移除应用"
+                         >
+                             <Minus size={11} weight="bold" />
+                         </button>
+                     )}
                      <AppIcon
                         app={app}
                         onClick={() => { if (!editing) openApp(app.id); }}
@@ -285,11 +299,33 @@ const AppGridPage = React.memo(({
 });
 
 // 3b. Small 2x2 app grid for pinwheel cells
-const AppQuadGrid = React.memo(({ apps, openApp, editing = false }: { apps: typeof INSTALLED_APPS, openApp: (id: AppID) => void, editing?: boolean }) => {
+const AppQuadGrid = React.memo(({
+    apps,
+    openApp,
+    editing = false,
+    onRemoveApp,
+}: {
+    apps: typeof INSTALLED_APPS,
+    openApp: (id: AppID) => void,
+    editing?: boolean,
+    onRemoveApp?: (id: AppID) => void,
+}) => {
     return (
         <div className="w-full h-full grid grid-cols-2 grid-rows-2 place-items-center gap-x-2 gap-y-3">
             {apps.map(app => (
                 <div key={app.id} data-launcher-item={app.id} data-launcher-kind="app" className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}>
+                    {editing && onRemoveApp && (
+                        <button
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                onRemoveApp(app.id);
+                            }}
+                            className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white font-bold text-[10px] flex items-center justify-center shadow-md active:scale-90 z-30 transition-transform hover:bg-red-600 cursor-pointer"
+                            title="移除应用"
+                        >
+                            <Minus size={10} weight="bold" />
+                        </button>
+                    )}
                     <AppIcon app={app} onClick={() => { if (!editing) openApp(app.id); }} />
                 </div>
             ))}
@@ -368,7 +404,8 @@ const Launcher: React.FC = () => {
   const [scheduleViewerOpen, setScheduleViewerOpen] = useState(false);
   const [layoutEditing, setLayoutEditing] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
-  const [galleryTarget, setGalleryTarget] = useState<'minus_one' | 'desktop'>('minus_one');
+  const [galleryTarget, setGalleryTarget] = useState<string>('minus_one');
+  const [galleryInitialTab, setGalleryInitialTab] = useState<'widgets' | 'apps'>('widgets');
 
   const minusOneWidgets = useMemo(() => {
       if (theme.launcherMinusOneWidgets !== undefined) {
@@ -389,9 +426,68 @@ const Launcher: React.FC = () => {
           size,
           title,
       };
-      const next = [...minusOneWidgets, newWidget];
-      await updateTheme({ launcherMinusOneWidgets: next });
-  }, [minusOneWidgets, updateTheme]);
+      if (galleryTarget === 'minus_one') {
+          const next = [...minusOneWidgets, newWidget];
+          await updateTheme({ launcherMinusOneWidgets: next });
+      } else {
+          const targetScreen = typeof galleryTarget === 'string' && galleryTarget.startsWith('page_')
+              ? parseInt(galleryTarget.replace('page_', ''), 10)
+              : activePageIndexRef.current;
+          const customPageIdx = Math.max(0, targetScreen - 3);
+          const curCustom = [...(theme.launcherCustomPages || [])];
+          while (curCustom.length <= customPageIdx) {
+              curCustom.push({ id: `page-${Date.now()}-${curCustom.length}`, widgets: [] });
+          }
+          const targetPage = { ...curCustom[customPageIdx] };
+          targetPage.widgets = [...(targetPage.widgets || []), newWidget];
+          curCustom[customPageIdx] = targetPage;
+          await updateTheme({ launcherCustomPages: curCustom });
+      }
+  }, [galleryTarget, minusOneWidgets, theme.launcherCustomPages, updateTheme]);
+
+  const handleRemoveCustomPageWidget = useCallback(async (customPageIdx: number, widgetId: string) => {
+      const curCustom = [...(theme.launcherCustomPages || [])];
+      if (customPageIdx >= 0 && customPageIdx < curCustom.length) {
+          const targetPage = { ...curCustom[customPageIdx] };
+          targetPage.widgets = (targetPage.widgets || []).filter(w => w.id !== widgetId);
+          curCustom[customPageIdx] = targetPage;
+          await updateTheme({ launcherCustomPages: curCustom });
+      }
+  }, [theme.launcherCustomPages, updateTheme]);
+
+  const handleRemoveApp = useCallback(async (appId: string) => {
+      const nextOrder = launcherAppOrderRef.current.filter(id => id !== appId);
+      const nextDock = launcherDockOrderRef.current.filter(id => id !== appId);
+      const curHidden = theme.launcherHiddenApps || [];
+      const nextHidden = Array.from(new Set([...curHidden, appId]));
+
+      launcherAppOrderRef.current = nextOrder;
+      launcherDockOrderRef.current = nextDock;
+      setLauncherAppOrder(nextOrder);
+      setLauncherDockOrder(nextDock);
+
+      await updateTheme({
+          launcherAppOrder: nextOrder,
+          launcherDockOrder: nextDock,
+          launcherHiddenApps: nextHidden,
+      });
+      trackEvent('桌面移除应用');
+  }, [theme.launcherHiddenApps, updateTheme]);
+
+  const handleRestoreApp = useCallback(async (appId: string) => {
+      const curHidden = theme.launcherHiddenApps || [];
+      const nextHidden = curHidden.filter(id => id !== appId);
+      const nextOrder = [...launcherAppOrderRef.current, appId];
+
+      launcherAppOrderRef.current = nextOrder;
+      setLauncherAppOrder(nextOrder);
+
+      await updateTheme({
+          launcherAppOrder: nextOrder,
+          launcherHiddenApps: nextHidden,
+      });
+      trackEvent('桌面恢复应用');
+  }, [theme.launcherHiddenApps, updateTheme]);
 
   const handleAddPage = useCallback(async () => {
       const curCustom = theme.launcherCustomPages || [];
@@ -448,13 +544,15 @@ const Launcher: React.FC = () => {
   // 会让它锁在 mount 时的初值。
   const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
+  const hiddenAppsSet = useMemo(() => new Set(theme.launcherHiddenApps || []), [theme.launcherHiddenApps]);
   const availableGridApps = useMemo(() => {
     return INSTALLED_APPS.filter(app =>
       !DOCK_APPS.includes(app.id)
+      && !hiddenAppsSet.has(app.id)
       // 「捏脸·开发」仅在开发模式（右下角开发徽标可见或手动解锁时）显示
       && (app.id !== AppID.CharCreatorDev || devDebugVisible)
     );
-  }, [devDebugVisible]);
+  }, [devDebugVisible, hiddenAppsSet]);
 
   const normalizeOrder = useCallback((saved: string[] | undefined, available: string[]) => {
       const valid = new Set(available);
@@ -903,6 +1001,90 @@ const Launcher: React.FC = () => {
     );
   }
 
+  const renderWidgetInstance = (widget: DesktopWidgetInstance, onDelete: () => void) => {
+      if (widget.kind === 'calendar') {
+          return (
+              <CalendarWidget
+                  key={widget.id}
+                  contentColor={contentColor}
+                  openApp={openApp}
+                  anniversaries={anniversaries}
+                  acnh={acnh}
+                  paper={paper}
+                  editing={layoutEditing}
+                  onDelete={onDelete}
+              />
+          );
+      }
+      if (widget.kind === 'anniversary') {
+          return (
+              <AnniversaryWidget
+                  key={widget.id}
+                  contentColor={contentColor}
+                  openApp={openApp}
+                  anniversaries={anniversaries}
+                  characters={characters}
+                  acnh={acnh}
+                  paper={paper}
+                  editing={layoutEditing}
+                  onDelete={onDelete}
+              />
+          );
+      }
+      if (widget.kind === 'memo') {
+          return (
+              <MemoHomeWidget
+                  key={widget.id}
+                  contentColor={contentColor}
+                  openApp={openApp}
+                  acnh={acnh}
+                  paper={paper}
+                  editing={layoutEditing}
+                  size={widget.size}
+                  onDelete={onDelete}
+              />
+          );
+      }
+      if (widget.kind === 'music') {
+          return (
+              <div key={widget.id} className="relative group w-full aspect-square max-w-[260px] mx-auto">
+                  {layoutEditing && (
+                      <button
+                          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600 cursor-pointer"
+                          title="删除音乐组件"
+                      >
+                          <Minus size={14} weight="bold" />
+                      </button>
+                  )}
+                  <NowPlayingSquareWidget contentColor={contentColor} />
+              </div>
+          );
+      }
+      if (widget.kind === 'image') {
+          return (
+              <div key={widget.id} className="relative group w-full aspect-square max-w-[260px] mx-auto">
+                  {layoutEditing && (
+                      <button
+                          onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600 cursor-pointer"
+                          title="删除相框"
+                      >
+                          <Minus size={14} weight="bold" />
+                      </button>
+                  )}
+                  <DesktopSquareImage
+                      image={theme.launcherWidgets?.['dsq']}
+                      contentColor={contentColor}
+                      onClick={() => { if (!layoutEditing) openApp(AppID.Appearance); }}
+                      acnh={acnh}
+                  />
+              </div>
+          );
+      }
+      return null;
+  };
+
   return (
     <div
       className="h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none"
@@ -940,20 +1122,35 @@ const Launcher: React.FC = () => {
       `}</style>
 
       {layoutEditing && (
-          <div className="absolute top-[calc(var(--safe-top)+0.65rem)] left-4 right-4 z-50 flex items-center justify-between rounded-full px-3 py-2 backdrop-blur-md"
-              style={{ background: paper ? 'rgba(75,65,54,0.92)' : 'rgba(25,20,32,0.88)', color: '#fffdf8', boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
+          <div className="absolute top-[calc(var(--safe-top)+0.65rem)] left-5 right-5 z-50 flex items-center justify-between pointer-events-none">
               <button
                 onClick={() => {
-                  setGalleryTarget(activePageIndex === 0 ? 'minus_one' : 'desktop');
+                  setGalleryTarget(activePageIndex === 0 ? 'minus_one' : `page_${activePageIndex}`);
+                  setGalleryInitialTab('widgets');
                   setGalleryOpen(true);
                 }}
-                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-white/20 hover:bg-white/30 active:scale-95 transition shadow-xs"
+                className="pointer-events-auto flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-bold backdrop-blur-xl border shadow-lg active:scale-95 transition"
+                style={{
+                  background: paper ? 'rgba(224,221,215,0.75)' : acnh ? 'rgba(250,246,236,0.85)' : 'rgba(255,255,255,0.65)',
+                  color: paper ? '#4a3e31' : acnh ? '#725d42' : '#1e293b',
+                  borderColor: paper ? 'rgba(91,72,51,0.15)' : acnh ? '#e8e2d6' : 'rgba(255,255,255,0.5)',
+                }}
               >
-                <Plus size={13} weight="bold" />
-                <span>小组件</span>
+                <Plus size={14} weight="bold" />
+                <span>添加组件 / 应用</span>
               </button>
-              <span className="text-[10px] font-medium tracking-wide opacity-85">点击 − 移除，按住拖动</span>
-              <button onClick={finishLayoutEditing} className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/20 hover:bg-white/30 active:scale-95 transition">完成</button>
+
+              <button
+                onClick={finishLayoutEditing}
+                className="pointer-events-auto px-4 py-1.5 rounded-full text-xs font-bold shadow-lg active:scale-95 transition backdrop-blur-xl border"
+                style={{
+                  background: paper ? '#788369' : acnh ? '#19c8b9' : '#0f172a',
+                  color: '#ffffff',
+                  borderColor: 'rgba(255,255,255,0.2)',
+                }}
+              >
+                完成
+              </button>
           </div>
       )}
       
@@ -988,37 +1185,21 @@ const Launcher: React.FC = () => {
             WebkitOverflowScrolling: 'touch',
         }}
       >
-          {/* Screen 0: 负一屏 (-1 屏 / 自由小组件看板) */}
+          {/* Screen 0: 负一屏 (-1 屏 / 完整日程小组件页，与原版 WidgetsPage 完全一致) */}
           <div
             key="screen-minus-one"
-            className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-14 pb-28 h-full overflow-y-auto no-scrollbar space-y-4"
+            className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar"
             style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
           >
-              <div className="flex items-center justify-between px-1 mb-1">
-                  <span className="text-[11px] font-black tracking-widest uppercase opacity-75" style={{ color: contentColor }}>
-                      负一屏 · 小组件
-                  </span>
-                  {layoutEditing && (
-                      <button
-                          onClick={() => { setGalleryTarget('minus_one'); setGalleryOpen(true); }}
-                          className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-white/20 hover:bg-white/30 active:scale-95 transition"
-                          style={{ color: contentColor }}
-                      >
-                          <Plus size={12} weight="bold" />
-                          <span>添加组件</span>
-                      </button>
-                  )}
-              </div>
-
               {minusOneWidgets.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-20 text-center opacity-60">
+                  <div className="flex flex-col items-center justify-center py-24 text-center opacity-60">
                       <div className="w-14 h-14 rounded-3xl bg-white/10 flex items-center justify-center mb-3">
                           <Plus size={24} weight="bold" style={{ color: contentColor }} />
                       </div>
-                      <div className="text-sm font-bold" style={{ color: contentColor }}>负一屏暂无小组件</div>
-                      <div className="text-xs opacity-75 mt-1" style={{ color: contentColor }}>长按进入编辑模式，轻触下方按钮添加组件</div>
+                      <div className="text-sm font-bold" style={{ color: contentColor }}>暂无小组件</div>
+                      <div className="text-xs opacity-75 mt-1" style={{ color: contentColor }}>轻触下方按钮添加组件</div>
                       <button
-                          onClick={() => { setGalleryTarget('minus_one'); setGalleryOpen(true); }}
+                          onClick={() => { setGalleryTarget('minus_one'); setGalleryInitialTab('widgets'); setGalleryOpen(true); }}
                           className="mt-4 px-4 py-2 rounded-full font-bold text-xs bg-white/20 hover:bg-white/30 active:scale-95 transition"
                           style={{ color: contentColor }}
                       >
@@ -1026,100 +1207,18 @@ const Launcher: React.FC = () => {
                       </button>
                   </div>
               ) : (
-                  minusOneWidgets.map((widget) => {
-                      if (widget.kind === 'calendar') {
-                          return (
-                              <CalendarWidget
-                                  key={widget.id}
-                                  contentColor={contentColor}
-                                  openApp={openApp}
-                                  anniversaries={anniversaries}
-                                  acnh={acnh}
-                                  paper={paper}
-                                  editing={layoutEditing}
-                                  onDelete={() => handleRemoveMinusOneWidget(widget.id)}
-                              />
-                          );
-                      }
-                      if (widget.kind === 'anniversary') {
-                          return (
-                              <AnniversaryWidget
-                                  key={widget.id}
-                                  contentColor={contentColor}
-                                  openApp={openApp}
-                                  anniversaries={anniversaries}
-                                  characters={characters}
-                                  acnh={acnh}
-                                  paper={paper}
-                                  editing={layoutEditing}
-                                  onDelete={() => handleRemoveMinusOneWidget(widget.id)}
-                              />
-                          );
-                      }
-                      if (widget.kind === 'memo') {
-                          return (
-                              <MemoHomeWidget
-                                  key={widget.id}
-                                  contentColor={contentColor}
-                                  openApp={openApp}
-                                  acnh={acnh}
-                                  paper={paper}
-                                  editing={layoutEditing}
-                                  size={widget.size}
-                                  onDelete={() => handleRemoveMinusOneWidget(widget.id)}
-                              />
-                          );
-                      }
-                      if (widget.kind === 'music') {
-                          return (
-                              <div key={widget.id} className="relative group w-full aspect-square max-w-[260px] mx-auto">
-                                  {layoutEditing && (
-                                      <button
-                                          onClick={(e) => { e.stopPropagation(); handleRemoveMinusOneWidget(widget.id); }}
-                                          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600"
-                                          title="删除音乐组件"
-                                      >
-                                          <Minus size={14} weight="bold" />
-                                      </button>
-                                  )}
-                                  <NowPlayingSquareWidget contentColor={contentColor} />
-                              </div>
-                          );
-                      }
-                      if (widget.kind === 'image') {
-                          return (
-                              <div key={widget.id} className="relative group w-full aspect-square max-w-[260px] mx-auto">
-                                  {layoutEditing && (
-                                      <button
-                                          onClick={(e) => { e.stopPropagation(); handleRemoveMinusOneWidget(widget.id); }}
-                                          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600"
-                                          title="删除相框"
-                                      >
-                                          <Minus size={14} weight="bold" />
-                                      </button>
-                                  )}
-                                  <DesktopSquareImage
-                                      image={theme.launcherWidgets?.['dsq']}
-                                      contentColor={contentColor}
-                                      onClick={() => { if (!layoutEditing) openApp(AppID.Appearance); }}
-                                      acnh={acnh}
-                                  />
-                              </div>
-                          );
-                      }
-                      return null;
-                  })
+                  minusOneWidgets.map((widget) => renderWidgetInstance(widget, () => handleRemoveMinusOneWidget(widget.id)))
               )}
 
               {minusOneWidgets.length > 0 && layoutEditing && (
-                  <div className="flex justify-center pt-2">
+                  <div className="pt-2 pb-6">
                       <button
-                          onClick={() => { setGalleryTarget('minus_one'); setGalleryOpen(true); }}
-                          className="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-xs bg-white/20 hover:bg-white/30 shadow-md active:scale-95 transition backdrop-blur-md"
+                          onClick={() => { setGalleryTarget('minus_one'); setGalleryInitialTab('widgets'); setGalleryOpen(true); }}
+                          className="w-full py-4 rounded-3xl border-2 border-dashed border-white/30 hover:border-white/50 bg-white/5 hover:bg-white/10 flex items-center justify-center gap-2 text-xs font-bold active:scale-98 transition shadow-xs backdrop-blur-sm"
                           style={{ color: contentColor }}
                       >
-                          <Plus size={14} weight="bold" />
-                          <span>添加更多组件</span>
+                          <Plus size={16} weight="bold" />
+                          <span>添加小组件</span>
                       </button>
                   </div>
               )}
@@ -1145,7 +1244,13 @@ const Launcher: React.FC = () => {
                             paper={paper}
                         />
                         <div className="flex-1">
-                            <AppGridPage apps={pageApps} openApp={openApp} acnh={acnh} editing={layoutEditing} />
+                            <AppGridPage
+                                apps={pageApps}
+                                openApp={openApp}
+                                acnh={acnh}
+                                editing={layoutEditing}
+                                onRemoveApp={handleRemoveApp}
+                            />
                         </div>
                       </>
                   ) : idx === 1 ? (
@@ -1172,9 +1277,9 @@ const Launcher: React.FC = () => {
                                       {cell === 'music' ? (
                                           <NowPlayingSquareWidget contentColor={contentColor} />
                                       ) : cell === 'appsA' ? (
-                                          <AppQuadGrid apps={page2QuadA} openApp={openApp} editing={layoutEditing} />
+                                          <AppQuadGrid apps={page2QuadA} openApp={openApp} editing={layoutEditing} onRemoveApp={handleRemoveApp} />
                                       ) : cell === 'appsB' ? (
-                                          <AppQuadGrid apps={page2QuadB} openApp={openApp} editing={layoutEditing} />
+                                          <AppQuadGrid apps={page2QuadB} openApp={openApp} editing={layoutEditing} onRemoveApp={handleRemoveApp} />
                                       ) : (
                                           <DesktopSquareImage
                                               image={theme.launcherWidgets?.['dsq']}
@@ -1188,90 +1293,141 @@ const Launcher: React.FC = () => {
                           </div>
                       </div>
                   ) : (
-                      // Page 3+: Widget Images (idx===2 only) + Free Decorations + Apps
-                      <div className="pt-10 flex-1 flex flex-col relative">
-                          {layoutEditing && idx >= 2 && (
-                              <button
-                                  onClick={() => handleRemovePage(idx + 1)}
-                                  className="absolute top-2 right-0 px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/80 hover:bg-red-500 text-white flex items-center gap-1 shadow-md active:scale-95 transition z-30"
-                                  title="移除此页"
-                              >
-                                  <X size={12} weight="bold" />
-                                  <span>移除此页</span>
-                              </button>
-                          )}
-                          {idx === 2 && (() => {
-                            const raw = theme.launcherWidgets || {};
-                            const w = { ...raw };
-                            const hasAny = w['tl'] || w['tr'] || w['wide'];
-                            const hasTopRow = w['tl'] || w['tr'];
-                            return (
-                              <>
-                                {hasAny && (
-                                  <div className="mb-3 space-y-2 relative z-10">
-                                    {hasTopRow && (
-                                      <div className="flex gap-2">
-                                        {['tl', 'tr'].map(key => w[key] ? (
-                                          <div key={key} className="flex-1 aspect-square rounded-2xl overflow-hidden shadow-md border border-white/20">
-                                            <TokenImg value={w[key]} className="w-full h-full object-cover" alt="" loading="lazy" />
+                      // Page 3+: Apps + Custom Page Widgets + Desktop Grid Slots
+                      (() => {
+                          const customPageIdx = idx - 2;
+                          const customPage = (theme.launcherCustomPages || [])[customPageIdx];
+                          const pageWidgets = customPage?.widgets || [];
+                          return (
+                              <div className="pt-10 flex-1 flex flex-col relative space-y-4">
+                                  {layoutEditing && idx >= 2 && (
+                                      <button
+                                          onClick={() => handleRemovePage(idx + 1)}
+                                          className="absolute top-2 right-0 px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/80 hover:bg-red-500 text-white flex items-center gap-1 shadow-md active:scale-95 transition z-30"
+                                          title="移除此页"
+                                      >
+                                          <X size={12} weight="bold" />
+                                          <span>移除此页</span>
+                                      </button>
+                                  )}
+                                  {idx === 2 && (() => {
+                                    const raw = theme.launcherWidgets || {};
+                                    const w = { ...raw };
+                                    const hasAny = w['tl'] || w['tr'] || w['wide'];
+                                    const hasTopRow = w['tl'] || w['tr'];
+                                    return (
+                                      <>
+                                        {hasAny && (
+                                          <div className="mb-3 space-y-2 relative z-10">
+                                            {hasTopRow && (
+                                              <div className="flex gap-2">
+                                                {['tl', 'tr'].map(key => w[key] ? (
+                                                  <div key={key} className="flex-1 aspect-square rounded-2xl overflow-hidden shadow-md border border-white/20">
+                                                    <TokenImg value={w[key]} className="w-full h-full object-cover" alt="" loading="lazy" />
+                                                  </div>
+                                                ) : <div key={key} className="flex-1"></div>)}
+                                              </div>
+                                            )}
+                                            {w['wide'] && (
+                                              <div className="w-full h-32 rounded-2xl overflow-hidden shadow-md border border-white/20">
+                                                <TokenImg value={w['wide']} className="w-full h-full object-cover" alt="" loading="lazy" />
+                                              </div>
+                                            )}
                                           </div>
-                                        ) : <div key={key} className="flex-1"></div>)}
-                                      </div>
-                                    )}
-                                    {w['wide'] && (
-                                      <div className="w-full h-32 rounded-2xl overflow-hidden shadow-md border border-white/20">
-                                        <TokenImg value={w['wide']} className="w-full h-full object-cover" alt="" loading="lazy" />
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                                {/* Free-positioned Desktop Decorations (z-20 to float above widgets z-10) */}
-                                {theme.desktopDecorations && theme.desktopDecorations.length > 0 && (
-                                  <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
-                                    {theme.desktopDecorations.map(deco => (
-                                      <img
-                                        key={deco.id}
-                                        src={deco.content}
-                                        alt=""
-                                        loading="lazy"
-                                        className="absolute w-16 h-16 object-contain select-none"
-                                        style={{
-                                          left: `${deco.x}%`,
-                                          top: `${deco.y}%`,
-                                          transform: `translate(-50%, -50%) scale(${deco.scale}) rotate(${deco.rotation}deg)${deco.flip ? ' scaleX(-1)' : ''}`,
-                                          opacity: deco.opacity,
-                                          zIndex: deco.zIndex,
-                                          filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))',
-                                        }}
-                                      />
-                                    ))}
-                                  </div>
-                                )}
-                              </>
-                            );
-                          })()}
+                                        )}
+                                        {/* Free-positioned Desktop Decorations (z-20 to float above widgets z-10) */}
+                                        {theme.desktopDecorations && theme.desktopDecorations.length > 0 && (
+                                          <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
+                                            {theme.desktopDecorations.map(deco => (
+                                              <img
+                                                key={deco.id}
+                                                src={deco.content}
+                                                alt=""
+                                                loading="lazy"
+                                                className="absolute w-16 h-16 object-contain select-none"
+                                                style={{
+                                                  left: `${deco.x}%`,
+                                                  top: `${deco.y}%`,
+                                                  transform: `translate(-50%, -50%) scale(${deco.scale}) rotate(${deco.rotation}deg)${deco.flip ? ' scaleX(-1)' : ''}`,
+                                                  opacity: deco.opacity,
+                                                  zIndex: deco.zIndex,
+                                                  filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.15))',
+                                                }}
+                                              />
+                                            ))}
+                                          </div>
+                                        )}
+                                      </>
+                                    );
+                                  })()}
 
-                          <AppGridPage
-                                apps={pageApps}
-                                openApp={openApp}
-                                acnh={acnh}
-                                editing={layoutEditing}
-                          />
-                          <div className="flex-1"></div>
+                                  {/* 渲染本页小组件 */}
+                                  {pageWidgets.map(widget => renderWidgetInstance(widget, () => handleRemoveCustomPageWidget(customPageIdx, widget.id)))}
 
-                          {layoutEditing && idx === appPages.length - 1 && (
-                              <div className="flex justify-center pt-4 pb-2">
-                                  <button
-                                      onClick={handleAddPage}
-                                      className="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-xs bg-white/20 hover:bg-white/30 active:scale-95 transition shadow-md"
-                                      style={{ color: contentColor }}
-                                  >
-                                      <Plus size={14} weight="bold" />
-                                      <span>添加新页面</span>
-                                  </button>
+                                  {/* 渲染本页应用网格 */}
+                                  <AppGridPage
+                                      apps={pageApps}
+                                      openApp={openApp}
+                                      acnh={acnh}
+                                      editing={layoutEditing}
+                                      onRemoveApp={handleRemoveApp}
+                                  />
+
+                                  {/* 编辑模式下的真实手机桌面网格插槽 */}
+                                  {layoutEditing && (
+                                      <div className="space-y-4 pt-2">
+                                          {/* 虚线 App 槽位（4个一排） */}
+                                          <div className="grid grid-cols-4 gap-y-6 gap-x-2 place-items-center">
+                                              {Array.from({ length: Math.max(0, 4 - (pageApps.length % 4 || 4)) || 4 }).map((_, slotIdx) => (
+                                                  <button
+                                                      key={`empty-app-slot-${slotIdx}`}
+                                                      onClick={() => {
+                                                          setGalleryTarget(`page_${idx + 1}`);
+                                                          setGalleryInitialTab('apps');
+                                                          setGalleryOpen(true);
+                                                      }}
+                                                      className="w-14 h-14 rounded-[1.35rem] border-2 border-dashed border-white/30 hover:border-white/50 bg-white/5 hover:bg-white/10 flex flex-col items-center justify-center gap-0.5 active:scale-95 transition cursor-pointer"
+                                                      style={{ color: contentColor }}
+                                                      title="添加应用到此槽位"
+                                                  >
+                                                      <Plus size={16} weight="bold" />
+                                                  </button>
+                                              ))}
+                                          </div>
+
+                                          {/* 虚线小组件添加槽位 */}
+                                          <button
+                                              onClick={() => {
+                                                  setGalleryTarget(`page_${idx + 1}`);
+                                                  setGalleryInitialTab('widgets');
+                                                  setGalleryOpen(true);
+                                              }}
+                                              className="w-full py-3.5 rounded-3xl border-2 border-dashed border-white/30 hover:border-white/50 bg-white/5 hover:bg-white/10 flex items-center justify-center gap-2 text-xs font-bold active:scale-98 transition shadow-xs backdrop-blur-sm"
+                                              style={{ color: contentColor }}
+                                          >
+                                              <Plus size={15} weight="bold" />
+                                              <span>添加小组件到此页</span>
+                                          </button>
+                                      </div>
+                                  )}
+
+                                  <div className="flex-1"></div>
+
+                                  {layoutEditing && idx === appPages.length - 1 && (
+                                      <div className="flex justify-center pt-4 pb-2">
+                                          <button
+                                              onClick={handleAddPage}
+                                              className="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-xs bg-white/20 hover:bg-white/30 active:scale-95 transition shadow-md"
+                                              style={{ color: contentColor }}
+                                          >
+                                              <Plus size={14} weight="bold" />
+                                              <span>添加新页面</span>
+                                          </button>
+                                      </div>
+                                  )}
                               </div>
-                          )}
-                      </div>
+                          );
+                      })()
                   )}
               </div>
           ))}
@@ -1311,6 +1467,18 @@ const Launcher: React.FC = () => {
            >
                {dockAppsConfig.map(app => (
                    <div key={app.id} data-launcher-item={app.id} data-launcher-kind="dock" className={`relative ${layoutEditing ? 'launcher-edit-item' : ''}`}>
+                        {layoutEditing && (
+                            <button
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleRemoveApp(app.id);
+                                }}
+                                className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white font-bold text-[10px] flex items-center justify-center shadow-md active:scale-90 z-30 transition-transform hover:bg-red-600 cursor-pointer"
+                                title="移除应用"
+                            >
+                                <Minus size={10} weight="bold" />
+                            </button>
+                        )}
                         <AppIcon app={app} onClick={() => { if (!layoutEditing) openApp(app.id); }} variant="dock" size="md" />
                         {app.id === 'chat' && totalUnread > 0 && (
                             <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-[9px] flex items-center justify-center border-2 border-white/20 shadow-sm font-bold pointer-events-none animate-pop-in">
@@ -1337,7 +1505,10 @@ const Launcher: React.FC = () => {
           isOpen={galleryOpen}
           onClose={() => setGalleryOpen(false)}
           onSelectWidget={handleAddWidget}
-          targetLabel={galleryTarget === 'minus_one' ? '到负一屏' : '到桌面'}
+          onSelectApp={handleRestoreApp}
+          hiddenAppIds={theme.launcherHiddenApps || []}
+          targetLabel={galleryTarget === 'minus_one' ? '到小组件页' : '到桌面'}
+          initialTab={galleryInitialTab}
           acnh={acnh}
           paper={paper}
       />

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar as CalendarIcon, Minus, Plus } from '@phosphor-icons/react';
+import { Minus } from '@phosphor-icons/react';
 import { Anniversary } from '../../../types';
 
 interface CalendarWidgetProps {
@@ -31,6 +31,10 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
   editing = false,
   onDelete,
 }) => {
+  const acCard = acnh
+    ? { background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)' }
+    : undefined;
+  const acDot = acnh ? '#6fba2c' : undefined;
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth();
@@ -44,9 +48,6 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
 
   const calendarDays = Array.from({ length: totalDays }, (_, i) => i + 1);
   const paddingDays = Array.from({ length: startOffset }, () => null);
-
-  const acCard = acnh ? { background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)' } : undefined;
-  const acDot = acnh ? '#6fba2c' : undefined;
 
   return (
     <div className="relative group w-full select-none">
@@ -65,50 +66,55 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
       )}
 
       <div
-        className={`w-full rounded-3xl p-5 transition-transform ${
-          acnh ? 'shadow-sm' : paper ? '' : 'bg-white/20 backdrop-blur-xl border border-white/25 shadow-xl'
+        className={`rounded-3xl p-6 ${
+          acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'
         }`}
         style={
           paper
             ? {
-                background: 'rgba(224,221,215,0.38)',
-                border: '1px solid rgba(91,72,51,0.08)',
-                boxShadow: '0 5px 16px rgba(91,72,51,0.06)',
+                background: 'rgba(224,221,215,0.36)',
+                border: '1px solid rgba(91,72,51,0.07)',
+                boxShadow: '0 5px 16px rgba(91,72,51,0.05)',
               }
             : acCard
         }
       >
-        <div className="flex justify-between items-center mb-3" style={{ color: contentColor }}>
-          <div className="flex items-center gap-2">
-            <CalendarIcon size={18} className="opacity-80" />
-            <h3 className="text-lg font-black tracking-wider">
-              {monthName} {currentYear}
-            </h3>
-          </div>
-          <button
+        <div className="flex justify-between items-center mb-4" style={{ color: contentColor }}>
+          <h3 className="text-xl font-bold tracking-widest">
+            {monthName} {currentYear}
+          </h3>
+          <div
             onClick={() => openApp('schedule')}
-            className={`p-1.5 rounded-full cursor-pointer transition-colors active:scale-95 ${
+            className={`p-2 rounded-full cursor-pointer transition-colors ${
               acnh
-                ? 'bg-[#82D5BB]/30 hover:bg-[#82D5BB]/50 text-[#725d42]'
+                ? 'bg-[#82D5BB]/30 hover:bg-[#82D5BB]/50'
                 : paper
-                ? 'bg-[#788369]/10 hover:bg-[#788369]/20 text-[#3c3226]'
-                : 'bg-white/20 hover:bg-white/35 text-white'
+                ? 'bg-[#788369]/10 hover:bg-[#788369]/20'
+                : 'bg-white/20 hover:bg-white/40'
             }`}
-            title="查看完整日程与日历"
           >
-            <Plus size={15} weight="bold" />
-          </button>
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              fill="none"
+              viewBox="0 0 24 24"
+              strokeWidth={2}
+              stroke="currentColor"
+              className="w-4 h-4"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+          </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-y-2 gap-x-1 text-center mb-1.5">
+        <div className="grid grid-cols-7 gap-y-3 gap-x-1 text-center mb-2">
           {CALENDAR_WEEKDAYS.map((day) => (
-            <div key={day.key} className="text-[10px] font-bold opacity-45" style={{ color: contentColor }}>
+            <div key={day.key} className="text-[10px] font-bold opacity-40" style={{ color: contentColor }}>
               {day.label}
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-y-1.5 gap-x-1 text-center">
+        <div className="grid grid-cols-7 gap-y-2 gap-x-1 text-center">
           {paddingDays.map((_, i) => (
             <div key={`pad-${i}`} />
           ))}
@@ -120,18 +126,18 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
             return (
               <div
                 key={day}
-                className="flex flex-col items-center justify-center h-7 relative cursor-pointer"
+                className="flex flex-col items-center justify-center h-8 relative cursor-pointer"
                 onClick={() => openApp('schedule')}
               >
                 <div
-                  className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-semibold ${
+                  className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium ${
                     isToday
                       ? acnh
                         ? 'text-white font-bold'
                         : paper
                         ? 'text-white font-bold'
-                        : 'bg-white text-black font-bold shadow-md'
-                      : 'opacity-85'
+                        : 'bg-white text-black font-bold shadow-lg'
+                      : 'opacity-80'
                   }`}
                   style={
                     isToday
@@ -147,7 +153,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
                 </div>
                 {hasEvent && (
                   <div
-                    className="w-1.5 h-1.5 rounded-full absolute bottom-0 shadow-xs border border-black/10"
+                    className="w-1.5 h-1.5 rounded-full absolute bottom-0 shadow-sm border border-black/10"
                     style={{ background: acDot || (paper ? '#a66f52' : '#c084fc') }}
                   />
                 )}
