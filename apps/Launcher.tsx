@@ -881,6 +881,9 @@ const Launcher: React.FC = () => {
 
   const handleLayoutPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
+      // If the touch/click originates from an action button (e.g., red minus delete button)
+      // inside a launcher item, don't activate drag — let the button's onClick fire normally.
+      if ((e.target as HTMLElement).closest('button')) return;
       const launcherRoot = e.currentTarget;
       const item = (e.target as HTMLElement).closest<HTMLElement>('[data-launcher-item]');
       if (!item) return;
