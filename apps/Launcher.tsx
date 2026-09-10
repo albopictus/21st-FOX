@@ -61,21 +61,28 @@ const Launcher: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageGridRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // 正方形格子：格子边长 = 列宽 = (页宽 - 左右 padding - 列间距) / 4。测量后设进 state。
-  const GRID_GAP = 8; // px，对应 className 的 gap-2
-  const [cellPx, setCellPx] = useState(84);
+  // 正方形格子：边长按实际容器自适应 —— 同时满足「4 列塞进宽度」和「8 行塞进高度」，取小的那个。
+  // 夹在 [56, 128] 之间，网格整体水平居中。任何屏幕尺寸都合适。
+  const GRID_GAP = 10; // px
+  const PAGE_PAD_Y = 80; // pt-12 + pb-8 约值
+  const [cellPx, setCellPx] = useState(80);
   useLayoutEffect(() => {
     const measure = () => {
-      const w = scrollContainerRef.current?.clientWidth;
-      if (!w) return;
-      const inner = w - 32 /* px-4 两侧 */ - GRID_GAP * (GRID_COLS - 1);
-      const size = Math.max(48, Math.floor(inner / GRID_COLS));
+      const el = scrollContainerRef.current;
+      const w = el?.clientWidth || 380;
+      const h = el?.clientHeight || 640;
+      const byW = (w - 32 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
+      const byH = (h - PAGE_PAD_Y - GRID_GAP * (GRID_ROWS - 1)) / GRID_ROWS;
+      const size = Math.max(56, Math.min(128, Math.floor(Math.min(byW, byH))));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
+    if (ro && scrollContainerRef.current) ro.observe(scrollContainerRef.current);
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
   }, []);
+  const gridWidthPx = GRID_COLS * cellPx + (GRID_COLS - 1) * GRID_GAP;
 
   // ───────── 页面数据 ─────────
   const validAppIds = useMemo(
@@ -541,11 +548,12 @@ const Launcher: React.FC = () => {
   const renderPageGrid = (page: DesktopPage, pageIndex: number) => (
     <div
       ref={el => { pageGridRefs.current[pageIndex] = el; }}
-      className="relative w-full grid"
+      className="relative grid mx-auto"
       style={{
         gap: `${GRID_GAP}px`,
-        gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
-        // 正方形格子：行高固定 = 列宽（cellPx）。内容顶对齐，不足一整页时下方留白。
+        width: `${gridWidthPx}px`,
+        // 正方形格子：列宽 = 行高 = cellPx 固定，整块居中
+        gridTemplateColumns: `repeat(${GRID_COLS}, ${cellPx}px)`,
         gridTemplateRows: `repeat(${GRID_ROWS}, ${cellPx}px)`,
         gridAutoRows: `${cellPx}px`,
         alignContent: 'start',
@@ -740,8 +748,8 @@ const Launcher: React.FC = () => {
           >
             {pageIndex === 1 ? (
               <>
-                {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删 */}
-                <div className="shrink-0">
+                {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删。宽度与下方网格对齐居中 */}
+                <div className="shrink-0 w-full mx-auto" style={{ maxWidth: `${gridWidthPx}px` }}>
                   <DesktopClockWidget />
                   <CharacterCardWidget
                     char={widgetChar}
