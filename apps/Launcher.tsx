@@ -56,16 +56,11 @@ const Launcher: React.FC = () => {
   const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
 
-  const [activePageIndex, setActivePageIndex] = useState(() => {
-    if (_lastPageIndex < 0) {
-      const pgs = theme.launcherPages || [];
-      const idx = theme.launcherStartPageId ? pgs.findIndex(p => p.id === theme.launcherStartPageId) : -1;
-      _lastPageIndex = idx >= 0 ? idx : 1; // 未设置 / 找不到 → 时钟那页
-    }
-    return Math.max(0, _lastPageIndex);
-  });
+  // 初始页在下面的 useLayoutEffect 里定位（要用到已迁移的 pages + startPageId）。这里先给个占位。
+  const [activePageIndex, setActivePageIndex] = useState(() => Math.max(0, _lastPageIndex < 0 ? 1 : _lastPageIndex));
   const activePageIndexRef = useRef(activePageIndex);
   useEffect(() => { activePageIndexRef.current = activePageIndex; }, [activePageIndex]);
+  const initialScrollDone = useRef(false);
 
   const handleSetStartPage = useCallback((pageId: string) => {
     const cur = theme.launcherStartPageId;
@@ -75,28 +70,9 @@ const Launcher: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageGridRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // 正方形格子：边长按实际容器自适应 —— 同时满足「4 列塞进宽度」和「8 行塞进高度」，取小的那个。
-  // 夹在 [56, 128] 之间，网格整体水平居中。任何屏幕尺寸都合适。
-  const GRID_GAP = 10; // px
-  const PAGE_PAD_Y = 80; // pt-12 + pb-8 约值
-  const [cellPx, setCellPx] = useState(80);
-  useLayoutEffect(() => {
-    const measure = () => {
-      const el = scrollContainerRef.current;
-      const w = el?.clientWidth || 380;
-      const h = el?.clientHeight || 640;
-      const byW = (w - 32 - GRID_GAP * (GRID_COLS - 1)) / GRID_COLS;
-      const byH = (h - PAGE_PAD_Y - GRID_GAP * (GRID_ROWS - 1)) / GRID_ROWS;
-      const size = Math.max(56, Math.min(128, Math.floor(Math.min(byW, byH))));
-      setCellPx(prev => (prev === size ? prev : size));
-    };
-    measure();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
-    if (ro && scrollContainerRef.current) ro.observe(scrollContainerRef.current);
-    window.addEventListener('resize', measure);
-    return () => { ro?.disconnect(); window.removeEventListener('resize', measure); };
-  }, []);
-  const gridWidthPx = GRID_COLS * cellPx + (GRID_COLS - 1) * GRID_GAP;
+  // 网格：默认 4 列 × GRID_ROWS 行，各占等分（1fr），铺满整页。宽屏用 max-width 收窄居中，
+  // 不做 JS 测量自适应（之前那版格子太小、组件文字被截）。
+  const GRID_MAX_W = '27rem';
 
   // ───────── 页面数据 ─────────
   const validAppIds = useMemo(
@@ -204,17 +180,39 @@ const Launcher: React.FC = () => {
   }, [scheduleChar, isDataLoaded, scheduleDateKey]);
 
   // ───────── 横向翻页（滚动壳）─────────
+  // 初始定位：本次会话首次挂载（_lastPageIndex < 0）用 launcherStartPageId 定起始页
+  // （未设置 = 时钟那页 pages[1]）；从 App 返回则回上次浏览页。定位完成前忽略 onScroll，
+  // 免得容器刚挂载时 scrollLeft=0 触发的那次事件把落点覆盖成负一屏。
   useLayoutEffect(() => {
     const el = scrollContainerRef.current;
-    const target = Math.max(0, Math.min(pagesRef.current.length - 1, _lastPageIndex));
-    if (el && target > 0) {
+    const pgs = pagesRef.current;
+    let target: number;
+    if (_lastPageIndex < 0) {
+      const idx = theme.launcherStartPageId
+        ? pgs.findIndex(p => p.id === theme.launcherStartPageId)
+        : -1;
+      target = idx >= 0 ? idx : Math.min(1, pgs.length - 1);
+    } else {
+      target = _lastPageIndex;
+    }
+    target = Math.max(0, Math.min(pgs.length - 1, target));
+    _lastPageIndex = target;
+    activePageIndexRef.current = target;
+    setActivePageIndex(target);
+    if (el) {
       el.style.scrollBehavior = 'auto';
       el.scrollLeft = el.clientWidth * target;
-      requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
+      requestAnimationFrame(() => {
+        el.style.scrollBehavior = 'smooth';
+        initialScrollDone.current = true;
+      });
+    } else {
+      initialScrollDone.current = true;
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleScroll = () => {
+    if (!initialScrollDone.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
     const index = Math.round(el.scrollLeft / el.clientWidth);
@@ -305,9 +303,8 @@ const Launcher: React.FC = () => {
     const el = pageGridRefs.current[pageIndex];
     if (!el) return null;
     const r = el.getBoundingClientRect();
-    const stride = cellPx + GRID_GAP; // 固定正方形格子的步距（getBoundingClientRect 已含滚动偏移）
-    let col = Math.floor((clientX - r.left) / stride);
-    let row = Math.floor((clientY - r.top) / stride);
+    let col = Math.floor((clientX - r.left) / (r.width / GRID_COLS));
+    let row = Math.floor((clientY - r.top) / (r.height / GRID_ROWS));
     col = Math.max(0, Math.min(GRID_COLS - w, col));
     row = Math.max(0, Math.min(GRID_ROWS - h, row));
     return { x: col, y: row };
@@ -574,20 +571,17 @@ const Launcher: React.FC = () => {
     return kind !== 'app' && (m.maxW > m.minW || m.maxH > m.minH);
   };
 
-  // 一页的自由网格（6 行铺满、行距宽松）。主屏(pageIndex===1)把它放在时钟+角色卡表头下面，
-  // 其余页直接铺满整页。
+  // 一页的自由网格：4 列 × GRID_ROWS 行等分铺满整页。宽屏 max-width 收窄居中。
+  // 主屏(pageIndex===1)放在时钟+角色卡表头下面，其余页铺满整页。
   const renderPageGrid = (page: DesktopPage, pageIndex: number) => (
     <div
       ref={el => { pageGridRefs.current[pageIndex] = el; }}
-      className="relative grid mx-auto"
+      className="relative w-full h-full grid gap-2 mx-auto"
       style={{
-        gap: `${GRID_GAP}px`,
-        width: `${gridWidthPx}px`,
-        // 正方形格子：列宽 = 行高 = cellPx 固定，整块居中
-        gridTemplateColumns: `repeat(${GRID_COLS}, ${cellPx}px)`,
-        gridTemplateRows: `repeat(${GRID_ROWS}, ${cellPx}px)`,
-        gridAutoRows: `${cellPx}px`,
-        alignContent: 'start',
+        maxWidth: GRID_MAX_W,
+        gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
+        gridTemplateRows: `repeat(${GRID_ROWS}, 1fr)`,
+        gridAutoRows: '1fr',
       }}
     >
       {page.items.map(item => {
@@ -667,45 +661,6 @@ const Launcher: React.FC = () => {
         />
       )}
 
-      {layoutEditing && (
-        <div className="absolute -bottom-1 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none">
-          {(() => {
-            const isStart = theme.launcherStartPageId
-              ? theme.launcherStartPageId === page.id
-              : pageIndex === 1; // 未设置时时钟那页算默认起始页
-            return (
-              <button
-                onClick={() => handleSetStartPage(page.id)}
-                className={`pointer-events-auto px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-md active:scale-95 ${
-                  isStart ? 'bg-amber-400 text-slate-900' : 'bg-white/25 hover:bg-white/35'
-                }`}
-                style={isStart ? undefined : { color: contentColor }}
-                title={isStart ? '当前起始页 · 再点取消（回默认时钟页）' : '设为开机起始页'}
-              >
-                <House size={11} weight={isStart ? 'fill' : 'regular'} />
-                <span>{isStart ? '起始页' : '设为起始页'}</span>
-              </button>
-            );
-          })()}
-          {page.items.length === 0 && totalPages > 1 && (
-            <button
-              onClick={() => handleRemovePage(pageIndex)}
-              className="pointer-events-auto px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/80 hover:bg-red-500 text-white flex items-center gap-1 shadow-md active:scale-95"
-            >
-              <X size={11} weight="bold" /><span>移除空页</span>
-            </button>
-          )}
-          {pageIndex === totalPages - 1 && (
-            <button
-              onClick={handleAddPage}
-              className="pointer-events-auto px-3 py-1 rounded-full text-[10px] font-bold bg-white/25 hover:bg-white/35 shadow-md active:scale-95"
-              style={{ color: contentColor }}
-            >
-              <Plus size={11} weight="bold" className="inline mr-0.5" />新页面
-            </button>
-          )}
-        </div>
-      )}
     </div>
   );
 
@@ -746,6 +701,43 @@ const Launcher: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* 编辑态：当前页控件（起始页 / 增删页），常驻可见 */}
+      {layoutEditing && (() => {
+        const curPage = pages[activePageIndex];
+        if (!curPage) return null;
+        const isStart = theme.launcherStartPageId
+          ? theme.launcherStartPageId === curPage.id
+          : activePageIndex === 1;
+        return (
+          <div className="absolute top-[calc(var(--safe-top)+3.1rem)] left-0 right-0 z-50 flex items-center justify-center gap-2">
+            <button
+              onClick={() => handleSetStartPage(curPage.id)}
+              className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border ${
+                isStart ? 'bg-amber-400 text-slate-900 border-amber-300' : 'bg-white/70 text-slate-800 border-white/50'
+              }`}
+              title={isStart ? '当前起始页 · 再点取消' : '把「第 ' + (activePageIndex + 1) + ' 页」设为开机起始页'}
+            >
+              <House size={12} weight={isStart ? 'fill' : 'regular'} />
+              {isStart ? '起始页 ✓' : '设为起始页'}
+            </button>
+            {curPage.items.length === 0 && pages.length > 1 && (
+              <button
+                onClick={() => handleRemovePage(activePageIndex)}
+                className="px-3 py-1 rounded-full text-[11px] font-bold bg-red-500/85 text-white flex items-center gap-1 shadow-lg active:scale-95"
+              >
+                <X size={12} weight="bold" />移除空页
+              </button>
+            )}
+            <button
+              onClick={handleAddPage}
+              className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
+            >
+              <Plus size={12} weight="bold" />新页面
+            </button>
+          </div>
+        );
+      })()}
 
       {!acnh && (
         <div className="absolute inset-0 pointer-events-none">
@@ -798,7 +790,7 @@ const Launcher: React.FC = () => {
             {pageIndex === 1 ? (
               <>
                 {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删。宽度与下方网格对齐居中 */}
-                <div className="shrink-0 w-full mx-auto" style={{ maxWidth: `${gridWidthPx}px` }}>
+                <div className="shrink-0 w-full mx-auto" style={{ maxWidth: GRID_MAX_W }}>
                   <DesktopClockWidget />
                   <CharacterCardWidget
                     char={widgetChar}

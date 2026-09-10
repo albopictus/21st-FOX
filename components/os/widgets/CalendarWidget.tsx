@@ -50,7 +50,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
   const paddingDays = Array.from({ length: startOffset }, () => null);
 
   return (
-    <div className="relative group w-full select-none">
+    <div className="relative group w-full h-full select-none">
       {/* 编辑模式下的红色删除按钮 */}
       {editing && onDelete && (
         <button
@@ -59,7 +59,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
             e.stopPropagation();
             onDelete();
           }}
-          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600"
+          className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600"
           title="删除日历组件"
         >
           <Minus size={14} weight="bold" />
@@ -67,7 +67,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
       )}
 
       <div
-        className={`rounded-3xl p-6 ${
+        className={`h-full flex flex-col rounded-3xl p-3 overflow-hidden ${
           acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'
         }`}
         style={
@@ -80,13 +80,13 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
             : acCard
         }
       >
-        <div className="flex justify-between items-center mb-4" style={{ color: contentColor }}>
-          <h3 className="text-xl font-bold tracking-widest">
+        <div className="flex justify-between items-center mb-1.5 shrink-0" style={{ color: contentColor }}>
+          <h3 className="text-sm font-bold tracking-widest">
             {monthName} {currentYear}
           </h3>
           <div
             onClick={() => openApp('schedule')}
-            className={`p-2 rounded-full cursor-pointer transition-colors ${
+            className={`p-1 rounded-full cursor-pointer transition-colors ${
               acnh
                 ? 'bg-[#82D5BB]/30 hover:bg-[#82D5BB]/50'
                 : paper
@@ -94,28 +94,22 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
                 : 'bg-white/20 hover:bg-white/40'
             }`}
           >
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              fill="none"
-              viewBox="0 0 24 24"
-              strokeWidth={2}
-              stroke="currentColor"
-              className="w-4 h-4"
-            >
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-3 h-3">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
             </svg>
           </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-y-3 gap-x-1 text-center mb-2">
+        <div className="grid grid-cols-7 gap-x-1 text-center mb-0.5 shrink-0">
           {CALENDAR_WEEKDAYS.map((day) => (
-            <div key={day.key} className="text-[10px] font-bold opacity-40" style={{ color: contentColor }}>
+            <div key={day.key} className="text-[9px] font-bold opacity-40" style={{ color: contentColor }}>
               {day.label}
             </div>
           ))}
         </div>
 
-        <div className="grid grid-cols-7 gap-y-2 gap-x-1 text-center">
+        {/* 日期网格填满剩余空间：整行整月都塞进容器，行高随大小自适应 */}
+        <div className="grid grid-cols-7 grid-rows-6 gap-x-1 gap-y-0.5 text-center flex-1 min-h-0">
           {paddingDays.map((_, i) => (
             <div key={`pad-${i}`} />
           ))}
@@ -127,15 +121,13 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
             return (
               <div
                 key={day}
-                className="flex flex-col items-center justify-center h-8 relative cursor-pointer"
+                className="flex items-center justify-center relative cursor-pointer min-h-0"
                 onClick={() => openApp('schedule')}
               >
                 <div
-                  className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium ${
+                  className={`aspect-square h-full max-h-7 max-w-7 flex items-center justify-center rounded-full text-xs font-medium ${
                     isToday
-                      ? acnh
-                        ? 'text-white font-bold'
-                        : paper
+                      ? acnh || paper
                         ? 'text-white font-bold'
                         : 'bg-white text-black font-bold shadow-lg'
                       : 'opacity-80'
@@ -154,7 +146,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
                 </div>
                 {hasEvent && (
                   <div
-                    className="w-1.5 h-1.5 rounded-full absolute bottom-0 shadow-sm border border-black/10"
+                    className="w-1 h-1 rounded-full absolute bottom-0 shadow-sm border border-black/10"
                     style={{ background: acDot || (paper ? '#a66f52' : '#c084fc') }}
                   />
                 )}

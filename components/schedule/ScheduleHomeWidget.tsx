@@ -161,6 +161,8 @@ interface ScheduleHomeWidgetProps {
     onOpen: () => void;
     acnh?: boolean;
     paper?: boolean;
+    /** 网格里拉大（h≥3）时展开接下来几段的详细日程 */
+    detailed?: boolean;
 }
 
 export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
@@ -170,6 +172,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
     onOpen,
     acnh = false,
     paper = false,
+    detailed = false,
 }) => {
     const { theme } = useOS();
     // 头像光晕是 CSS 背景，拿不到 <img> 的自动解析，这里在组件顶层先把令牌解开
@@ -403,7 +406,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                             </span>
                         </div>
                         {(currentSlot?.description || nextSlot) && (
-                            <div className="sully-schedule-description text-[10.5px] opacity-55 truncate mt-0.5 leading-snug">
+                            <div className={`sully-schedule-description text-[10.5px] opacity-55 mt-0.5 leading-snug ${detailed ? 'line-clamp-3' : 'truncate'}`}>
                                 {currentSlot?.description ? (
                                     currentSlot.description
                                 ) : nextSlot ? (
@@ -459,6 +462,31 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                         })}
                     </div>
                 )}
+
+                {/* 拉大后：接下来几段的详细日程 */}
+                {detailed && timelineSlots.length > 0 && (() => {
+                    const upcoming = timelineSlots.filter((_, i) => i > currentIdx).slice(0, 4);
+                    return (
+                        <div
+                            className="mt-1 pt-2 border-t space-y-1.5 overflow-hidden"
+                            style={{ borderColor: effectivePaper ? 'rgba(91,72,51,0.10)' : palette.line }}
+                        >
+                            <div className="text-[8px] font-bold tracking-[0.22em] uppercase opacity-45">接下来</div>
+                            {upcoming.length === 0 ? (
+                                <div className="text-[10px] opacity-45">今天的安排到这儿了</div>
+                            ) : upcoming.map((slot, i) => (
+                                <div key={i} className="flex items-start gap-2 text-[10px] leading-snug">
+                                    <span className="font-mono opacity-50 shrink-0 pt-px">{slot.startTime.slice(0, 5)}</span>
+                                    {slot.emoji && <span className="shrink-0">{slot.emoji}</span>}
+                                    <div className="min-w-0 flex-1">
+                                        <span className="font-semibold">{slot.activity}</span>
+                                        {slot.description && <span className="opacity-55"> · {slot.description}</span>}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })()}
             </div>
         </div>
     );

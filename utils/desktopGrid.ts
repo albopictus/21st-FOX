@@ -26,7 +26,7 @@ export const DEFAULT_ITEM_SIZE: Record<GridItemKind, { w: number; h: number }> =
     schedule: { w: 4, h: 2 },
     music: { w: 2, h: 2 },
     image: { w: 2, h: 2 },
-    calendar: { w: 4, h: 2 },
+    calendar: { w: 4, h: 3 },
     anniversary: { w: 4, h: 2 },
     memo: { w: 2, h: 2 },
 };

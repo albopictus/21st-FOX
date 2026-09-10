@@ -66,10 +66,10 @@ export const WIDGET_META: Record<GridItemKind, WidgetMeta> = {
     // 时钟 / 角色卡是主屏表头，Launcher 单独渲染，不做网格条目也不进组件库
     clock:      { minW: 4, minH: 2, maxW: 4, maxH: 4, label: '时钟',   desc: '', singleton: true, galleryHidden: true },
     charCard:   { minW: 3, minH: 1, maxW: 4, maxH: 2, label: '角色卡', desc: '', singleton: true, galleryHidden: true },
-    schedule:   { minW: 3, minH: 2, maxW: 4, maxH: 3, label: '日程',   desc: '角色此刻在做什么 · 点开看全天', singleton: true, defaultLocked: true },
+    schedule:   { minW: 3, minH: 2, maxW: 4, maxH: 4, label: '日程',   desc: '角色此刻在做什么 · 拉大看接下来几段', singleton: true, defaultLocked: true },
     music:      { minW: 2, minH: 2, maxW: 4, maxH: 4, label: '黑胶音乐播放器', desc: '正在播放的歌 + 旋转黑胶，可定制贴纸' },
     image:      { minW: 2, minH: 2, maxW: 4, maxH: 4, label: '相框',   desc: '在桌面上摆一张喜欢的图，点一下换' },
-    calendar:   { minW: 4, minH: 2, maxW: 4, maxH: 3, label: '整月日历', desc: '整月日期与日程标记，轻触直达日程' },
+    calendar:   { minW: 4, minH: 2, maxW: 4, maxH: 4, label: '整月日历', desc: '整月日期与日程标记，轻触直达日程' },
     anniversary:{ minW: 4, minH: 2, maxW: 4, maxH: 3, label: '纪念日与倒计时', desc: '与角色的特殊日子，支持翻页与倒数' },
     memo:       { minW: 2, minH: 2, maxW: 4, maxH: 3, label: '便签',   desc: '置顶与最新想法的小纸条' },
 };
@@ -124,6 +124,7 @@ export const renderGridItemContent = (
                     onOpen={ctx.onOpenSchedule}
                     acnh={ctx.acnh}
                     paper={ctx.paper}
+                    detailed={item.h >= 3}
                 />
             );
         case 'music':
