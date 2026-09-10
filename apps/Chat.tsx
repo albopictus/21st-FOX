@@ -990,8 +990,17 @@ const Chat: React.FC = () => {
             // 有计数、点击却加载不出任何东西的幽灵按钮。倒序游标没取满 fetchLimit 条
             // 即说明该角色的单聊消息已全部在手，此时把总数钳到实际可展示的条数。
             const exhausted = recent.length < fetchLimit;
+            const displayed = chatScopeMsgs.slice(-requestedVisibleCount);
             setTotalMsgCount(exhausted ? chatScopeMsgs.length : totalCount);
-            setMessages(chatScopeMsgs.slice(-requestedVisibleCount));
+            setMessages(displayed);
+
+            const pendingKey = `chat_pending_auto_trigger_${charIdAtStart}`;
+            if (typeof window !== 'undefined' && sessionStorage.getItem(pendingKey)) {
+                sessionStorage.removeItem(pendingKey);
+                setTimeout(() => {
+                    triggerAI(displayed);
+                }, 200);
+            }
         };
         try {
             const { messages: recent, totalCount } = await DB.getRecentMessagesWithCount(activeCharacterId, fetchLimit);
@@ -1010,7 +1019,7 @@ const Chat: React.FC = () => {
                 applyResult(recent, totalCount);
             } catch { /* give up silently */ }
         }
-    }, [activeCharacterId]);
+    }, [activeCharacterId, triggerAI]);
 
     useEffect(() => {
         if (activeCharacterId) {

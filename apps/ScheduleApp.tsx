@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { Task, Anniversary, CharacterProfile, ScheduleEvent, MemoNote } from '../types';
+import { Task, Anniversary, CharacterProfile, ScheduleEvent, MemoNote, AppID, Message } from '../types';
 import Modal from '../components/os/Modal';
 import { ContextBuilder } from '../utils/context';
 import { safeResponseJson } from '../utils/safeApi';
@@ -14,6 +14,14 @@ import { getCalendarDayDifference, getLocalDateKey } from '../utils/localDate';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { trackEvent } from '../utils/analytics';
 import TokenImg from '../components/os/TokenImg';
+import { 
+    BUILTIN_CATEGORIES, 
+    MEMO_FORMAT_TEMPLATES, 
+    getCustomCategories, 
+    addCustomCategory, 
+    deleteCustomCategory, 
+    getDefaultTemplateForCategory 
+} from '../utils/memoTemplates';
 
 const TWEMOJI_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/72x72';
 const twemojiUrl = (codepoint: string) => `${TWEMOJI_BASE}/${codepoint}.png`;
@@ -85,7 +93,7 @@ interface ScheduleAppProps {
 }
 
 const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
-    const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateUserProfile, characterGroups } = useOS();
+    const { closeApp, openApp, setActiveCharacterId, characters, activeCharacterId, apiConfig, addToast, userProfile, updateUserProfile, characterGroups } = useOS();
     const localDateKey = useLocalDateKey();
     const [tasks, setTasks] = useState<Task[]>([]);
     const [anniversaries, setAnniversaries] = useState<ScheduleEvent[]>([]);
@@ -93,6 +101,17 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
     const [activeTab, setActiveTab] = useState<'quest' | 'server_events' | 'memos'>(initialTab || 'server_events');
     const [selectedCategory, setSelectedCategory] = useState<string>('全部');
     const [memoSearchQuery, setMemoSearchQuery] = useState<string>('');
+    
+    // Custom Categories State
+    const [customCategories, setCustomCategories] = useState<string[]>(() => getCustomCategories());
+    const [showCategoryManageModal, setShowCategoryManageModal] = useState(false);
+    const [newCustomCategoryInput, setNewCustomCategoryInput] = useState('');
+
+    // Push to Chat Modal States
+    const [showPushConfirmModal, setShowPushConfirmModal] = useState(false);
+    const [memoToPush, setMemoToPush] = useState<MemoNote | null>(null);
+    const [pushTargetCharId, setPushTargetCharId] = useState<string>(activeCharacterId || '');
+    const [pushCharGroupId, setPushCharGroupId] = useState<string>(GROUP_FILTER_ALL);
     
     // Processing State for feedback
     const [processingTaskIds, setProcessingTaskIds] = useState<Set<string>>(new Set());
@@ -431,8 +450,9 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
     const handleOpenAddMemo = () => {
         setEditingMemo(null);
         setMemoTitle('');
-        setMemoContent('');
-        setMemoCategory('默认');
+        const defaultCat = selectedCategory !== '全部' ? selectedCategory : '默认';
+        setMemoCategory(defaultCat);
+        setMemoContent(getDefaultTemplateForCategory(defaultCat, localDateKey));
         setMemoChar(activeCharacterId || '');
         setMemoPinned(false);
         setShowMemoModal(true);
@@ -448,11 +468,97 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
         setShowMemoModal(true);
     };
 
-    const handleSaveMemo = async () => {
+    const handleChangeMemoCategory = (newCat: string) => {
+        setMemoCategory(newCat);
+        if (!memoContent.trim()) {
+            const tpl = getDefaultTemplateForCategory(newCat, localDateKey);
+            if (tpl) setMemoContent(tpl);
+        }
+    };
+
+    const handleApplyFormatTemplate = (templateId: string) => {
+        const tplObj = MEMO_FORMAT_TEMPLATES.find(t => t.id === templateId);
+        if (!tplObj) return;
+        const textToInsert = tplObj.getTemplate(localDateKey);
+        if (!textToInsert) {
+            if (memoContent.trim() && window.confirm('是否清空当前正文内容？')) {
+                setMemoContent('');
+            }
+            return;
+        }
+
+        if (!memoContent.trim()) {
+            setMemoContent(textToInsert);
+        } else {
+            const choice = window.confirm(`正文已有内容。\n点击【确定】替换正文为【${tplObj.label}】格式\n点击【取消】追加到正文末尾`);
+            if (choice) {
+                setMemoContent(textToInsert);
+            } else {
+                setMemoContent(prev => prev.trimEnd() + '\n\n' + textToInsert);
+            }
+        }
+    };
+
+    const handleAddCustomCategory = () => {
+        const trimmed = newCustomCategoryInput.trim();
+        if (!trimmed) return;
+        const updated = addCustomCategory(trimmed);
+        setCustomCategories(updated);
+        setNewCustomCategoryInput('');
+        addToast(`已添加新分类「${trimmed}」`, 'success');
+    };
+
+    const handleDeleteCustomCategory = (cat: string) => {
+        const updated = deleteCustomCategory(cat);
+        setCustomCategories(updated);
+        if (selectedCategory === cat) setSelectedCategory('全部');
+        addToast(`已删除分类「${cat}」`, 'info');
+    };
+
+    const handlePushMemoToChat = async (targetMemo: MemoNote, overrideCharId?: string) => {
+        const targetId = overrideCharId || targetMemo.charId || activeCharacterId;
+        if (!targetId) {
+            setMemoToPush(targetMemo);
+            setPushTargetCharId(activeCharacterId || (characters[0]?.id ?? ''));
+            setShowPushConfirmModal(true);
+            return;
+        }
+        const targetChar = characters.find(c => c.id === targetId);
+        if (!targetChar) {
+            addToast('未找到对应角色', 'error');
+            return;
+        }
+
+        const previewText = targetMemo.content.slice(0, 200);
+        const userMsg: Message = {
+            id: Date.now(),
+            charId: targetId,
+            role: 'user',
+            type: 'memo_card',
+            content: `[分享便签] 《${targetMemo.title}》\n${targetMemo.content.slice(0, 150)}${targetMemo.content.length > 150 ? '...' : ''}`,
+            timestamp: Date.now(),
+            metadata: {
+                memoId: targetMemo.id,
+                title: targetMemo.title,
+                preview: previewText,
+                authorName: userProfile.name,
+                action: 'share',
+                category: targetMemo.category || '默认',
+            },
+        };
+        await DB.saveMessage(userMsg);
+        sessionStorage.setItem(`chat_pending_auto_trigger_${targetId}`, 'true');
+        addToast(`已将《${targetMemo.title}》发送给 ${targetChar.name}`, 'success');
+        setActiveCharacterId(targetId);
+        openApp(AppID.Chat);
+    };
+
+    const handleSaveMemo = async (andPush = false) => {
         if (!memoTitle.trim() && !memoContent.trim()) return;
         const title = memoTitle.trim() || '无标题备忘';
+        let savedMemo: MemoNote;
         if (editingMemo) {
-            const updated: MemoNote = {
+            savedMemo = {
                 ...editingMemo,
                 title,
                 content: memoContent,
@@ -463,11 +569,11 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
                 lastEditedAt: Date.now(),
                 authorName: userProfile.name,
             };
-            await DB.saveMemoNote(updated);
-            setMemos(prev => prev.map(m => m.id === updated.id ? updated : m).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt));
+            await DB.saveMemoNote(savedMemo);
+            setMemos(prev => prev.map(m => m.id === savedMemo.id ? savedMemo : m).sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt));
             addToast('备忘录已保存', 'success');
         } else {
-            const newMemo: MemoNote = {
+            savedMemo = {
                 id: `memo-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
                 title,
                 content: memoContent,
@@ -478,11 +584,15 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
                 authorName: userProfile.name,
                 createdAt: Date.now(),
             };
-            await DB.saveMemoNote(newMemo);
-            setMemos(prev => [newMemo, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt));
+            await DB.saveMemoNote(savedMemo);
+            setMemos(prev => [savedMemo, ...prev].sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || b.createdAt - a.createdAt));
             addToast('已创建新备忘', 'success');
         }
         setShowMemoModal(false);
+
+        if (andPush) {
+            await handlePushMemoToChat(savedMemo, memoChar || activeCharacterId);
+        }
     };
 
     const handleTogglePinMemo = async (memo: MemoNote, e: React.MouseEvent) => {
@@ -523,12 +633,12 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
     }, [upcomingAnni]);
 
     const memoCategories = useMemo(() => {
-        const set = new Set<string>(['全部', '默认', '灵感', '备忘', '约定', '生活', '秘密']);
+        const set = new Set<string>(['全部', ...BUILTIN_CATEGORIES, ...customCategories]);
         memos.forEach(m => {
             if (m.category) set.add(m.category);
         });
         return Array.from(set);
-    }, [memos]);
+    }, [memos, customCategories]);
 
     const filteredMemos = useMemo(() => {
         return memos.filter(m => {
@@ -731,7 +841,7 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
                                 placeholder="🔍 搜索便签或备忘内容..."
                                 className={`w-full px-3 py-2 text-xs focus:outline-none rounded-xl ${theme.input}`}
                             />
-                            <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1">
+                            <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1 items-center">
                                 {memoCategories.map(cat => (
                                     <button 
                                         key={cat}
@@ -741,6 +851,15 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
                                         {cat}
                                     </button>
                                 ))}
+                                <button
+                                    onClick={() => setShowCategoryManageModal(true)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap transition-all border border-dashed opacity-75 hover:opacity-100 flex items-center gap-1 shrink-0 ${
+                                        currentThemeMode === 'cyber' ? 'border-cyan-700 text-cyan-400 hover:bg-cyan-950/40' : 'border-pink-300 text-pink-500 hover:bg-pink-50'
+                                    }`}
+                                    title="增减自定义标签"
+                                >
+                                    <span>+ 标签</span>
+                                </button>
                             </div>
                         </div>
 
@@ -774,6 +893,13 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
 
                                                 <div className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button 
+                                                        onClick={(e) => { e.stopPropagation(); handlePushMemoToChat(memo); }}
+                                                        className="text-xs p-1 text-slate-400 hover:text-emerald-400"
+                                                        title="推送到聊天框"
+                                                    >
+                                                        📤
+                                                    </button>
+                                                    <button 
                                                         onClick={(e) => handleTogglePinMemo(memo, e)}
                                                         className={`text-xs p-1 ${memo.pinned ? 'text-amber-400' : 'text-slate-400 hover:text-amber-400'}`}
                                                         title={memo.pinned ? "取消置顶" : "置顶"}
@@ -798,7 +924,7 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
                                             </div>
 
                                             {/* Content snippet */}
-                                            <p className={`text-xs leading-relaxed whitespace-pre-wrap line-clamp-4 ${theme.textSub} mb-3`}>
+                                            <p className={`text-xs leading-relaxed whitespace-pre-wrap line-clamp-4 ${theme.textSub} mb-3 font-mono`}>
                                                 {memo.content}
                                             </p>
 
@@ -814,9 +940,20 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
                                                     )}
                                                     <span>{memo.lastEditedBy ? `最后由 ${memo.authorName || (memo.lastEditedBy === 'user' ? userProfile.name : '对方')} 编辑` : `由 ${memo.authorName || '用户'} 创建`}</span>
                                                 </div>
-                                                <span className="font-mono">
-                                                    {new Date(memo.lastEditedAt || memo.createdAt).toLocaleDateString()}
-                                                </span>
+                                                <div className="flex items-center gap-2">
+                                                    <button
+                                                        onClick={(e) => { e.stopPropagation(); handlePushMemoToChat(memo); }}
+                                                        className={`text-[10px] px-1.5 py-0.5 rounded font-medium flex items-center gap-0.5 transition-colors ${
+                                                            currentThemeMode === 'cyber' ? 'bg-cyan-950/80 text-cyan-400 hover:bg-cyan-900 border border-cyan-800/40' : 'bg-pink-50 text-pink-600 hover:bg-pink-100 border border-pink-200'
+                                                        }`}
+                                                        title="推送到与TA的聊天"
+                                                    >
+                                                        <span>📤 推送</span>
+                                                    </button>
+                                                    <span className="font-mono">
+                                                        {new Date(memo.lastEditedAt || memo.createdAt).toLocaleDateString()}
+                                                    </span>
+                                                </div>
                                             </div>
                                         </div>
                                     );
@@ -971,37 +1108,108 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
             {/* Memo Modal (Add / Edit) */}
             <Modal 
                 isOpen={showMemoModal} 
-                title={editingMemo ? (currentThemeMode === 'cyber' ? "EDIT MEMO" : "编辑共享备忘") : (currentThemeMode === 'cyber' ? "NEW MEMO" : "新建共享备忘")} 
+                title={editingMemo ? (currentThemeMode === 'cyber' ? "EDIT MEMO" : "编辑便签") : (currentThemeMode === 'cyber' ? "NEW MEMO" : "新建便签")} 
                 onClose={() => setShowMemoModal(false)} 
-                footer={<button onClick={handleSaveMemo} className={`w-full py-3 font-bold transition-all ${theme.buttonPrimary}`}>{editingMemo ? '保存备忘' : '保存便签'}</button>}
+                footer={
+                    <div className="flex gap-2 w-full">
+                        <button onClick={() => handleSaveMemo(false)} className={`flex-1 py-3 font-bold transition-all text-xs rounded-xl ${theme.buttonPrimary}`}>
+                            {editingMemo ? '💾 保存便签' : '💾 创建便签'}
+                        </button>
+                        <button 
+                            onClick={() => handleSaveMemo(true)} 
+                            className={`py-3 px-4 font-bold transition-all text-xs rounded-xl flex items-center justify-center gap-1.5 shrink-0 ${
+                                currentThemeMode === 'cyber'
+                                    ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                    : 'bg-pink-500 hover:bg-pink-600 text-white'
+                            }`}
+                            title="保存便签并发送给对应角色"
+                        >
+                            <span>📤</span>
+                            <span>推送到聊天</span>
+                        </button>
+                    </div>
+                }
             >
                 <div className={`space-y-4 ${currentThemeMode === 'minimal' ? 'p-2' : ''}`}>
                     <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block tracking-widest">备忘标题</label>
-                        <input value={memoTitle} onChange={e => setMemoTitle(e.target.value)} placeholder="便签标题 (例如: 电影清单 / 秘密清单)" className={`w-full px-4 py-3 text-sm focus:outline-none ${theme.input}`} />
+                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block tracking-widest">便签标题</label>
+                        <input value={memoTitle} onChange={e => setMemoTitle(e.target.value)} placeholder="便签标题 (例如: 约会清单 / 待办事项 / 灵感)" className={`w-full px-4 py-2.5 text-sm focus:outline-none rounded-xl ${theme.input}`} />
                     </div>
 
-                    <div className="flex items-center justify-between gap-3">
-                        <div className="flex-1">
-                            <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block tracking-widest">分类标签</label>
-                            <input value={memoCategory} onChange={e => setMemoCategory(e.target.value)} placeholder="如: 默认 / 灵感 / 约定" className={`w-full px-3 py-2 text-xs focus:outline-none ${theme.input}`} />
+                    <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">分类标签</label>
+                            <button 
+                                type="button" 
+                                onClick={() => setShowCategoryManageModal(true)} 
+                                className={`text-[10px] flex items-center gap-1 hover:underline ${currentThemeMode === 'cyber' ? 'text-cyan-400' : 'text-pink-500'}`}
+                            >
+                                <span>⚙️ 管理标签</span>
+                            </button>
                         </div>
-                        <div className="shrink-0 pt-4">
-                            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
+                        {/* Quick category pills */}
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                            {memoCategories.filter(c => c !== '全部').map(cat => (
+                                <button
+                                    key={cat}
+                                    type="button"
+                                    onClick={() => handleChangeMemoCategory(cat)}
+                                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${
+                                        memoCategory === cat
+                                            ? `${theme.buttonPrimary} shadow-sm`
+                                            : `${theme.card} ${theme.textSub} opacity-75 hover:opacity-100`
+                                    }`}
+                                >
+                                    {cat}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="flex items-center justify-between gap-3">
+                            <input 
+                                value={memoCategory} 
+                                onChange={e => handleChangeMemoCategory(e.target.value)} 
+                                placeholder="或直接输入标签名" 
+                                className={`flex-1 px-3 py-2 text-xs focus:outline-none rounded-xl ${theme.input}`} 
+                            />
+                            <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold shrink-0">
                                 <input type="checkbox" checked={memoPinned} onChange={e => setMemoPinned(e.target.checked)} className="rounded" />
-                                <span>📌 置顶便签</span>
+                                <span>📌 置顶</span>
                             </label>
                         </div>
                     </div>
 
                     <div>
-                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-1 block tracking-widest">便签内容 (长文本)</label>
+                        <div className="flex items-center justify-between mb-1">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">便签正文 (长文本)</label>
+                            <span className="text-[10px] text-slate-400">选择格式模板:</span>
+                        </div>
+
+                        {/* 格式模板快捷栏 */}
+                        <div className="flex gap-1.5 overflow-x-auto no-scrollbar py-1 mb-2">
+                            {MEMO_FORMAT_TEMPLATES.map(tpl => (
+                                <button
+                                    key={tpl.id}
+                                    type="button"
+                                    onClick={() => handleApplyFormatTemplate(tpl.id)}
+                                    className={`px-2 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1 border transition-all shrink-0 ${
+                                        currentThemeMode === 'cyber' 
+                                            ? 'bg-slate-800/80 border-slate-700 text-slate-300 hover:border-cyan-500 hover:text-cyan-400' 
+                                            : 'bg-white border-slate-200 text-slate-700 hover:border-pink-300 hover:text-pink-600 shadow-sm'
+                                    }`}
+                                    title={tpl.description}
+                                >
+                                    <span>{tpl.icon}</span>
+                                    <span>{tpl.label}</span>
+                                </button>
+                            ))}
+                        </div>
+
                         <textarea 
-                            rows={6}
+                            rows={7}
                             value={memoContent} 
                             onChange={e => setMemoContent(e.target.value)} 
-                            placeholder="在这里写下需要记住的事情、双方随时更新的备忘、或者想说的话..." 
-                            className={`w-full px-4 py-3 text-sm focus:outline-none rounded-xl ${theme.input}`} 
+                            placeholder="在这里写下需要记住的事情、待办清单、表格或者想说的话..." 
+                            className={`w-full px-4 py-3 text-xs leading-relaxed focus:outline-none rounded-xl ${theme.input} font-mono`} 
                         />
                     </div>
 
@@ -1016,6 +1224,118 @@ const ScheduleApp: React.FC<ScheduleAppProps> = ({ initialTab }) => {
                             </button>
                             {filterCharactersByGroup(characters, characterGroups, memoCharGroupId).map(c => (
                                 <button key={c.id} onClick={() => setMemoChar(c.id)} className={`flex flex-col items-center gap-2 p-2 rounded-lg border transition-all min-w-[60px] ${memoChar === c.id ? `${currentThemeMode === 'minimal' ? 'shadow-[inset_2px_2px_5px_#d1d9e6,inset_-2px_-2px_5px_#ffffff]' : 'border-current'}` : 'border-transparent opacity-50'}`}>
+                                    <TokenImg value={c.avatar} className="w-10 h-10 rounded-md object-cover" />
+                                    <span className={`text-[10px] font-bold whitespace-nowrap ${theme.text}`}>{c.name}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Category Management Modal */}
+            <Modal
+                isOpen={showCategoryManageModal}
+                title={currentThemeMode === 'cyber' ? "TAG MANAGEMENT" : "管理分类标签"}
+                onClose={() => setShowCategoryManageModal(false)}
+            >
+                <div className={`space-y-4 ${currentThemeMode === 'minimal' ? 'p-2' : ''}`}>
+                    <div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">系统预设分类 (不可删除)</div>
+                        <div className="flex gap-1.5 flex-wrap">
+                            {BUILTIN_CATEGORIES.map(cat => (
+                                <span key={cat} className={`px-2.5 py-1 rounded-lg text-xs font-bold border ${currentThemeMode === 'cyber' ? 'bg-slate-800/80 border-slate-700 text-slate-300' : 'bg-slate-100 border-slate-200 text-slate-700'}`}>
+                                    {cat}
+                                </span>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">自定义标签</div>
+                        {customCategories.length === 0 ? (
+                            <div className="text-xs text-slate-500 py-1">暂无自定义标签，可在下方输入添加</div>
+                        ) : (
+                            <div className="flex gap-1.5 flex-wrap">
+                                {customCategories.map(cat => (
+                                    <span key={cat} className={`px-2.5 py-1 rounded-lg text-xs font-bold border flex items-center gap-1.5 ${currentThemeMode === 'cyber' ? 'bg-cyan-950/60 border-cyan-800/60 text-cyan-300' : 'bg-pink-50 border-pink-200 text-pink-700'}`}>
+                                        <span>{cat}</span>
+                                        <button 
+                                            type="button" 
+                                            onClick={() => handleDeleteCustomCategory(cat)}
+                                            className="text-slate-400 hover:text-red-400 font-bold ml-1 text-sm leading-none"
+                                            title="删除标签"
+                                        >
+                                            ×
+                                        </button>
+                                    </span>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="pt-3 border-t border-slate-700/30">
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">新增自定义标签</label>
+                        <div className="flex gap-2">
+                            <input
+                                value={newCustomCategoryInput}
+                                onChange={e => setNewCustomCategoryInput(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleAddCustomCategory(); }}
+                                placeholder="输入新标签 (如: 灵感 / 游戏 / 秘密)"
+                                className={`flex-1 px-3 py-2 text-xs focus:outline-none rounded-xl ${theme.input}`}
+                            />
+                            <button
+                                type="button"
+                                onClick={handleAddCustomCategory}
+                                className={`px-4 py-2 text-xs font-bold rounded-xl transition-all ${theme.buttonPrimary}`}
+                            >
+                                添加
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Push To Chat Character Picker Modal */}
+            <Modal
+                isOpen={showPushConfirmModal}
+                title="选择推送到哪位角色的聊天"
+                onClose={() => { setShowPushConfirmModal(false); setMemoToPush(null); }}
+                footer={
+                    <button
+                        onClick={() => {
+                            if (memoToPush && pushTargetCharId) {
+                                setShowPushConfirmModal(false);
+                                handlePushMemoToChat(memoToPush, pushTargetCharId);
+                                setMemoToPush(null);
+                            }
+                        }}
+                        disabled={!pushTargetCharId}
+                        className={`w-full py-3 font-bold transition-all text-xs rounded-xl ${theme.buttonPrimary}`}
+                    >
+                        确认推送并打开私聊
+                    </button>
+                }
+            >
+                <div className={`space-y-4 ${currentThemeMode === 'minimal' ? 'p-2' : ''}`}>
+                    {memoToPush && (
+                        <div className={`p-3 rounded-xl border text-xs ${currentThemeMode === 'cyber' ? 'bg-slate-800/50 border-slate-700' : 'bg-slate-50 border-slate-200'}`}>
+                            <div className="font-bold mb-1">📝 《{memoToPush.title}》</div>
+                            <div className="text-slate-400 line-clamp-2 font-mono">{memoToPush.content}</div>
+                        </div>
+                    )}
+
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase mb-2 block tracking-widest">选择目标角色</label>
+                        <CharacterGroupFilterBar characters={characters} groups={characterGroups}
+                            value={pushCharGroupId} onChange={setPushCharGroupId} className="mb-2" />
+                        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+                            {filterCharactersByGroup(characters, characterGroups, pushCharGroupId).map(c => (
+                                <button 
+                                    key={c.id} 
+                                    onClick={() => setPushTargetCharId(c.id)} 
+                                    className={`flex flex-col items-center gap-2 p-2 rounded-lg border transition-all min-w-[65px] ${pushTargetCharId === c.id ? `${currentThemeMode === 'minimal' ? 'shadow-[inset_2px_2px_5px_#d1d9e6,inset_-2px_-2px_5px_#ffffff]' : 'border-current'}` : 'border-transparent opacity-50'}`}
+                                >
                                     <TokenImg value={c.avatar} className="w-10 h-10 rounded-md object-cover" />
                                     <span className={`text-[10px] font-bold whitespace-nowrap ${theme.text}`}>{c.name}</span>
                                 </button>

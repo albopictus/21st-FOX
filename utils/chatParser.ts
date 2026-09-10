@@ -774,6 +774,9 @@ export const ChatParser = {
         }
         content = content.replace(memoEditSingleRegex, '').trim();
 
+        // ─── READ_MEMO (主动调阅备忘录标签兜底剥除) ───
+        content = content.replace(/\[\[READ_MEMO:\s*[\s\S]*?\]\]/g, '').trim();
+
         // ─── ADD_TASK (契约) ───
         const taskRegex = /\[\[ACTION:ADD_TASK\s*\|\s*(.*?)\]\]/g;
         let taskMatch;

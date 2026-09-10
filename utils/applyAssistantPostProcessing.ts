@@ -1484,6 +1484,63 @@ export async function applyAssistantPostProcessing(
 
     aiContent = aiContent.replace(/\[\[READ_NOTE:.*?\]\]/g, '').trim();
 
+    // 5.9c Handle Read Memo Note (调阅共享备忘录全文)
+    const readMemoMatch = aiContent.match(/\[\[READ_MEMO:\s*(.+?)\]\]/);
+    if (!skipSecondPassLLM && readMemoMatch) {
+        const keyword = readMemoMatch[1].trim();
+        console.log('📝 [ReadMemo] AI想调阅备忘录全文:', keyword);
+        try {
+            setDiaryStatus(`正在调阅备忘录: ${keyword}...`);
+            const allMemos = await DB.getAllMemoNotes();
+            const relevantMemos = allMemos.filter(m => !m.charId || m.charId === char.id);
+            const lowerKw = keyword.toLowerCase();
+            const hit = relevantMemos.find(m => m.title.toLowerCase().includes(lowerKw) || lowerKw.includes(m.title.toLowerCase()))
+                     || relevantMemos.find(m => m.content.toLowerCase().includes(lowerKw));
+
+            if (hit) {
+                console.log('📝 [ReadMemo] 成功找到备忘录:', hit.title);
+                setDiaryStatus(`已调阅《${hit.title}》全文...`);
+                const cleanedForMemo = aiContent.replace(/\[\[READ_MEMO:.*?\]\]/g, '').trim() || '让我看看...';
+                const memoMessages = [
+                    ...fullMessages,
+                    { role: 'assistant', content: cleanedForMemo },
+                    { role: 'user', content: `[系统: 你调阅了与${userProfile.name}的共享备忘录《${hit.title}》（分类: ${hit.category || '默认'}）。以下是完整全文内容:\n\n${hit.content}\n\n请你：\n1. 仔细阅读并根据备忘录的完整内容作出回应\n2. 自然地与用户交流，可以讨论清单事项、约定时间或发表看法\n3. 用多条消息回复，保持对话自然\n4. 严禁再输出[[READ_MEMO:...]]标记]` }
+                ];
+                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ model: effectiveApi.model, messages: memoMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                }, 2, 0, { ...apiLogMeta, purpose: '调阅备忘录' });
+                updateTokenUsage(data, historyMsgCount, 'read-memo');
+                aiContent = data.choices?.[0]?.message?.content || '';
+                aiContent = normalizeAiContent(aiContent);
+                addToast(`📝 ${char.name} 查阅了备忘录《${hit.title}》`, 'info');
+            } else {
+                console.log('📝 [ReadMemo] 未找到匹配备忘录:', keyword);
+                setDiaryStatus(`未找到备忘录: ${keyword}...`);
+                const cleanedForNoMemo = aiContent.replace(/\[\[READ_MEMO:.*?\]\]/g, '').trim() || '让我看看...';
+                const noMemoMessages = [
+                    ...fullMessages,
+                    { role: 'assistant', content: cleanedForNoMemo },
+                    { role: 'user', content: `[系统: 你想查看与${userProfile.name}的备忘录《${keyword}》，但备忘录列表中未找到这篇。请你：\n1. 先正常回应用户刚才说的话\n2. 可以自然地提一下，比如"嗯，备忘录里好像没找到这篇"\n3. 继续正常聊天\n4. 严禁再输出[[READ_MEMO:...]]标记]` }
+                ];
+                data = await safeFetchJson(`${baseUrl}/chat/completions`, {
+                    method: 'POST', headers,
+                    body: JSON.stringify({ model: effectiveApi.model, messages: noMemoMessages, temperature: 0.8, max_tokens: 8000, stream: false })
+                }, 2, 0, { ...apiLogMeta, purpose: '调阅备忘录' });
+                updateTokenUsage(data, historyMsgCount, 'read-memo-empty');
+                aiContent = data.choices?.[0]?.message?.content || '';
+                aiContent = normalizeAiContent(aiContent);
+            }
+        } catch (e) {
+            console.error('📝 [ReadMemo] 调阅异常:', e);
+            setDiaryStatus('');
+            await diaryFallbackCall(`你想翻阅备忘录《${keyword}》但调阅遇到了点问题`, /\[\[READ_MEMO:.*?\]\]/g);
+        }
+        setDiaryStatus('');
+    }
+
+    aiContent = aiContent.replace(/\[\[READ_MEMO:.*?\]\]/g, '').trim();
+
     // 5.10 Handle XHS (小红书) Actions
     const xhsConf = resolveXhsConfig(char, realtimeConfig);
 
