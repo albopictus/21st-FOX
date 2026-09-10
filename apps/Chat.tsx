@@ -1627,46 +1627,70 @@ const Chat: React.FC = () => {
         }
     };
 
-    const handleSendGift = async (gift: { id: string; name: string; icon: string; price: number; description?: string }, note: string) => {
+    const handleSendGift = async (gift: { id: string; name: string; icon: string; price?: number; description?: string }, note: string) => {
         if (!char) return;
-        const currentCoins = userProfile.coins ?? 300;
-        if (currentCoins < gift.price) {
-            addToast('金币不足，可通过每日津贴或契约任务获取金币', 'error');
-            return;
-        }
 
-        // 1. 扣除金币
-        updateUserProfile({ coins: currentCoins - gift.price });
-
-        // 2. 存入角色收到的礼物陈列柜
-        const record = {
-            id: `gift_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            giftId: gift.id,
-            giftName: gift.name,
-            icon: gift.icon,
-            cost: gift.price,
-            note: note || undefined,
-            description: gift.description,
-            timestamp: Date.now(),
-            sender: 'user' as const,
-        };
-        const updatedGifts = [record, ...(char.receivedGifts || [])];
-        updateCharacter(char.id, { receivedGifts: updatedGifts });
-
-        // 3. 发送 gift 类型的消息并触发 AI 反应
+        // 发送 gift 类型的消息并触发 AI 反应（去金币化，不自动塞入藏品柜，由用户主动收藏）
         const descText = gift.description ? `（${gift.description}）` : '';
         const contentText = note ? `[送出礼物: ${gift.name}${descText}] “${note}”` : `[送出礼物: ${gift.name}${descText}]`;
         await handleSendText(contentText, 'gift', {
+            giftId: gift.id,
             giftName: gift.name,
             icon: gift.icon,
-            cost: gift.price,
             note: note || undefined,
             description: gift.description,
             sender: 'user',
+            status: 'pending',
         });
 
         addToast(`已送出 ${gift.name} 🎁`, 'success');
     };
+
+    // 用户处理收到的礼物：收下 / 婉拒
+    const handleResolveGift = useCallback(async (msg: Message, action: 'accepted' | 'returned') => {
+        if (!char) return;
+        if (msg.metadata?.receipt) return;
+        if (msg.metadata?.status && msg.metadata.status !== 'pending') return;
+
+        await DB.updateMessageMetadata(msg.id, (prev) => ({ ...(prev || {}), status: action, resolvedAt: Date.now() }));
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'gift',
+            content: action === 'accepted' ? '[已收下礼物]' : '[婉拒了礼物]',
+            metadata: {
+                receipt: action,
+                giftName: msg.metadata?.giftName,
+                icon: msg.metadata?.icon,
+                ref: msg.id
+            },
+        });
+        addToast(action === 'accepted' ? '已收下心意 💝' : '已婉拒礼物', action === 'accepted' ? 'success' : 'info');
+        await reloadMessages(visibleCountRef.current);
+    }, [char, reloadMessages, addToast]);
+
+    // 用户主动将心意礼物收藏进藏品柜
+    const handleCollectGift = useCallback((msg: Message) => {
+        if (!char) return;
+        const currentGifts = char.receivedGifts || [];
+        const colId = `col_${msg.id}`;
+        if (currentGifts.some(g => g.id === colId)) {
+            addToast('该礼物已在心意藏品柜中', 'info');
+            return;
+        }
+        const record: import('../types').ReceivedGiftRecord = {
+            id: colId,
+            giftId: msg.metadata?.giftId || `msg_${msg.id}`,
+            giftName: msg.metadata?.giftName || '心意礼物',
+            icon: msg.metadata?.icon || '🎁',
+            note: msg.metadata?.note,
+            description: msg.metadata?.description,
+            timestamp: msg.timestamp || Date.now(),
+            sender: msg.role === 'assistant' ? 'assistant' : 'user'
+        };
+        updateCharacter(char.id, { receivedGifts: [record, ...currentGifts] });
+        addToast('已收藏到心意藏品柜 ⭐', 'success');
+    }, [char, updateCharacter, addToast]);
 
     const handleClaimAllowance = () => {
         const today = new Date().toISOString().slice(0, 10);
@@ -4170,6 +4194,9 @@ const Chat: React.FC = () => {
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
                             onResolveTransfer={handleResolveTransfer}
+                            onResolveGift={handleResolveGift}
+                            onCollectGift={handleCollectGift}
+                            isGiftCollected={char?.receivedGifts?.some(g => g.id === `col_${m.id}` || (!!m.metadata?.giftId && g.giftId === m.metadata.giftId))}
                             onResolveLifeRecord={handleResolveLifeRecord}
                             onOpenCollaborationFile={handleOpenCollaborationFile}
                             thinkingChainOptions={thinkingChainOptions}

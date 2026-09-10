@@ -218,16 +218,6 @@ export const ChatParser = {
             const rawName = (giftMatch[1] || '').trim();
             const rawNote = (giftMatch[2] || '').trim();
             if (rawName) {
-                const giftRecord = {
-                    id: `gift_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                    giftId: `assistant_gift_${Date.now()}`,
-                    giftName: rawName,
-                    icon: '🎁',
-                    cost: 0,
-                    note: rawNote,
-                    timestamp: Date.now(),
-                    sender: 'assistant' as const,
-                };
                 await persist({
                     charId,
                     role: 'assistant',
@@ -238,24 +228,55 @@ export const ChatParser = {
                         icon: '🎁',
                         cost: 0,
                         note: rawNote,
-                        sender: 'assistant'
+                        sender: 'assistant',
+                        status: 'pending',
                     }
                 });
-                try {
-                    const charObj = await DB.getCharacter(charId);
-                    if (charObj) {
-                        const existingGifts = charObj.receivedGifts || [];
-                        await DB.saveCharacter({
-                            ...charObj,
-                            receivedGifts: [giftRecord, ...existingGifts]
-                        });
-                    }
-                } catch (e) {
-                    console.warn('[chatParser] Failed to save character receivedGifts:', e);
-                }
             }
         }
         content = content.replace(giftRegex, '').trim();
+
+        // GIFT_ACCEPT / GIFT_RETURN — 角色收下或退回用户最近一件待处理的礼物
+        const resolveUserGift = async (action: 'accepted' | 'returned') => {
+            let giftName: string | undefined;
+            let icon: string | undefined;
+            let refId: number | undefined;
+            try {
+                const all = await DB.getMessagesByCharId(charId, true);
+                const pendings = all.filter(
+                    x => x.type === 'gift' && x.role === 'user' && !x.metadata?.receipt
+                        && (!x.metadata?.status || x.metadata.status === 'pending'),
+                );
+                const pending = pendings[pendings.length - 1];
+                if (pending) {
+                    giftName = pending.metadata?.giftName;
+                    icon = pending.metadata?.icon;
+                    refId = pending.id;
+                    await DB.updateMessageMetadata(pending.id, (prev) => ({ ...(prev || {}), status: action, resolvedAt: Date.now() }));
+                }
+            } catch (e) {
+                console.warn('[Gift] 查待处理礼物失败:', e);
+                return;
+            }
+            if (refId === undefined) return;
+            await persist({
+                charId, role: 'assistant', type: 'gift',
+                content: action === 'accepted' ? '[已收下礼物]' : '[婉拒了礼物]',
+                metadata: { receipt: action, giftName, icon, ref: refId },
+            });
+        };
+
+        const giftAcceptRegex = /\[\[(?:ACTION:)?(?:GIFT_ACCEPT|ACCEPT_GIFT)\]\]/gi;
+        if (giftAcceptRegex.test(content)) {
+            await resolveUserGift('accepted');
+            content = content.replace(giftAcceptRegex, '').trim();
+        }
+
+        const giftReturnRegex = /\[\[(?:ACTION:)?(?:GIFT_RETURN|RETURN_GIFT)\]\]/gi;
+        if (giftReturnRegex.test(content)) {
+            await resolveUserGift('returned');
+            content = content.replace(giftReturnRegex, '').trim();
+        }
 
         // TRANSFER_ACCEPT / TRANSFER_RETURN — char 收下 / 退回 user 最近一笔待处理的转账。
         // 找最近一条 user 发出、还没被收/退、且不是回执卡本身的转账，标记状态并补一张回执小卡。

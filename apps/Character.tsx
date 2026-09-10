@@ -1855,11 +1855,18 @@ ${isInitialGeneration ? `
                                                        </div>
                                                    </div>
 
-                                                   {gift.cost > 0 && (
-                                                       <span className="text-[11px] font-bold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200/60 shrink-0">
-                                                           🪙 {gift.cost}
-                                                       </span>
-                                                   )}
+                                                   <button
+                                                        onClick={() => {
+                                                            const nextGifts = (formData.receivedGifts || []).filter(g => g.id !== gift.id);
+                                                            setFormData(prev => ({ ...prev, receivedGifts: nextGifts }));
+                                                            updateCharacter(formData.id, { receivedGifts: nextGifts });
+                                                            addToast('已移出心意藏品', 'info');
+                                                        }}
+                                                        className="w-7 h-7 rounded-full bg-white/80 hover:bg-rose-50 text-slate-400 hover:text-rose-500 flex items-center justify-center text-xs transition-all active:scale-90 border border-slate-100 shrink-0"
+                                                        title="移出藏品"
+                                                    >
+                                                        ✕
+                                                    </button>
                                                </div>
 
                                                {gift.description && (

@@ -83,29 +83,25 @@ describe('Custom Gift & Coins Feature (Furniture Pattern)', () => {
         const text = normalizeMessageContent(msg, 'Sully', '小明');
         expect(text).toContain('小明 向 Sully 赠送了「草莓甜甜圈」');
         expect(text).toContain('（松软可口、草莓果酱夹心）');
-        expect(text).toContain('价值 20 金币');
         expect(text).toContain('附言：“请你吃下午茶！”');
     });
 
-    it('normalizeMessageContent formats assistant gift message for LLM context', () => {
+    it('normalizeMessageContent formats gift receipt message for LLM context', () => {
         const msg: Message = {
             id: 2,
             charId: 'sully',
             role: 'assistant',
             type: 'gift',
-            content: '[收到礼物: 星空明信片]',
+            content: '[已收下礼物]',
             timestamp: 1700000000000,
             metadata: {
-                giftName: '星空明信片',
-                icon: '🌌',
-                cost: 0,
-                note: '在彼方看到的美丽景色，寄给你～',
+                receipt: 'accepted',
+                giftName: '草莓甜甜圈',
                 sender: 'assistant'
             }
         };
         const text = normalizeMessageContent(msg, 'Sully', '小明');
-        expect(text).toContain('Sully 向 小明 赠送了「星空明信片」');
-        expect(text).toContain('附言：“在彼方看到的美丽景色，寄给你～”');
+        expect(text).toContain('[礼物回执] Sully收下了礼物「草莓甜甜圈」');
     });
 });
 

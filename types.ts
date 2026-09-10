@@ -3213,7 +3213,7 @@ export interface CustomGiftItem {
     id: string;
     name: string;
     image: string;       // 图床 URL、blobref 令牌或 data: URI
-    price: number;       // 金币价值
+    price?: number;      // 价值（已去金币化，可选）
     description?: string;// 礼物细节描述（供 AI 角色感知）
     defaultNote?: string;// 默认留言
     createdAt?: number;
@@ -3224,7 +3224,7 @@ export interface ReceivedGiftRecord {
     giftId: string;
     giftName: string;
     icon: string;
-    cost: number;
+    cost?: number;
     note?: string;
     description?: string;
     timestamp: number;

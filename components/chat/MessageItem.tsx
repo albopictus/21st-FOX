@@ -1181,22 +1181,42 @@ const GiftCard: React.FC<{
     charName: string;
     commonLayout: (content: React.ReactNode) => JSX.Element;
     selectionMode: boolean;
-}> = ({ m, isUser, charName, commonLayout, selectionMode }) => {
+    onResolveGift?: (m: Message, action: 'accepted' | 'returned') => void;
+    onCollectGift?: (m: Message) => void;
+    isCollected?: boolean;
+}> = ({ m, isUser, charName, commonLayout, selectionMode, onResolveGift, onCollectGift, isCollected }) => {
     const [open, setOpen] = useState(false);
     const meta = m.metadata || {};
     const giftName = meta.giftName || meta.name || '心意礼物';
     const icon = meta.icon || meta.image || '🎁';
-    const cost = meta.cost ?? meta.price;
     const note = meta.note || (m.content !== '[心意礼物]' && m.content !== '[收到礼物]' ? m.content : '');
     const isAssistant = m.role === 'assistant';
     const hasImage = isImageValue(icon);
+    const status: 'pending' | 'accepted' | 'returned' = meta.status || (isAssistant ? 'pending' : 'accepted');
+    const resolved = status !== 'pending';
+    const canResolve = isAssistant && !resolved && !!onResolveGift;
 
-    const timeStr = (() => {
-        try {
-            const d = new Date(m.timestamp || Date.now());
-            return `${d.getMonth() + 1}月${d.getDate()}日 ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-        } catch { return ''; }
-    })();
+    // 回执小卡片渲染（类似转账回执）
+    if (meta.receipt) {
+        const accepted = meta.receipt === 'accepted';
+        const actor = isUser ? '你' : charName;
+        return (
+            <div className="flex items-center justify-center my-1.5 animate-fade-in">
+                <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-100/90 border border-slate-200/70 text-slate-600 text-xs shadow-xs">
+                    <span className="text-sm">{accepted ? '💝' : '↩️'}</span>
+                    <span className="font-medium">{actor}{accepted ? '收下了礼物' : '退回了礼物'}</span>
+                    {giftName && <span className="font-bold text-slate-800">「{giftName}」</span>}
+                </div>
+            </div>
+        );
+    }
+
+    const statusBadge = status === 'accepted' ? '已收下' : status === 'returned' ? '已退回' : isAssistant ? '待查收' : '已送出';
+
+    const handleResolve = (action: 'accepted' | 'returned') => {
+        onResolveGift?.(m, action);
+        setOpen(false);
+    };
 
     return (
         <>
@@ -1207,41 +1227,40 @@ const GiftCard: React.FC<{
                         e.stopPropagation();
                         setOpen(true);
                     }}
-                    className={`px-4 py-3.5 rounded-2xl shadow-sm border max-w-[280px] w-fit cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98] ${
-                        isAssistant
-                            ? 'bg-gradient-to-br from-amber-50 via-rose-50/60 to-pink-50 border-rose-200/80 text-slate-700'
-                            : 'bg-gradient-to-br from-rose-50 via-pink-50/70 to-orange-50/50 border-rose-200/80 text-slate-700'
+                    className={`px-4 py-3 rounded-2xl shadow-xs border max-w-[260px] w-fit cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.98] ${
+                        resolved
+                            ? 'bg-slate-50/90 border-slate-200/80 text-slate-600'
+                            : 'bg-white border-purple-100 shadow-sm text-slate-700'
                     }`}
                 >
-                    <div className="flex items-center justify-between gap-3 border-b border-rose-100/70 pb-2 mb-2">
-                        <div className="flex items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-3">
+                        <div className="w-11 h-11 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 overflow-hidden">
                             {hasImage ? (
-                                <TokenImg
-                                    value={icon}
-                                    alt={giftName}
-                                    className="w-10 h-10 object-contain rounded-xl bg-white/80 p-0.5 border border-rose-100 shrink-0"
-                                />
+                                <TokenImg value={icon} alt={giftName} className="w-full h-full object-contain p-1" />
                             ) : (
-                                <span className="text-2xl shrink-0 filter drop-shadow-sm">{icon}</span>
+                                <span className="text-2xl">{icon}</span>
                             )}
-                            <div className="min-w-0">
-                                <div className="text-[10px] text-rose-500 font-semibold">
-                                    {isAssistant ? `${charName} 送你的礼物` : '你送出的礼物'}
-                                </div>
-                                <div className="text-sm font-bold text-slate-800 truncate">
-                                    {giftName}
-                                </div>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-1.5">
+                                <span className="text-xs font-bold text-slate-800 truncate">{giftName}</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                                    status === 'accepted' ? 'bg-emerald-50 text-emerald-600'
+                                    : status === 'returned' ? 'bg-slate-100 text-slate-400'
+                                    : 'bg-purple-50 text-purple-600'
+                                }`}>
+                                    {statusBadge}
+                                </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                                {isAssistant ? `${charName} 送你的心意` : '赠予的心意'}
                             </div>
                         </div>
-                        {cost !== undefined && cost > 0 && (
-                            <span className="text-[10px] font-extrabold text-amber-700 bg-amber-100/70 px-2 py-0.5 rounded-full shrink-0 border border-amber-200/50">
-                                🪙 {cost}
-                            </span>
-                        )}
                     </div>
 
                     {note && (
-                        <div className="text-xs text-slate-600 leading-relaxed bg-white/75 backdrop-blur-sm rounded-xl px-2.5 py-1.5 border border-rose-100/60 break-words">
+                        <div className="mt-2 text-xs text-slate-600 bg-slate-50/80 rounded-xl px-2.5 py-1.5 border border-slate-100/80 break-words">
                             “{note}”
                         </div>
                     )}
@@ -1256,55 +1275,72 @@ const GiftCard: React.FC<{
                 >
                     <div
                         onClick={(e) => e.stopPropagation()}
-                        className="bg-white rounded-3xl w-full max-w-sm p-6 shadow-2xl border border-rose-100 text-center relative overflow-hidden"
+                        className="bg-white rounded-[32px] w-full max-w-[320px] p-6 shadow-2xl border border-slate-100 text-center relative animate-scale-up"
                     >
-                        {/* Decorative background glow */}
-                        <div className="absolute -top-12 -right-12 w-32 h-32 bg-rose-200/40 rounded-full blur-2xl pointer-events-none" />
-                        <div className="absolute -bottom-12 -left-12 w-32 h-32 bg-amber-200/40 rounded-full blur-2xl pointer-events-none" />
+                        <button
+                            onClick={() => setOpen(false)}
+                            className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 text-xs w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-100"
+                        >
+                            ✕
+                        </button>
 
-                        {/* Gift Icon / Image Display */}
-                        <div className="relative inline-block my-2">
-                            <div className="w-24 h-24 rounded-2xl bg-gradient-to-tr from-rose-100 via-pink-50 to-amber-100 flex items-center justify-center mx-auto shadow-inner border border-rose-200 overflow-hidden p-2">
-                                {hasImage ? (
-                                    <TokenImg
-                                        value={icon}
-                                        alt={giftName}
-                                        className="w-full h-full object-contain filter drop-shadow-sm"
-                                    />
-                                ) : (
-                                    <span className="text-4xl filter drop-shadow-md">{icon}</span>
-                                )}
-                            </div>
+                        <div className="w-20 h-20 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mx-auto overflow-hidden p-2 mt-2">
+                            {hasImage ? (
+                                <TokenImg value={icon} alt={giftName} className="w-full h-full object-contain" />
+                            ) : (
+                                <span className="text-4xl">{icon}</span>
+                            )}
                         </div>
 
-                        <div className="text-[11px] font-bold text-rose-500 uppercase tracking-widest mt-1">
-                            {isAssistant ? `${charName} 的心意` : '赠予心意'}
+                        <h3 className="text-base font-bold text-slate-800 mt-3">{giftName}</h3>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                            {isAssistant ? `${charName} 的心意` : `赠予 ${charName}`}
                         </div>
-                        <h3 className="text-lg font-bold text-slate-800 mt-0.5">{giftName}</h3>
-                        {cost !== undefined && cost > 0 && (
-                            <div className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 bg-amber-50 px-3 py-1 rounded-full border border-amber-200 mt-2">
-                                <span>🪙</span>
-                                <span>价值 {cost} 金币</span>
+
+                        {meta.description && (
+                            <div className="mt-3 text-xs text-slate-500 leading-relaxed px-2">
+                                {meta.description}
                             </div>
                         )}
 
                         {note && (
-                            <div className="mt-4 p-3.5 bg-rose-50/50 rounded-2xl border border-rose-100/70 text-xs text-slate-700 leading-relaxed text-left break-words">
-                                <div className="text-[10px] text-rose-400 font-bold mb-1">💌 附带寄语:</div>
+                            <div className="mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-700 italic break-words">
                                 “{note}”
                             </div>
                         )}
 
-                        <div className="mt-3 text-[10px] text-slate-400">
-                            {timeStr && `记录于 ${timeStr}`}
-                        </div>
+                        {/* 状态操作区 */}
+                        <div className="mt-5 space-y-2">
+                            {canResolve ? (
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => handleResolve('returned')}
+                                        className="flex-1 py-2.5 rounded-2xl text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all"
+                                    >
+                                        ↩️ 婉拒
+                                    </button>
+                                    <button
+                                        onClick={() => handleResolve('accepted')}
+                                        className="flex-1 py-2.5 rounded-2xl text-xs font-bold text-white bg-[#a855f7] hover:bg-[#9333ea] shadow-md shadow-purple-200 active:scale-95 transition-all"
+                                    >
+                                        💝 收下
+                                    </button>
+                                </div>
+                            ) : null}
 
-                        <button
-                            onClick={() => setOpen(false)}
-                            className="mt-5 w-full py-2.5 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 text-white font-bold text-xs shadow-md shadow-rose-200 hover:opacity-95 active:scale-95 transition-all"
-                        >
-                            收入心意藏品
-                        </button>
+                            {/* 收藏进藏品柜按钮 */}
+                            <button
+                                onClick={() => onCollectGift?.(m)}
+                                disabled={isCollected}
+                                className={`w-full py-2.5 rounded-2xl text-xs font-bold transition-all active:scale-95 ${
+                                    isCollected
+                                        ? 'bg-amber-50 text-amber-600 border border-amber-200 cursor-default'
+                                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                                }`}
+                            >
+                                {isCollected ? '⭐ 已在心意藏品柜' : '⭐ 收藏进心意柜'}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}
@@ -1683,6 +1719,11 @@ interface MessageItemProps {
     onLuckinCandidate?: (item: import('./LuckinCard').LuckinCartItem) => void;
     /** 用户点「收到的转账」卡 → 接收 / 退回 */
     onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
+    /** 用户处理收到的礼物 → 接收 / 婉拒 */
+    onResolveGift?: (m: Message, action: 'accepted' | 'returned') => void;
+    /** 用户主动收藏礼物进心意柜 */
+    onCollectGift?: (m: Message) => void;
+    isGiftCollected?: boolean;
     /** 用户点「生活记录」卡 → 确认 / 否决（角色代记的记录） */
     onResolveLifeRecord?: (m: Message, action: 'confirmed' | 'rejected') => void;
     /** 打开协同文件柜里的原始 Blob；消息本身只保存 assetId 引用。 */
@@ -1735,6 +1776,9 @@ const MessageItem = React.memo(({
     onLuckinSendCart,
     onLuckinCandidate,
     onResolveTransfer,
+    onResolveGift,
+    onCollectGift,
+    isGiftCollected,
     onResolveLifeRecord,
     onOpenCollaborationFile,
     thinkingChainOptions,
@@ -3543,7 +3587,7 @@ const MessageItem = React.memo(({
     }
 
     if (m.type === 'gift') {
-        return <GiftCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} />;
+        return <GiftCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveGift={onResolveGift} onCollectGift={onCollectGift} isCollected={isGiftCollected} />;
     }
 
     if (m.type === 'life_card') {

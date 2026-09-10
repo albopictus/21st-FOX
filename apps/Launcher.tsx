@@ -500,6 +500,7 @@ const Launcher: React.FC = () => {
       grabOffsetY?: number;
       lastTarget?: string;
       targetElement?: HTMLElement;
+      startPageIndex?: number;
   } | null>(null);
   const suppressLayoutClickUntil = useRef(0);
   const layoutPageTurnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -753,6 +754,27 @@ const Launcher: React.FC = () => {
       }
   }, []);
 
+  const moveAppToPage = useCallback((appId: string, pageIndex: number) => {
+      const currentOrder = [...launcherAppOrderRef.current];
+      const from = currentOrder.indexOf(appId);
+      if (from < 0) return;
+      const [moved] = currentOrder.splice(from, 1);
+
+      const targetPage = Math.max(0, Math.min(appPages.length - 1, pageIndex));
+      const targetApps = appPages[targetPage] || [];
+      let insertIdx = currentOrder.length;
+      if (targetApps.length > 0) {
+          const lastApp = targetApps[targetApps.length - 1];
+          const pos = currentOrder.indexOf(lastApp.id);
+          insertIdx = pos >= 0 ? pos + 1 : currentOrder.length;
+      } else {
+          insertIdx = Math.min(currentOrder.length, targetPage * APPS_PER_PAGE);
+      }
+      currentOrder.splice(insertIdx, 0, moved);
+      launcherAppOrderRef.current = currentOrder;
+      setLauncherAppOrder(currentOrder);
+  }, [appPages]);
+
   const clearLayoutPressTimer = useCallback(() => {
       if (layoutPressTimer.current) clearTimeout(layoutPressTimer.current);
       layoutPressTimer.current = null;
@@ -837,7 +859,7 @@ const Launcher: React.FC = () => {
       const kind = item.dataset.launcherKind;
       if (!key || !kind) return;
       clearLayoutPressTimer();
-      layoutPointer.current = { pointerId: e.pointerId, key, kind, x: e.clientX, y: e.clientY, active: layoutEditing, element: item };
+      layoutPointer.current = { pointerId: e.pointerId, key, kind, x: e.clientX, y: e.clientY, active: layoutEditing, element: item, startPageIndex: activePageIndexRef.current };
       if (layoutEditing) {
           activateLayoutDrag(layoutPointer.current);
           launcherRoot.setPointerCapture(e.pointerId);
@@ -903,7 +925,11 @@ const Launcher: React.FC = () => {
           pointer.element.classList.remove('launcher-dragging');
           pointer.ghost?.remove();
           pointer.targetElement?.classList.remove('launcher-drop-target');
-          if (pointer.lastTarget) reorderByTarget(pointer.kind, pointer.key, pointer.lastTarget);
+          if (pointer.lastTarget) {
+              reorderByTarget(pointer.kind, pointer.key, pointer.lastTarget);
+          } else if (pointer.kind === 'app' && pointer.startPageIndex !== undefined && pointer.startPageIndex !== activePageIndexRef.current) {
+              moveAppToPage(pointer.key, activePageIndexRef.current);
+          }
           void updateTheme({
               launcherAppOrder: launcherAppOrderRef.current,
               launcherDockOrder: launcherDockOrderRef.current,
