@@ -14,7 +14,6 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ secrets.CLOUDFLARE_API_TOKEN != '' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -25,31 +24,48 @@ jobs:
       VITE_UMAMI_WEBSITE_ID: ${{ vars.UMAMI_WEBSITE_ID }}
 
     steps:
+      - name: Guard Cloudflare token
+        id: guard
+        run: |
+          if [ -z "${{ secrets.CLOUDFLARE_API_TOKEN }}" ]; then
+            echo "没配 CLOUDFLARE_API_TOKEN，跳过 Cloudflare 部署。"
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout master
+        if: steps.guard.outputs.ready == 'true'
         uses: actions/checkout@v4
 
       - name: Install pnpm
+        if: steps.guard.outputs.ready == 'true'
         uses: pnpm/action-setup@v4
         with:
           version: 10
 
       - name: Setup Node
+        if: steps.guard.outputs.ready == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.guard.outputs.ready == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Verify assets-only configuration
+        if: steps.guard.outputs.ready == 'true'
         run: >-
           node -e "const fs=require('fs');const c=JSON.parse(fs.readFileSync('wrangler.jsonc','utf8'));
           if(c.main||c.assets?.binding||c.assets?.run_worker_first||fs.existsSync('worker/site/index.ts'))
           throw new Error('Cloudflare site deployment must remain static-assets-only')"
 
       - name: Build site
+        if: steps.guard.outputs.ready == 'true'
         run: pnpm run build
 
       - name: Deploy static assets
+        if: steps.guard.outputs.ready == 'true'
         run: npx --yes wrangler@4.122.0 deploy

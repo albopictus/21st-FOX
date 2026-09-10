@@ -140,7 +140,7 @@ export function normalizeMessageContent(
         const descPart = meta.description ? `（${meta.description}）` : '';
         const notePart = note ? `，附言：“${note}”` : '';
         const statusPart = meta.status === 'accepted' ? '【已收下】' : meta.status === 'returned' ? '【已退回】' : '';
-        return `[礼物心意] ${senderName} 向 ${receiverName} 赠送了「${giftName}」${descPart}${notePart}${statusPart ? ` ${statusPart}` : ''}`;
+        return `[礼物] ${senderName} 向 ${receiverName} 赠送了「${giftName}」${descPart}${notePart}${statusPart ? ` ${statusPart}` : ''}`;
     }
 
     // 结算卡：几种 app 产生，用字段逐一翻成自然文本

@@ -1172,27 +1172,30 @@ const TransferCard: React.FC<{
 };
 
 // ============================================================
-// GiftCard: 互赠礼物卡片与心意弹窗
+// GiftCard: 礼物卡片与详情弹窗
 // ============================================================
 
 const GiftCard: React.FC<{
     m: Message;
     isUser: boolean;
     charName: string;
+    senderAvatar?: string;
     commonLayout: (content: React.ReactNode) => JSX.Element;
     selectionMode: boolean;
     onResolveGift?: (m: Message, action: 'accepted' | 'returned') => void;
     onCollectGift?: (m: Message) => void;
     isCollected?: boolean;
-}> = ({ m, isUser, charName, commonLayout, selectionMode, onResolveGift, onCollectGift, isCollected }) => {
+}> = ({ m, isUser, charName, senderAvatar, commonLayout, selectionMode, onResolveGift, onCollectGift, isCollected }) => {
     const [open, setOpen] = useState(false);
     const meta = m.metadata || {};
-    const giftName = meta.giftName || meta.name || '心意礼物';
+    const giftName = meta.giftName || meta.name || '礼物';
     const icon = meta.icon || meta.image || '🎁';
-    const note = meta.note || (m.content !== '[心意礼物]' && m.content !== '[收到礼物]' ? m.content : '');
+    const description = meta.description || '';
+    const rawNote = meta.note || (m.content && !m.content.startsWith('[礼物]') && !m.content.startsWith('[收到礼物]') && !m.content.startsWith('[送出礼物]') ? m.content : '');
+    const cleanNote = (rawNote || '').replace(/^\[(?:送出|收到)礼物:[^\]]*\]\s*/, '').replace(/^“|”$/g, '').trim();
     const isAssistant = m.role === 'assistant';
     const hasImage = isImageValue(icon);
-    const status: 'pending' | 'accepted' | 'returned' = meta.status || (isAssistant ? 'pending' : 'accepted');
+    const status: 'pending' | 'accepted' | 'returned' = meta.status || 'pending';
     const resolved = status !== 'pending';
     const canResolve = isAssistant && !resolved && !!onResolveGift;
 
@@ -1211,7 +1214,7 @@ const GiftCard: React.FC<{
         );
     }
 
-    const statusBadge = status === 'accepted' ? '已收下' : status === 'returned' ? '已退回' : isAssistant ? '待查收' : '已送出';
+    const statusBadge = status === 'accepted' ? '已收下' : status === 'returned' ? '已退回' : isAssistant ? '待查收' : '等待回应';
 
     const handleResolve = (action: 'accepted' | 'returned') => {
         onResolveGift?.(m, action);
@@ -1227,14 +1230,16 @@ const GiftCard: React.FC<{
                         e.stopPropagation();
                         setOpen(true);
                     }}
-                    className={`px-4 py-3 rounded-2xl shadow-xs border max-w-[260px] w-fit cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.98] ${
-                        resolved
-                            ? 'bg-slate-50/90 border-slate-200/80 text-slate-600'
+                    className={`px-4 py-3 rounded-2xl shadow-xs border max-w-[270px] w-fit cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.98] ${
+                        status === 'accepted'
+                            ? 'bg-slate-50/90 border-slate-200/80 text-slate-700'
+                            : status === 'returned'
+                            ? 'bg-slate-50 border-slate-200/60 text-slate-400 opacity-80'
                             : 'bg-white border-purple-100 shadow-sm text-slate-700'
                     }`}
                 >
                     <div className="flex items-center gap-3">
-                        <div className="w-11 h-11 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 overflow-hidden">
+                        <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 overflow-hidden">
                             {hasImage ? (
                                 <TokenImg value={icon} alt={giftName} className="w-full h-full object-contain p-1" />
                             ) : (
@@ -1254,20 +1259,26 @@ const GiftCard: React.FC<{
                                 </span>
                             </div>
                             <div className="text-[10px] text-slate-400 mt-0.5 truncate">
-                                {isAssistant ? `${charName} 送你的心意` : '赠予的心意'}
+                                {isAssistant ? `${charName} 送你的礼物` : `送给 ${charName} 的礼物`}
                             </div>
                         </div>
                     </div>
 
-                    {note && (
+                    {description && (
+                        <div className="mt-2 text-[11px] text-slate-500 leading-snug line-clamp-2">
+                            {description}
+                        </div>
+                    )}
+
+                    {cleanNote && (
                         <div className="mt-2 text-xs text-slate-600 bg-slate-50/80 rounded-xl px-2.5 py-1.5 border border-slate-100/80 break-words">
-                            “{note}”
+                            “{cleanNote}”
                         </div>
                     )}
                 </div>
             )}
 
-            {/* Gift Detail Modal */}
+            {/* Gift Detail Modal (卡片风格: 头像、物品名字、物品描述、赠言、状态与收藏) */}
             {open && (
                 <div
                     onClick={() => setOpen(false)}
@@ -1279,12 +1290,27 @@ const GiftCard: React.FC<{
                     >
                         <button
                             onClick={() => setOpen(false)}
-                            className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 text-xs w-6 h-6 flex items-center justify-center rounded-full hover:bg-slate-100"
+                            className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 text-xs w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors"
                         >
                             ✕
                         </button>
 
-                        <div className="w-20 h-20 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mx-auto overflow-hidden p-2 mt-2">
+                        {/* 头像与关系 */}
+                        <div className="flex items-center justify-center gap-2.5 mb-3.5">
+                            <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 shrink-0 bg-slate-100 flex items-center justify-center shadow-xs">
+                                {senderAvatar ? (
+                                    <TokenImg value={senderAvatar} alt="avatar" className="w-full h-full object-cover" />
+                                ) : (
+                                    <span className="text-xs text-slate-500 font-bold">{isAssistant ? charName?.[0] : '我'}</span>
+                                )}
+                            </div>
+                            <span className="text-xs font-semibold text-slate-700">
+                                {isAssistant ? `${charName} 送出的礼物` : `送给 ${charName} 的礼物`}
+                            </span>
+                        </div>
+
+                        {/* 礼物图标/图片展示 */}
+                        <div className="w-24 h-24 rounded-2xl bg-slate-50/80 border border-slate-100 flex items-center justify-center mx-auto overflow-hidden p-2 shadow-inner">
                             {hasImage ? (
                                 <TokenImg value={icon} alt={giftName} className="w-full h-full object-contain" />
                             ) : (
@@ -1292,26 +1318,40 @@ const GiftCard: React.FC<{
                             )}
                         </div>
 
+                        {/* 物品名字 */}
                         <h3 className="text-base font-bold text-slate-800 mt-3">{giftName}</h3>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                            {isAssistant ? `${charName} 的心意` : `赠予 ${charName}`}
+
+                        {/* 物品描述 */}
+                        {description && (
+                            <div className="mt-1.5 text-xs text-slate-500 leading-relaxed px-2">
+                                {description}
+                            </div>
+                        )}
+
+                        {/* 赠言 */}
+                        {cleanNote && (
+                            <div className="mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-100/80 text-left">
+                                <div className="text-[10px] font-semibold text-slate-400 mb-0.5">赠言</div>
+                                <div className="text-xs text-slate-700 leading-relaxed break-words">
+                                    “{cleanNote}”
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 状态徽标 */}
+                        <div className="mt-3">
+                            <span className={`inline-block text-[11px] px-2.5 py-1 rounded-full font-semibold ${
+                                status === 'accepted' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                : status === 'returned' ? 'bg-slate-100 text-slate-500 border border-slate-200'
+                                : 'bg-purple-50 text-purple-600 border border-purple-100'
+                            }`}>
+                                {statusBadge}
+                            </span>
                         </div>
-
-                        {meta.description && (
-                            <div className="mt-3 text-xs text-slate-500 leading-relaxed px-2">
-                                {meta.description}
-                            </div>
-                        )}
-
-                        {note && (
-                            <div className="mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-100 text-xs text-slate-700 italic break-words">
-                                “{note}”
-                            </div>
-                        )}
 
                         {/* 状态操作区 */}
                         <div className="mt-5 space-y-2">
-                            {canResolve ? (
+                            {canResolve && (
                                 <div className="flex gap-2">
                                     <button
                                         onClick={() => handleResolve('returned')}
@@ -1326,19 +1366,18 @@ const GiftCard: React.FC<{
                                         💝 收下
                                     </button>
                                 </div>
-                            ) : null}
+                            )}
 
-                            {/* 收藏进藏品柜按钮 */}
+                            {/* 收藏按钮（与标准收藏系统合并） */}
                             <button
                                 onClick={() => onCollectGift?.(m)}
-                                disabled={isCollected}
                                 className={`w-full py-2.5 rounded-2xl text-xs font-bold transition-all active:scale-95 ${
                                     isCollected
-                                        ? 'bg-amber-50 text-amber-600 border border-amber-200 cursor-default'
+                                        ? 'bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100/60'
                                         : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
                                 }`}
                             >
-                                {isCollected ? '⭐ 已在心意藏品柜' : '⭐ 收藏进心意柜'}
+                                {isCollected ? '⭐ 已收藏' : '⭐ 收藏'}
                             </button>
                         </div>
                     </div>
@@ -3587,7 +3626,7 @@ const MessageItem = React.memo(({
     }
 
     if (m.type === 'gift') {
-        return <GiftCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveGift={onResolveGift} onCollectGift={onCollectGift} isCollected={isGiftCollected} />;
+        return <GiftCard m={m} isUser={isUser} charName={charName} senderAvatar={isUser ? userAvatar : charAvatar} commonLayout={commonLayout} selectionMode={selectionMode} onResolveGift={onResolveGift} onCollectGift={onCollectGift} isCollected={isGiftCollected} />;
     }
 
     if (m.type === 'life_card') {

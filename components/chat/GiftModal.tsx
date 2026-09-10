@@ -193,7 +193,7 @@ export const GiftModal: React.FC<GiftModalProps> = ({
                         {/* URL 与名称 */}
                         <div className="flex-1 flex flex-col justify-between min-w-0">
                             <div>
-                                <label className="text-xs font-semibold text-slate-500 mb-1 block">图片 URL (推荐图床)</label>
+                                <label className="text-xs font-semibold text-slate-500 mb-1 block">图片 URL</label>
                                 <input
                                     type="text"
                                     placeholder="https://..."
@@ -225,7 +225,6 @@ export const GiftModal: React.FC<GiftModalProps> = ({
                             onChange={e => setEditorDescription(e.target.value)}
                             className="w-full bg-slate-50/80 rounded-2xl px-3.5 py-2.5 text-xs text-slate-700 outline-none border border-slate-100 placeholder-slate-300 resize-none focus:bg-white focus:border-purple-300 transition-all"
                         />
-                        <div className="text-[11px] text-slate-400 mt-1">这段描述会告诉 AI 这是什么，以及如何互动。</div>
                     </div>
 
                     {/* 底部提交按钮 */}
@@ -234,11 +233,11 @@ export const GiftModal: React.FC<GiftModalProps> = ({
                         disabled={!editorName.trim()}
                         className="mt-5 w-full py-3.5 bg-[#a855f7] hover:bg-[#9333ea] disabled:opacity-40 text-white font-bold rounded-2xl shadow-lg shadow-purple-500/20 active:scale-[0.98] transition-all text-sm"
                     >
-                        保存到心意库
+                        保存到礼物库
                     </button>
                 </div>
             ) : (
-                /* 心意礼物选择主界面（简约风） */
+                /* 礼物选择主界面（简约风） */
                 <div
                     onClick={(e) => e.stopPropagation()}
                     className="bg-white rounded-[32px] w-full max-w-[360px] p-6 shadow-2xl border border-slate-100 relative animate-scale-up"
@@ -251,7 +250,7 @@ export const GiftModal: React.FC<GiftModalProps> = ({
                     </button>
 
                     <h2 className="text-center font-bold text-slate-800 text-lg mb-4">
-                        心意礼物
+                        礼物
                     </h2>
 
                     {/* 礼物网格 */}
@@ -332,7 +331,7 @@ export const GiftModal: React.FC<GiftModalProps> = ({
                         disabled={!selectedGift}
                         className="mt-4 w-full py-3.5 bg-[#a855f7] hover:bg-[#9333ea] disabled:opacity-40 text-white font-bold rounded-2xl shadow-lg shadow-purple-500/20 active:scale-[0.98] transition-all text-sm"
                     >
-                        送出心意
+                        送礼物
                     </button>
                 </div>
             )}

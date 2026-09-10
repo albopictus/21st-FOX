@@ -1665,32 +1665,38 @@ const Chat: React.FC = () => {
                 ref: msg.id
             },
         });
-        addToast(action === 'accepted' ? '已收下心意 💝' : '已婉拒礼物', action === 'accepted' ? 'success' : 'info');
+        addToast(action === 'accepted' ? '已收下礼物 💝' : '已婉拒礼物', action === 'accepted' ? 'success' : 'info');
         await reloadMessages(visibleCountRef.current);
     }, [char, reloadMessages, addToast]);
 
-    // 用户主动将心意礼物收藏进藏品柜
-    const handleCollectGift = useCallback((msg: Message) => {
+    // 用户收藏/取消收藏礼物（与系统收藏合一，并同步角色礼物列表）
+    const handleCollectGift = useCallback(async (msg: Message) => {
         if (!char) return;
+        await handleToggleContentFavorite(msg);
+
+        // 同步更新 char.receivedGifts，保证角色主页礼物展示与系统收藏双向同步
         const currentGifts = char.receivedGifts || [];
         const colId = `col_${msg.id}`;
-        if (currentGifts.some(g => g.id === colId)) {
-            addToast('该礼物已在心意藏品柜中', 'info');
-            return;
+        const isAlreadyInCabinet = currentGifts.some(g => g.id === colId);
+        const favoriteId = contentFavoriteIdForMessage(msg);
+        const willBeFavorited = !contentFavoriteIds.has(favoriteId);
+
+        if (willBeFavorited && !isAlreadyInCabinet) {
+            const record: import('../types').ReceivedGiftRecord = {
+                id: colId,
+                giftId: msg.metadata?.giftId || `msg_${msg.id}`,
+                giftName: msg.metadata?.giftName || '礼物',
+                icon: msg.metadata?.icon || '🎁',
+                note: msg.metadata?.note,
+                description: msg.metadata?.description,
+                timestamp: msg.timestamp || Date.now(),
+                sender: msg.role === 'assistant' ? 'assistant' : 'user'
+            };
+            updateCharacter(char.id, { receivedGifts: [record, ...currentGifts] });
+        } else if (!willBeFavorited && isAlreadyInCabinet) {
+            updateCharacter(char.id, { receivedGifts: currentGifts.filter(g => g.id !== colId) });
         }
-        const record: import('../types').ReceivedGiftRecord = {
-            id: colId,
-            giftId: msg.metadata?.giftId || `msg_${msg.id}`,
-            giftName: msg.metadata?.giftName || '心意礼物',
-            icon: msg.metadata?.icon || '🎁',
-            note: msg.metadata?.note,
-            description: msg.metadata?.description,
-            timestamp: msg.timestamp || Date.now(),
-            sender: msg.role === 'assistant' ? 'assistant' : 'user'
-        };
-        updateCharacter(char.id, { receivedGifts: [record, ...currentGifts] });
-        addToast('已收藏到心意藏品柜 ⭐', 'success');
-    }, [char, updateCharacter, addToast]);
+    }, [char, handleToggleContentFavorite, contentFavoriteIds, updateCharacter]);
 
     const handleClaimAllowance = () => {
         const today = new Date().toISOString().slice(0, 10);
@@ -4196,7 +4202,7 @@ const Chat: React.FC = () => {
                             onResolveTransfer={handleResolveTransfer}
                             onResolveGift={handleResolveGift}
                             onCollectGift={handleCollectGift}
-                            isGiftCollected={char?.receivedGifts?.some(g => g.id === `col_${m.id}` || (!!m.metadata?.giftId && g.giftId === m.metadata.giftId))}
+                            isGiftCollected={contentFavoriteIds.has(contentFavoriteIdForMessage(m)) || char?.receivedGifts?.some(g => g.id === `col_${m.id}` || (!!m.metadata?.giftId && g.giftId === m.metadata.giftId))}
                             onResolveLifeRecord={handleResolveLifeRecord}
                             onOpenCollaborationFile={handleOpenCollaborationFile}
                             thinkingChainOptions={thinkingChainOptions}

@@ -1782,7 +1782,7 @@ ${isInitialGeneration ? `
                    )}
 
                    {detailTab === 'plates' && formData.id && (
-                       <RoomPlatePanel charId={formData.id} userName={userProfile.name} />
+                                       <RoomPlatePanel charId={formData.id} userName={userProfile.name} />
                    )}
 
                    {detailTab === 'gifts' && (
@@ -1791,7 +1791,7 @@ ${isInitialGeneration ? `
                                <div className="flex items-center gap-2">
                                    <span className="text-xl">🎁</span>
                                    <div>
-                                       <h3 className="text-sm font-bold text-slate-800">心意藏品柜</h3>
+                                       <h3 className="text-sm font-bold text-slate-800">礼物收藏</h3>
                                        <p className="text-[11px] text-slate-400">
                                            记录你们彼此赠予的小确幸与惊喜
                                        </p>
@@ -1805,7 +1805,7 @@ ${isInitialGeneration ? `
                            {(!formData.receivedGifts || formData.receivedGifts.length === 0) ? (
                                <div className="text-center py-16 px-4 bg-white rounded-3xl border border-slate-100 text-slate-400">
                                    <div className="text-4xl mb-3">🎀</div>
-                                   <div className="text-sm font-bold text-slate-600">陈列柜还空着呢</div>
+                                   <div className="text-sm font-bold text-slate-600">还没有收藏的礼物</div>
                                    <div className="text-xs text-slate-400 mt-1">
                                        在聊天界面的「＋」菜单中点击「送礼物」，为 {formData.name} 送上第一份惊喜吧～
                                    </div>
@@ -1860,10 +1860,10 @@ ${isInitialGeneration ? `
                                                             const nextGifts = (formData.receivedGifts || []).filter(g => g.id !== gift.id);
                                                             setFormData(prev => ({ ...prev, receivedGifts: nextGifts }));
                                                             updateCharacter(formData.id, { receivedGifts: nextGifts });
-                                                            addToast('已移出心意藏品', 'info');
+                                                            addToast('已移出礼物收藏', 'info');
                                                         }}
                                                         className="w-7 h-7 rounded-full bg-white/80 hover:bg-rose-50 text-slate-400 hover:text-rose-500 flex items-center justify-center text-xs transition-all active:scale-90 border border-slate-100 shrink-0"
-                                                        title="移出藏品"
+                                                        title="移出收藏"
                                                     >
                                                         ✕
                                                     </button>
