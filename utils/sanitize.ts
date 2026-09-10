@@ -22,8 +22,18 @@ import { segmentTextWithProtectedBlocks } from '@rei-standard/amsg-instant';
 /** `\\n` 字面 → 真实换行. 必须先跑, 否则后续 ^ 行锚定失效. */
 const stripLiteralBackslashN = (t: string): string => t.replace(/\\n/g, '\n');
 
-/** 源标签 `[聊天]/[通话]/[约会]` → 换行 (保留分隔语义) */
-const stripSourceTags = (t: string): string => t.replace(/\s*\[(?:聊天|通话|约会)\]\s*/g, '\n');
+/**
+ * 历史来源标签 → 换行（保留分隔语义）。
+ *
+ * 历史原文只会注入 `[聊天]/[通话]/[约会]`，但模型偶尔会在模仿时把标签做成
+ * 中英混写（线上实例如 `[聊chat]`），甚至直接翻成 `[chat]`。这些仍然是内部
+ * 元数据，不该作为角色正文展示。只对白名单中的三组来源词做容错，避免吞掉普通
+ * 方括号内容。
+ */
+export const stripLeakedSourceTags = (t: string): string => t.replace(
+  /\s*\[\s*(?:聊\s*(?:天|chat)|chat|通\s*(?:话|call)|call|约\s*(?:会|date)|date)\s*\]\s*/giu,
+  '\n',
+);
 
 /** 4 种时间格式: 带括号 ISO / 行首裸 ISO / 中文 12h / 英文 12h */
 const stripTimestamps = (t: string): string =>
@@ -47,9 +57,10 @@ const stripRoleNamePrefix = (t: string): string => t.replace(/^[\w一-龥]+:\s*/
  * DIARY_START / DIARY_END / FS_DIARY_START / FS_DIARY_END / MUSIC_ACTION) + schedule_message.
  * 保持跟 chatParser.sanitize 原版字节对齐 — 不含 READ_NOTE / XHS_x (那些只在 notification 路径剥).
  */
-const stripBusinessTagsForBubble = (t: string): string =>
+export const stripBusinessTagsForBubble = (t: string): string =>
   t
-    .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION)[:\s][\s\S]*?\]\]/g, '')
+    .replace(/\[\[MEMO(?:_EDIT)?_START[:\s][\s\S]*?\[\[MEMO(?:_EDIT)?_END\]\]/g, '')
+    .replace(/\[\[(?:ACTION|RECALL|SEARCH|DIARY|READ_DIARY|FS_DIARY|FS_READ_DIARY|READ_MEMO|DIARY_START|DIARY_END|FS_DIARY_START|FS_DIARY_END|MUSIC_ACTION|MEMO_START|MEMO_END|MEMO_EDIT_START|MEMO_EDIT_END)[:\s][\s\S]*?\]\]/g, '')
     // `[[记录:...]]` 整个命名空间 —— 历史渲染形态 (utils/transferFormat.ts:formatTransferRecord),
     // 模型复读历史会抄出来。能还原成动作的 (记录:TRANSFER) 在上游 chatParser / worker classifier
     // 已被消费; 走到这里的一律是纯 leak, 不进气泡。全角冒号一并容 (模型手写变体)。
@@ -383,7 +394,7 @@ export function sanitizeForNotification(text: string): string {
   result = stripRoleNamePrefix(result);
   result = stripSystemLogLeak(result);
   // 7. 源标签 [聊天] 等
-  result = stripSourceTags(result);
+  result = stripLeakedSourceTags(result);
   // 8. 内部状态 / 业务标签 / 引用
   result = stripInnerState(result);
   result = stripBusinessTagsForNotification(result);
@@ -423,7 +434,7 @@ export function sanitizeForBubble(
   result = normalizeVoiceTags(result);
   result = normalizeTranslationTags(result);
   // 2. 源标签 / 时间戳 / 系统日志 leak / 业务标签
-  result = stripSourceTags(result);
+  result = stripLeakedSourceTags(result);
   result = stripTimestamps(result);
   result = stripSystemLogLeak(result);
   result = stripMarkdownHeaders(result);
@@ -543,7 +554,7 @@ export function sanitizeIntoSegments(text: string): Segment[] {
   cleaned = stripTimestamps(cleaned);
   cleaned = stripChineseDate(cleaned);
   cleaned = stripRoleNamePrefix(cleaned);
-  cleaned = stripSourceTags(cleaned);
+  cleaned = stripLeakedSourceTags(cleaned);
   // 注意: 这里**不**剥 stripQuotes — 引用要带到客户端让 Step 7 配 aiReplyTarget.
   // sanitizeTextForBanner 单独剥引用给 notification.
   //

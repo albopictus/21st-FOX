@@ -1,8 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { DailySchedule, ScheduleSlot, CharacterProfile } from '../../types';
+import { DailySchedule, ScheduleSlot, CharacterProfile, ScheduleEvent } from '../../types';
 import { getCurrentScheduleSlotIndex, getScheduleWallClock } from '../../utils/scheduleTime';
 import { resolveCharTimeZone, tzShortLabel } from '../../utils/timezone';
+import { DB } from '../../utils/db';
+import { getLocalDateKey } from '../../utils/localDate';
 import { useOS } from '../../context/OSContext';
 import { resolveScheduleCardPalette } from '../../utils/scheduleAppearance';
 import ScheduleAppearanceButton, { ScheduleCustomCssStyle } from './ScheduleAppearanceButton';
@@ -61,6 +63,7 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
     const [editActivity, setEditActivity] = useState('');
     const [editDesc, setEditDesc] = useState('');
     const [editEmoji, setEditEmoji] = useState('');
+    const [todayEvents, setTodayEvents] = useState<ScheduleEvent[]>([]);
     const coverInputRef = useRef<HTMLInputElement>(null);
 
     // 长按菜单状态：记录哪一条日程被长按触发 action sheet（修改 / 删除）
@@ -96,6 +99,13 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
 
     const tickingNow = useTickingNow();
     const wallClock = getScheduleWallClock(character, tickingNow);
+
+    useEffect(() => {
+        const dateKey = getLocalDateKey(wallClock);
+        DB.getAllScheduleEvents().then(all => {
+            setTodayEvents(all.filter(e => e.date === dateKey && (!e.charId || e.charId === character?.id)));
+        }).catch(() => {});
+    }, [character?.id, wallClock.toDateString()]);
     const currentIdx = schedule ? getCurrentScheduleSlotIndex(schedule.slots, character, tickingNow) : -1;
     // 角色设了自己的时区时，上面那个钟走的是 ta 那边的时间——标出地名，
     // 免得用户拿它当自己的手机时间读。
@@ -264,6 +274,33 @@ const ScheduleCard: React.FC<ScheduleCardProps> = ({
 
                 {/* Schedule List */}
                 <div className="sully-schedule-list px-5 pb-5 pt-1 space-y-1 min-w-0">
+                    {/* 今日共同日程约定联动卡 */}
+                    {todayEvents.length > 0 && (
+                        <div className="mb-3 p-3 rounded-xl border flex flex-col gap-1.5 text-xs shadow-sm transition-all" style={{ background: accentBg, borderColor: palette.line }}>
+                            <div className="flex items-center justify-between font-bold" style={{ color: accentHsl }}>
+                                <div className="flex items-center gap-1.5">
+                                    <span>📅 今日约定事项</span>
+                                    <span className="text-[10px] px-1.5 py-0.2 rounded-full border border-current opacity-70">{todayEvents.length}项</span>
+                                </div>
+                                <span className="text-[10px] opacity-40 font-mono">SCHEDULE</span>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                                {todayEvents.map(e => (
+                                    <div key={e.id} className="flex flex-col gap-0.5 border-t border-white/10 pt-1.5">
+                                        <div className="flex items-center justify-between font-bold">
+                                            <span className="text-xs">{e.time ? `${e.time} ` : ''}{e.title}</span>
+                                            {e.authorName && <span className="text-[9px] opacity-50 font-normal">by {e.authorName}</span>}
+                                        </div>
+                                        {e.remarks && (
+                                            <div className="text-[10px] opacity-75 whitespace-pre-wrap leading-relaxed pl-1 border-l-2" style={{ borderColor: accentHsl }}>
+                                                {e.remarks}
+                                            </div>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                     {isGenerating && !schedule ? (
                         <div className="py-12 text-center">
                             <div className="inline-block w-6 h-6 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mb-3"></div>

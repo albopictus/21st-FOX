@@ -1,7 +1,7 @@
 
 import { DB } from './db';
 import { LocalNotifications } from '@capacitor/local-notifications';
-import { CharacterProfile, CharPlaylistSong } from '../types';
+import { CharacterProfile, CharPlaylistSong, ScheduleEvent, MemoNote, Task } from '../types';
 import { sanitizeForBubble } from './sanitize';
 import { extractTransferCommands } from './transferFormat';
 import { executeLifeDirectives } from './lifeRecords';
@@ -209,6 +209,73 @@ export const ChatParser = {
         if (content.includes('[[ACTION:POKE]]')) {
             await persist({ charId, role: 'assistant', type: 'interaction', content: '[戳一戳]' });
             content = content.replace('[[ACTION:POKE]]', '').trim();
+        }
+
+        // SEND_GIFT / GIFT — 角色主动回赠/赠送礼物给用户
+        const giftRegex = /\[\[(?:ACTION:SEND_GIFT|GIFT)\s*\|\s*(.*?)(?:\s*\|\s*([\s\S]*?))?\]\]/gi;
+        let giftMatch;
+        while ((giftMatch = giftRegex.exec(content)) !== null) {
+            const rawName = (giftMatch[1] || '').trim();
+            const rawNote = (giftMatch[2] || '').trim();
+            if (rawName) {
+                await persist({
+                    charId,
+                    role: 'assistant',
+                    type: 'gift',
+                    content: rawNote ? `[收到礼物: ${rawName}] ${rawNote}` : `[收到礼物: ${rawName}]`,
+                    metadata: {
+                        giftName: rawName,
+                        icon: '🎁',
+                        cost: 0,
+                        note: rawNote,
+                        sender: 'assistant',
+                        status: 'pending',
+                    }
+                });
+            }
+        }
+        content = content.replace(giftRegex, '').trim();
+
+        // GIFT_ACCEPT / GIFT_RETURN — 角色收下或退回用户最近一件待处理的礼物
+        const resolveUserGift = async (action: 'accepted' | 'returned') => {
+            let giftName: string | undefined;
+            let icon: string | undefined;
+            let refId: number | undefined;
+            try {
+                const all = await DB.getMessagesByCharId(charId, true);
+                const pendings = all.filter(
+                    x => x.type === 'gift' && x.role === 'user' && !x.metadata?.receipt
+                        && (!x.metadata?.status || x.metadata.status === 'pending'),
+                );
+                const pending = pendings[pendings.length - 1];
+                if (pending) {
+                    giftName = pending.metadata?.giftName;
+                    icon = pending.metadata?.icon;
+                    refId = pending.id;
+                    await DB.updateMessageMetadata(pending.id, (prev) => ({ ...(prev || {}), status: action, resolvedAt: Date.now() }));
+                }
+            } catch (e) {
+                console.warn('[Gift] 查待处理礼物失败:', e);
+                return;
+            }
+            if (refId === undefined) return;
+            await persist({
+                charId, role: 'assistant', type: 'gift',
+                content: action === 'accepted' ? '[已收下礼物]' : '[婉拒了礼物]',
+                metadata: { receipt: action, giftName, icon, ref: refId },
+            });
+        };
+
+        const giftAcceptRegex = /\[\[(?:ACTION:)?(?:GIFT_ACCEPT|ACCEPT_GIFT)\]\]/gi;
+        if (giftAcceptRegex.test(content)) {
+            await resolveUserGift('accepted');
+            content = content.replace(giftAcceptRegex, '').trim();
+        }
+
+        const giftReturnRegex = /\[\[(?:ACTION:)?(?:GIFT_RETURN|RETURN_GIFT)\]\]/gi;
+        if (giftReturnRegex.test(content)) {
+            await resolveUserGift('returned');
+            content = content.replace(giftReturnRegex, '').trim();
         }
 
         // TRANSFER_ACCEPT / TRANSFER_RETURN — char 收下 / 退回 user 最近一笔待处理的转账。
@@ -441,19 +508,300 @@ export const ChatParser = {
             content = content.replace(NEWS_CARD_GLOBAL_RE, '').trim();
         }
 
-        // ADD_EVENT
-        const eventMatch = content.match(/\[\[ACTION:ADD_EVENT\s*\|\s*(.*?)\s*\|\s*(.*?)\]\]/);
-        if (eventMatch) {
-            const title = eventMatch[1].trim();
-            const date = eventMatch[2].trim();
-            if (title && date) {
-                const anni: any = { id: `anni-${Date.now()}`, title: title, date: date, charId };
-                await DB.saveAnniversary(anni);
-                addToast(`${charName} 添加了新日程: ${title}`, 'success');
-                await persist({ charId, role: 'system', type: 'text', content: `[系统: ${charName} 新增了日程 "${title}" (${date})]` });
+        // ─── ADD_SCHEDULE / ADD_EVENT ───
+        const scheduleAddRegex = /\[\[ACTION:(?:ADD_SCHEDULE|ADD_EVENT)\s*\|\s*(.*?)\s*\|\s*(.*?)(?:\s*\|\s*([\s\S]*?))?\]\]/g;
+        let sMatch;
+        while ((sMatch = scheduleAddRegex.exec(content)) !== null) {
+            const rawTitle = sMatch[1]?.trim() || '';
+            const rawDateTime = sMatch[2]?.trim() || '';
+            const remarks = sMatch[3]?.trim() || '';
+
+            if (rawTitle && rawDateTime) {
+                let datePart = rawDateTime;
+                let timePart: string | undefined = undefined;
+                if (rawDateTime.includes(' ')) {
+                    const parts = rawDateTime.split(/\s+/);
+                    datePart = parts[0];
+                    timePart = parts[1];
+                }
+
+                const sched: ScheduleEvent = {
+                    id: `sched-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    title: rawTitle,
+                    date: datePart,
+                    time: timePart,
+                    remarks: remarks || undefined,
+                    charId,
+                    createdBy: 'character',
+                    authorName: charName,
+                    lastEditedBy: 'character',
+                    lastEditedAt: Date.now(),
+                    createdAt: Date.now(),
+                };
+                await DB.saveScheduleEvent(sched);
+                addToast(`${charName} 添加了新日程: ${rawTitle}`, 'success');
+                await persist({
+                    charId,
+                    role: 'assistant',
+                    type: 'schedule_card',
+                    content: `[日程卡片] ${rawTitle}${timePart ? ` (${datePart} ${timePart})` : ` (${datePart})`}${remarks ? `\n备注: ${remarks}` : ''}`,
+                    metadata: {
+                        scheduleId: sched.id,
+                        title: sched.title,
+                        date: sched.date,
+                        time: sched.time,
+                        remarks: sched.remarks,
+                        authorName: charName,
+                        action: 'add',
+                    },
+                });
             }
-            content = content.replace(eventMatch[0], '').trim();
         }
+        content = content.replace(scheduleAddRegex, '').trim();
+
+        // ─── EDIT_SCHEDULE ───
+        const scheduleEditRegex = /\[\[ACTION:EDIT_SCHEDULE\s*\|\s*(.*?)\s*\|\s*(.*?)(?:\s*\|\s*([\s\S]*?))?\]\]/g;
+        let seMatch;
+        while ((seMatch = scheduleEditRegex.exec(content)) !== null) {
+            const target = seMatch[1]?.trim() || '';
+            const newDateTime = seMatch[2]?.trim() || '';
+            const newRemarks = seMatch[3]?.trim() || '';
+
+            if (target) {
+                try {
+                    const allScheds = await DB.getAllScheduleEvents();
+                    const hit = allScheds.find(s => s.id === target || s.title.includes(target) || target.includes(s.title));
+                    if (hit) {
+                        let datePart = hit.date;
+                        let timePart = hit.time;
+                        if (newDateTime && newDateTime !== '保持' && newDateTime !== '-') {
+                            if (newDateTime.includes(' ')) {
+                                const parts = newDateTime.split(/\s+/);
+                                datePart = parts[0];
+                                timePart = parts[1];
+                            } else {
+                                datePart = newDateTime;
+                            }
+                        }
+                        const updatedSched: ScheduleEvent = {
+                            ...hit,
+                            date: datePart,
+                            time: timePart,
+                            remarks: newRemarks || hit.remarks,
+                            lastEditedBy: 'character',
+                            lastEditedAt: Date.now(),
+                        };
+                        await DB.saveScheduleEvent(updatedSched);
+                        addToast(`${charName} 修改了日程: ${hit.title}`, 'info');
+                        await persist({
+                            charId,
+                            role: 'assistant',
+                            type: 'schedule_card',
+                            content: `[日程修改] ${hit.title}${timePart ? ` (${datePart} ${timePart})` : ` (${datePart})`}${updatedSched.remarks ? `\n备注: ${updatedSched.remarks}` : ''}`,
+                            metadata: {
+                                scheduleId: updatedSched.id,
+                                title: updatedSched.title,
+                                date: updatedSched.date,
+                                time: updatedSched.time,
+                                remarks: updatedSched.remarks,
+                                authorName: charName,
+                                action: 'edit',
+                            },
+                        });
+                    }
+                } catch (e) {
+                    console.error('[EditSchedule] failed:', e);
+                }
+            }
+        }
+        content = content.replace(scheduleEditRegex, '').trim();
+
+        // ─── ADD_MEMO (Multi-line block) ───
+        const memoBlockRegex = /\[\[MEMO_START\s*[:\|]\s*(.*?)\]\]([\s\S]*?)\[\[MEMO_END\]\]/g;
+        let mBlockMatch;
+        while ((mBlockMatch = memoBlockRegex.exec(content)) !== null) {
+            const title = mBlockMatch[1]?.trim() || '无标题备忘';
+            const memoContent = mBlockMatch[2]?.trim() || '';
+            if (memoContent || title) {
+                const memo: MemoNote = {
+                    id: `memo-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    title,
+                    content: memoContent,
+                    category: 'life',
+                    charId,
+                    createdBy: 'character',
+                    authorName: charName,
+                    lastEditedBy: 'character',
+                    lastEditedAt: Date.now(),
+                    createdAt: Date.now(),
+                    pinned: false,
+                };
+                await DB.saveMemoNote(memo);
+                addToast(`${charName} 记下了备忘录: ${title}`, 'success');
+                await persist({
+                    charId,
+                    role: 'assistant',
+                    type: 'memo_card',
+                    content: `[备忘录] 《${title}》\n${memoContent.slice(0, 120)}${memoContent.length > 120 ? '...' : ''}`,
+                    metadata: {
+                        memoId: memo.id,
+                        title: memo.title,
+                        preview: memo.content.slice(0, 150),
+                        authorName: charName,
+                        action: 'add',
+                    },
+                });
+            }
+        }
+        content = content.replace(memoBlockRegex, '').trim();
+
+        // ─── ADD_MEMO (Single line) ───
+        const memoSingleRegex = /\[\[ACTION:ADD_MEMO\s*\|\s*(.*?)\s*\|\s*([\s\S]*?)\]\]/g;
+        let mSingleMatch;
+        while ((mSingleMatch = memoSingleRegex.exec(content)) !== null) {
+            const title = mSingleMatch[1]?.trim() || '无标题备忘';
+            const memoContent = mSingleMatch[2]?.trim() || '';
+            if (memoContent || title) {
+                const memo: MemoNote = {
+                    id: `memo-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    title,
+                    content: memoContent,
+                    category: 'life',
+                    charId,
+                    createdBy: 'character',
+                    authorName: charName,
+                    lastEditedBy: 'character',
+                    lastEditedAt: Date.now(),
+                    createdAt: Date.now(),
+                    pinned: false,
+                };
+                await DB.saveMemoNote(memo);
+                addToast(`${charName} 记下了备忘录: ${title}`, 'success');
+                await persist({
+                    charId,
+                    role: 'assistant',
+                    type: 'memo_card',
+                    content: `[备忘录] 《${title}》\n${memoContent}`,
+                    metadata: {
+                        memoId: memo.id,
+                        title: memo.title,
+                        preview: memo.content.slice(0, 150),
+                        authorName: charName,
+                        action: 'add',
+                    },
+                });
+            }
+        }
+        content = content.replace(memoSingleRegex, '').trim();
+
+        // ─── EDIT_MEMO (Multi-line block) ───
+        const memoEditBlockRegex = /\[\[MEMO_EDIT_START\s*[:\|]\s*(.*?)\]\]([\s\S]*?)\[\[MEMO_EDIT_END\]\]/g;
+        let meBlockMatch;
+        while ((meBlockMatch = memoEditBlockRegex.exec(content)) !== null) {
+            const target = meBlockMatch[1]?.trim() || '';
+            const newContent = meBlockMatch[2]?.trim() || '';
+            if (target) {
+                try {
+                    const allMemos = await DB.getAllMemoNotes();
+                    const hit = allMemos.find(m => m.id === target || m.title.includes(target) || target.includes(m.title));
+                    if (hit) {
+                        const updated: MemoNote = {
+                            ...hit,
+                            content: newContent,
+                            lastEditedBy: 'character',
+                            lastEditedAt: Date.now(),
+                        };
+                        await DB.saveMemoNote(updated);
+                        addToast(`${charName} 修改了备忘录: ${hit.title}`, 'info');
+                        await persist({
+                            charId,
+                            role: 'assistant',
+                            type: 'memo_card',
+                            content: `[备忘录修改] 《${hit.title}》\n${newContent.slice(0, 120)}${newContent.length > 120 ? '...' : ''}`,
+                            metadata: {
+                                memoId: updated.id,
+                                title: updated.title,
+                                preview: updated.content.slice(0, 150),
+                                authorName: charName,
+                                action: 'edit',
+                            },
+                        });
+                    }
+                } catch (e) {
+                    console.error('[EditMemoBlock] failed:', e);
+                }
+            }
+        }
+        content = content.replace(memoEditBlockRegex, '').trim();
+
+        // ─── EDIT_MEMO (Single line) ───
+        const memoEditSingleRegex = /\[\[ACTION:EDIT_MEMO\s*\|\s*(.*?)\s*\|\s*([\s\S]*?)\]\]/g;
+        let meSingleMatch;
+        while ((meSingleMatch = memoEditSingleRegex.exec(content)) !== null) {
+            const target = meSingleMatch[1]?.trim() || '';
+            const newContent = meSingleMatch[2]?.trim() || '';
+            if (target) {
+                try {
+                    const allMemos = await DB.getAllMemoNotes();
+                    const hit = allMemos.find(m => m.id === target || m.title.includes(target) || target.includes(m.title));
+                    if (hit) {
+                        const updated: MemoNote = {
+                            ...hit,
+                            content: newContent,
+                            lastEditedBy: 'character',
+                            lastEditedAt: Date.now(),
+                        };
+                        await DB.saveMemoNote(updated);
+                        addToast(`${charName} 修改了备忘录: ${hit.title}`, 'info');
+                        await persist({
+                            charId,
+                            role: 'assistant',
+                            type: 'memo_card',
+                            content: `[备忘录修改] 《${hit.title}》\n${newContent}`,
+                            metadata: {
+                                memoId: updated.id,
+                                title: updated.title,
+                                preview: updated.content.slice(0, 150),
+                                authorName: charName,
+                                action: 'edit',
+                            },
+                        });
+                    }
+                } catch (e) {
+                    console.error('[EditMemoSingle] failed:', e);
+                }
+            }
+        }
+        content = content.replace(memoEditSingleRegex, '').trim();
+
+        // ─── READ_MEMO (主动调阅备忘录标签兜底剥除) ───
+        content = content.replace(/\[\[READ_MEMO:\s*[\s\S]*?\]\]/g, '').trim();
+
+        // ─── ADD_TASK (契约) ───
+        const taskRegex = /\[\[ACTION:ADD_TASK\s*\|\s*(.*?)\]\]/g;
+        let taskMatch;
+        while ((taskMatch = taskRegex.exec(content)) !== null) {
+            const taskTitle = taskMatch[1]?.trim() || '';
+            if (taskTitle) {
+                const task: Task = {
+                    id: `task-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+                    title: taskTitle,
+                    supervisorId: charId,
+                    tone: 'gentle',
+                    isCompleted: false,
+                    createdAt: Date.now(),
+                };
+                await DB.saveTask(task);
+                addToast(`${charName} 设立了新契约: ${taskTitle}`, 'success');
+                await persist({
+                    charId,
+                    role: 'system',
+                    type: 'text',
+                    content: `[系统: ${charName} 为你设立了新契约 "${taskTitle}"]`,
+                });
+            }
+        }
+        content = content.replace(taskRegex, '').trim();
 
         // SCHEDULE
         const scheduleRegex = /\[schedule_message \| (.*?) \| fixed \| (.*?)\]/g;
