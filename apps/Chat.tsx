@@ -438,6 +438,8 @@ const Chat: React.FC = () => {
         luckinChatRef,
         updateCharacter,
     });
+    const triggerAIRef = useRef(triggerAI);
+    triggerAIRef.current = triggerAI;
 
     // --- Voice TTS for chat messages ---
     interface VoiceData { url: string; originalText: string; spokenText?: string; lang?: string; favorite?: boolean; }
@@ -998,7 +1000,7 @@ const Chat: React.FC = () => {
             if (typeof window !== 'undefined' && sessionStorage.getItem(pendingKey)) {
                 sessionStorage.removeItem(pendingKey);
                 setTimeout(() => {
-                    triggerAI(displayed);
+                    triggerAIRef.current?.(displayed);
                 }, 200);
             }
         };
@@ -1019,7 +1021,7 @@ const Chat: React.FC = () => {
                 applyResult(recent, totalCount);
             } catch { /* give up silently */ }
         }
-    }, [activeCharacterId, triggerAI]);
+    }, [activeCharacterId]);
 
     useEffect(() => {
         if (activeCharacterId) {
