@@ -10,7 +10,7 @@ import {
 } from '../../utils/giftCatalog';
 import { trackEvent } from '../../utils/analytics';
 import TokenImg from '../os/TokenImg';
-import { processImageToBlob } from '../../utils/imageProcessor';
+import { processImageToBlob } from '../../utils/file';
 import { putImageBlob, isBlobRef } from '../../utils/blobRef';
 
 interface GiftModalProps {
