@@ -3,7 +3,7 @@
 
 import {
     CharacterProfile, ChatTheme, Message, UserProfile,
-    Task, Anniversary, DiaryEntry, RoomTodo, RoomNote, DailySchedule,
+    Task, Anniversary, ScheduleEvent, MemoNote, DiaryEntry, RoomTodo, RoomNote, DailySchedule,
     GalleryImage, FullBackupData, GroupProfile, SocialPost, StudyCourse, GameSession, Worldbook, NovelBook, Emoji, EmojiCategory,
     BankTransaction, SavingsGoal, BankFullState, DollhouseState, XhsStockImage, XhsActivityRecord, XhsOwnedPost, SongSheet, QuizSession, GuidebookSession,
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
@@ -27,7 +27,8 @@ const DB_NAME = 'AetherOS_Data';
 // v69：见面·剧情条目与糯米机原生预设。正文继续复用 messages 表，避免再造会话存储。
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
 // v71：角色小红书伪主页；发帖归属与可删除的自由活动日志分离。
-const DB_VERSION = 71;
+// v72：共享备忘录 memo_notes，支持长文本、分类与双向编辑。
+const DB_VERSION = 72;
 
 const STORE_CHARACTERS = 'characters';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
@@ -43,6 +44,7 @@ const STORE_USER = 'user_profile';
 const STORE_DIARIES = 'diaries';
 const STORE_TASKS = 'tasks'; 
 const STORE_ANNIVERSARIES = 'anniversaries';
+const STORE_MEMO_NOTES = 'memo_notes';
 const STORE_ROOM_TODOS = 'room_todos'; 
 const STORE_ROOM_NOTES = 'room_notes'; 
 const STORE_GROUPS = 'groups'; 
@@ -353,6 +355,7 @@ export const openDB = (): Promise<IDBDatabase> => {
       createStore(STORE_STORY_THEATERS, { keyPath: 'id' });
       createStore(STORE_STORY_THEATER_PRESETS, { keyPath: 'id' });
       createStore(STORE_STORY_THEATER_MASKS, { keyPath: 'id' });
+      createStore(STORE_MEMO_NOTES, { keyPath: 'id' });
 
       createStore(STORE_HOTNEWS, { keyPath: 'id' });
 
@@ -1827,6 +1830,40 @@ export const DB = {
       transaction.objectStore(STORE_ANNIVERSARIES).delete(id);
   },
 
+  getAllScheduleEvents: async (): Promise<ScheduleEvent[]> => DB.getAllAnniversaries(),
+  saveScheduleEvent: async (event: ScheduleEvent): Promise<void> => DB.saveAnniversary(event),
+  deleteScheduleEvent: async (id: string): Promise<void> => DB.deleteAnniversary(id),
+
+  getAllMemoNotes: async (): Promise<MemoNote[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_MEMO_NOTES)) return [];
+
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_MEMO_NOTES, 'readonly');
+          const store = transaction.objectStore(STORE_MEMO_NOTES);
+          const request = store.getAll();
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  getMemoNotesByChar: async (charId: string): Promise<MemoNote[]> => {
+      const all = await DB.getAllMemoNotes();
+      return all.filter(n => !n.charId || n.charId === charId);
+  },
+
+  saveMemoNote: async (note: MemoNote): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_MEMO_NOTES, 'readwrite');
+      transaction.objectStore(STORE_MEMO_NOTES).put(note);
+  },
+
+  deleteMemoNote: async (id: string): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_MEMO_NOTES, 'readwrite');
+      transaction.objectStore(STORE_MEMO_NOTES).delete(id);
+  },
+
   getRoomTodo: async (charId: string, date: string): Promise<RoomTodo | null> => {
       const db = await openDB();
       const id = `${charId}_${date}`;
@@ -3121,7 +3158,7 @@ export const DB = {
           });
       };
 
-      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
+      const [characters, characterGroups, messages, themes, emojis, emojiCategories, assets, galleryImages, userProfiles, diaries, tasks, anniversaries, memoNotes, roomTodos, roomNotes, groups, journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels, bankTx, bankData, xhsActivities, xhsOwnedPosts, xhsStockImages, songs, quizzes, guidebookSessions, scheduledMessages, lifeSimStates, handbooks, trackers, trackerEntries, hotNewsSnapshots, vrNovels, vrAnnotations, customCreatorParts, vrMusic, vrGuestbook, vrScripts, vrStagedPlays, vrPresets, vrLetters, vrSettings, worlds, worldEpisodes, lifeRecords, medPlans, lifeRecordSettings] = await Promise.all([
           getAllFromStore(STORE_CHARACTERS),
           getAllFromStore(STORE_CHAR_GROUPS),
           getAllFromStore(STORE_MESSAGES),
@@ -3134,6 +3171,7 @@ export const DB = {
           getAllFromStore(STORE_DIARIES),
           getAllFromStore(STORE_TASKS),
           getAllFromStore(STORE_ANNIVERSARIES),
+          getAllFromStore(STORE_MEMO_NOTES),
           getAllFromStore(STORE_ROOM_TODOS),
           getAllFromStore(STORE_ROOM_NOTES),
           getAllFromStore(STORE_GROUPS),
@@ -3187,7 +3225,7 @@ export const DB = {
       const dollhouseRecord = bankData.find((d: any) => d.id === 'dollhouse_state');
 
       return {
-          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
+          characters, characterGroups, messages, customThemes: themes, savedEmojis: emojis, emojiCategories, assets, galleryImages, userProfile, diaries, tasks, anniversaries, memoNotes, roomTodos, roomNotes, groups, savedJournalStickers: journalStickers, socialPosts, courses, games, worldbooks, storyTheaters, storyTheaterPresets, storyTheaterMasks, novels,
           bankState: mainState ? { ...mainState, id: undefined } : undefined,
           bankDollhouse: dollhouseRecord?.data || undefined,
           bankTransactions: bankTx,
@@ -3248,7 +3286,7 @@ export const DB = {
       const availableStores = [
           STORE_CHARACTERS, STORE_CHAR_GROUPS, STORE_MESSAGES, STORE_THEMES, STORE_EMOJIS, STORE_EMOJI_CATEGORIES,
           STORE_ASSETS, STORE_GALLERY, STORE_USER, STORE_DIARIES,
-          STORE_TASKS, STORE_ANNIVERSARIES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
+          STORE_TASKS, STORE_ANNIVERSARIES, STORE_MEMO_NOTES, STORE_ROOM_TODOS, STORE_ROOM_NOTES,
           STORE_GROUPS, STORE_JOURNAL_STICKERS, STORE_SOCIAL_POSTS, STORE_COURSES, STORE_GAMES, STORE_WORLDBOOKS, STORE_STORY_THEATERS, STORE_STORY_THEATER_PRESETS, STORE_STORY_THEATER_MASKS, STORE_NOVELS, STORE_SONGS,
           STORE_BANK_TX, STORE_BANK_DATA,
           STORE_XHS_ACTIVITIES, STORE_XHS_OWNED_POSTS, STORE_XHS_STOCK,
@@ -3571,6 +3609,10 @@ export const DB = {
           await clearAndAdd(STORE_ANNIVERSARIES, data.anniversaries, '纪念日', false);
           data.anniversaries = undefined as any;
       }, data.anniversaries?.length || 0);
+      await runSection('备忘录', data.memoNotes !== undefined, async () => {
+          await clearAndAdd(STORE_MEMO_NOTES, data.memoNotes, '备忘录', false);
+          data.memoNotes = undefined as any;
+      }, data.memoNotes?.length || 0);
       await runSection('房间待办', data.roomTodos !== undefined, async () => {
           await clearAndAdd(STORE_ROOM_TODOS, data.roomTodos, '房间待办', false);
           data.roomTodos = undefined as any;

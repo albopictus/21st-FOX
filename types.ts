@@ -38,6 +38,7 @@ export enum AppID {
   VRWorld = 'vrworld', // 彼方 — 角色自主登入的虚拟世界（定时驱动，房间里看小说/听歌/留言，产出活动卡注入聊天+记忆）
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
+  Memo = 'memo', // 备忘录 — 便签流与双向长文本备忘
 }
 
 export interface SystemLog {
@@ -3102,6 +3103,9 @@ export interface CharacterProfile {
    * 独立于 proactiveConfig（主动发消息），互不挤占触发。
    */
   vrState?: VRWorldCharState;
+
+  /** 互赠礼物记录/心意陈列柜 */
+  receivedGifts?: ReceivedGiftRecord[];
 }
 
 /**
@@ -3197,6 +3201,34 @@ export interface UserProfile {
      * enabled=false（登出）时，聊天里给角色的"用户在彼方"提示词随之消失。
      */
     vrState?: UserVRState;
+    /** 用户金币钱包余额（初始 300） */
+    coins?: number;
+    /** 上次领取每日津贴的日期（YYYY-MM-DD） */
+    lastDailyAllowanceDate?: string;
+    /** 用户自定义心意礼物库 */
+    customGifts?: CustomGiftItem[];
+}
+
+export interface CustomGiftItem {
+    id: string;
+    name: string;
+    image: string;       // 图床 URL、blobref 令牌或 data: URI
+    price?: number;      // 价值（已去金币化，可选）
+    description?: string;// 礼物细节描述（供 AI 角色感知）
+    defaultNote?: string;// 默认留言
+    createdAt?: number;
+}
+
+export interface ReceivedGiftRecord {
+    id: string;
+    giftId: string;
+    giftName: string;
+    icon: string;
+    cost?: number;
+    note?: string;
+    description?: string;
+    timestamp: number;
+    sender: 'user' | 'assistant';
 }
 
 export interface UserVRState {
@@ -3615,9 +3647,34 @@ export interface Anniversary {
     title: string;
     date: string;
     charId: string;
+    time?: string; // 可选具体时刻 "HH:mm"
+    remarks?: string; // 详细长文本备注
+    createdBy?: 'user' | 'character'; // 发起人
+    authorName?: string; // 发起人显示名称
+    lastEditedBy?: 'user' | 'character'; // 最后修改人
+    lastEditedAt?: number;
+    createdAt?: number;
     aiThought?: string;
     lastThoughtGeneratedAt?: number;
 }
+
+/** 共同日程事件（与 Anniversary 共享存储，100% 向下兼容） */
+export type ScheduleEvent = Anniversary;
+
+export interface MemoNote {
+    id: string;
+    title: string;
+    content: string; // 正文内容（支持多行长文本、Markdown、列表等）
+    category?: string; // 'inspiration' | 'life' | 'agreement' | 'secret' 等分类或标签
+    charId?: string; // 关联角色 ID（如果是角色主动创建或与某角色特别相关）
+    createdBy: 'user' | 'character'; // 创建者
+    authorName?: string; // 创建者名称
+    lastEditedBy?: 'user' | 'character'; // 最后修改者
+    lastEditedAt: number; // 最后修改时间戳
+    createdAt: number; // 创建时间戳
+    pinned?: boolean; // 是否置顶
+}
+
 
 export interface SocialComment {
     id: string;
@@ -3779,7 +3836,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'schedule_card' | 'memo_card' | 'gift';
 
 export interface Message {
     id: number;
@@ -3848,6 +3905,7 @@ export interface FullBackupData {
     diaries?: DiaryEntry[];
     tasks?: Task[];
     anniversaries?: Anniversary[];
+    memoNotes?: MemoNote[];
     roomTodos?: RoomTodo[]; 
     roomNotes?: RoomNote[];
     socialPosts?: SocialPost[]; 
