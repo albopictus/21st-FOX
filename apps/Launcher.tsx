@@ -9,6 +9,8 @@ import { ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWid
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
 import { DesktopGalleryModal } from '../components/os/DesktopGalleryModal';
+import { DesktopClockWidget } from '../components/os/widgets/DesktopClockWidget';
+import { CharacterCardWidget } from '../components/os/widgets/CharacterCardWidget';
 import {
     renderGridItemContent, WIDGET_META, defaultSizeFor,
     type WidgetRenderContext,
@@ -58,6 +60,22 @@ const Launcher: React.FC = () => {
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageGridRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // 正方形格子：格子边长 = 列宽 = (页宽 - 左右 padding - 列间距) / 4。测量后设进 state。
+  const GRID_GAP = 8; // px，对应 className 的 gap-2
+  const [cellPx, setCellPx] = useState(84);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const w = scrollContainerRef.current?.clientWidth;
+      if (!w) return;
+      const inner = w - 32 /* px-4 两侧 */ - GRID_GAP * (GRID_COLS - 1);
+      const size = Math.max(48, Math.floor(inner / GRID_COLS));
+      setCellPx(prev => (prev === size ? prev : size));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   // ───────── 页面数据 ─────────
   const validAppIds = useMemo(
@@ -265,10 +283,9 @@ const Launcher: React.FC = () => {
     const el = pageGridRefs.current[pageIndex];
     if (!el) return null;
     const r = el.getBoundingClientRect();
-    const cw = r.width / GRID_COLS;
-    const ch = r.height / GRID_ROWS;
-    let col = Math.floor((clientX - r.left) / cw);
-    let row = Math.floor((clientY - r.top) / ch);
+    const stride = cellPx + GRID_GAP; // 固定正方形格子的步距（getBoundingClientRect 已含滚动偏移）
+    let col = Math.floor((clientX - r.left) / stride);
+    let row = Math.floor((clientY - r.top) / stride);
     col = Math.max(0, Math.min(GRID_COLS - w, col));
     row = Math.max(0, Math.min(GRID_ROWS - h, row));
     return { x: col, y: row };
@@ -519,6 +536,122 @@ const Launcher: React.FC = () => {
     return kind !== 'app' && (m.maxW > m.minW || m.maxH > m.minH);
   };
 
+  // 一页的自由网格（6 行铺满、行距宽松）。主屏(pageIndex===1)把它放在时钟+角色卡表头下面，
+  // 其余页直接铺满整页。
+  const renderPageGrid = (page: DesktopPage, pageIndex: number) => (
+    <div
+      ref={el => { pageGridRefs.current[pageIndex] = el; }}
+      className="relative w-full grid"
+      style={{
+        gap: `${GRID_GAP}px`,
+        gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
+        // 正方形格子：行高固定 = 列宽（cellPx）。内容顶对齐，不足一整页时下方留白。
+        gridTemplateRows: `repeat(${GRID_ROWS}, ${cellPx}px)`,
+        gridAutoRows: `${cellPx}px`,
+        alignContent: 'start',
+      }}
+    >
+      {page.items.map(item => {
+        const content = renderGridItemContent(item, widgetCtx);
+        if (content == null) return null;
+        const draggable = layoutEditing && !item.locked;
+        return (
+          <div
+            key={item.id}
+            data-grid-item={item.id}
+            className={`relative min-w-0 min-h-0 ${item.kind === 'app' ? 'flex items-center justify-center' : ''} ${draggable ? 'launcher-edit-wobble' : ''}`}
+            style={{
+              gridColumn: `${item.x + 1} / span ${item.w}`,
+              gridRow: `${item.y + 1} / span ${item.h}`,
+              touchAction: layoutEditing ? 'none' : undefined,
+            }}
+            onPointerDown={(e) => onItemPointerDown(e, item, pageIndex)}
+          >
+            <div className="w-full h-full overflow-hidden">{content}</div>
+
+            {layoutEditing && (
+              item.locked ? (
+                <button
+                  data-grid-action="lock"
+                  onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
+                  className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-slate-700 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
+                  title="已锁定 · 点击解锁"
+                >
+                  <Lock size={11} weight="fill" />
+                </button>
+              ) : (
+                <>
+                  <button
+                    data-grid-action="delete"
+                    onClick={(e) => { e.stopPropagation(); handleDeleteItem(pageIndex, item.id); }}
+                    className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30 hover:bg-red-600"
+                    title="移除"
+                  >
+                    <Minus size={11} weight="bold" />
+                  </button>
+                  {WIDGET_META[item.kind].defaultLocked && (
+                    <button
+                      data-grid-action="lock"
+                      onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
+                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
+                      title="锁定"
+                    >
+                      <LockOpen size={11} weight="fill" />
+                    </button>
+                  )}
+                  {canResize(item.kind) && (
+                    <button
+                      data-grid-action="resize"
+                      onPointerDown={(e) => onResizePointerDown(e, item, pageIndex)}
+                      className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-white/90 text-slate-700 flex items-center justify-center shadow-md active:scale-90 z-30 cursor-nwse-resize"
+                      title="拖动改大小"
+                    >
+                      <ArrowsOutSimple size={11} weight="bold" />
+                    </button>
+                  )}
+                </>
+              )
+            )}
+          </div>
+        );
+      })}
+
+      {dragPreview && dragPreview.pageIndex === pageIndex && (
+        <div
+          className="pointer-events-none rounded-2xl border-2 border-dashed z-20"
+          style={{
+            gridColumn: `${dragPreview.x + 1} / span ${dragPreview.w}`,
+            gridRow: `${dragPreview.y + 1} / span ${dragPreview.h}`,
+            borderColor: dragPreview.ok ? 'rgba(255,255,255,0.7)' : 'rgba(239,68,68,0.8)',
+            background: dragPreview.ok ? 'rgba(255,255,255,0.12)' : 'rgba(239,68,68,0.12)',
+          }}
+        />
+      )}
+
+      {layoutEditing && (
+        <div className="absolute -bottom-1 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none">
+          {page.items.length === 0 && totalPages > 1 && (
+            <button
+              onClick={() => handleRemovePage(pageIndex)}
+              className="pointer-events-auto px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/80 hover:bg-red-500 text-white flex items-center gap-1 shadow-md active:scale-95"
+            >
+              <X size={11} weight="bold" /><span>移除空页</span>
+            </button>
+          )}
+          {pageIndex === totalPages - 1 && (
+            <button
+              onClick={handleAddPage}
+              className="pointer-events-auto px-3 py-1 rounded-full text-[10px] font-bold bg-white/25 hover:bg-white/35 shadow-md active:scale-95"
+              style={{ color: contentColor }}
+            >
+              <Plus size={11} weight="bold" className="inline mr-0.5" />新页面
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div
       data-launcher-root
@@ -602,120 +735,28 @@ const Launcher: React.FC = () => {
         {pages.map((page, pageIndex) => (
           <div
             key={page.id}
-            className="w-full flex-shrink-0 snap-center snap-always h-full px-4 pt-9 pb-6 overflow-y-auto no-scrollbar"
+            className="w-full flex-shrink-0 snap-center snap-always h-full px-4 pt-12 pb-8 flex flex-col"
             style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
           >
-            <div
-              ref={el => { pageGridRefs.current[pageIndex] = el; }}
-              className="relative w-full grid gap-x-2 gap-y-2"
-              style={{
-                gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
-                // 行高固定、内容顶对齐 —— 时钟 + 角色卡贴在一起，不被拉开
-                gridAutoRows: 'clamp(3.25rem, 13.5vh, 4.75rem)',
-                gridTemplateRows: `repeat(${GRID_ROWS}, clamp(3.25rem, 13.5vh, 4.75rem))`,
-                alignContent: 'start',
-                minHeight: '100%',
-              }}
-            >
-              {page.items.map(item => {
-                const content = renderGridItemContent(item, widgetCtx);
-                if (content == null) return null;
-                const draggable = layoutEditing && !item.locked;
-                return (
-                  <div
-                    key={item.id}
-                    data-grid-item={item.id}
-                    className={`relative min-w-0 min-h-0 ${item.kind === 'app' ? 'flex items-center justify-center' : ''} ${draggable ? 'launcher-edit-wobble' : ''}`}
-                    style={{
-                      gridColumn: `${item.x + 1} / span ${item.w}`,
-                      gridRow: `${item.y + 1} / span ${item.h}`,
-                      touchAction: layoutEditing ? 'none' : undefined,
-                    }}
-                    onPointerDown={(e) => onItemPointerDown(e, item, pageIndex)}
-                  >
-                    <div className="w-full h-full overflow-hidden">{content}</div>
-
-                    {layoutEditing && (
-                      item.locked ? (
-                        <button
-                          data-grid-action="lock"
-                          onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
-                          className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-slate-700 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
-                          title="已锁定 · 点击解锁"
-                        >
-                          <Lock size={11} weight="fill" />
-                        </button>
-                      ) : (
-                        <>
-                          <button
-                            data-grid-action="delete"
-                            onClick={(e) => { e.stopPropagation(); handleDeleteItem(pageIndex, item.id); }}
-                            className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30 hover:bg-red-600"
-                            title="移除"
-                          >
-                            <Minus size={11} weight="bold" />
-                          </button>
-                          {WIDGET_META[item.kind].defaultLocked && (
-                            <button
-                              data-grid-action="lock"
-                              onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
-                              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
-                              title="锁定"
-                            >
-                              <LockOpen size={11} weight="fill" />
-                            </button>
-                          )}
-                          {canResize(item.kind) && (
-                            <button
-                              data-grid-action="resize"
-                              onPointerDown={(e) => onResizePointerDown(e, item, pageIndex)}
-                              className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-white/90 text-slate-700 flex items-center justify-center shadow-md active:scale-90 z-30 cursor-nwse-resize"
-                              title="拖动改大小"
-                            >
-                              <ArrowsOutSimple size={11} weight="bold" />
-                            </button>
-                          )}
-                        </>
-                      )
-                    )}
-                  </div>
-                );
-              })}
-
-              {dragPreview && dragPreview.pageIndex === pageIndex && (
-                <div
-                  className="pointer-events-none rounded-2xl border-2 border-dashed z-20"
-                  style={{
-                    gridColumn: `${dragPreview.x + 1} / span ${dragPreview.w}`,
-                    gridRow: `${dragPreview.y + 1} / span ${dragPreview.h}`,
-                    borderColor: dragPreview.ok ? 'rgba(255,255,255,0.7)' : 'rgba(239,68,68,0.8)',
-                    background: dragPreview.ok ? 'rgba(255,255,255,0.12)' : 'rgba(239,68,68,0.12)',
-                  }}
-                />
-              )}
-
-              {layoutEditing && (
-                <div className="absolute -bottom-1 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none">
-                  {page.items.length === 0 && totalPages > 1 && (
-                    <button
-                      onClick={() => handleRemovePage(pageIndex)}
-                      className="pointer-events-auto px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/80 hover:bg-red-500 text-white flex items-center gap-1 shadow-md active:scale-95"
-                    >
-                      <X size={11} weight="bold" /><span>移除空页</span>
-                    </button>
-                  )}
-                  {pageIndex === totalPages - 1 && (
-                    <button
-                      onClick={handleAddPage}
-                      className="pointer-events-auto px-3 py-1 rounded-full text-[10px] font-bold bg-white/25 hover:bg-white/35 shadow-md active:scale-95"
-                      style={{ color: contentColor }}
-                    >
-                      <Plus size={11} weight="bold" className="inline mr-0.5" />新页面
-                    </button>
-                  )}
+            {pageIndex === 1 ? (
+              <>
+                {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删 */}
+                <div className="shrink-0">
+                  <DesktopClockWidget />
+                  <CharacterCardWidget
+                    char={widgetChar}
+                    unreadCount={widgetUnread}
+                    lastMessage={lastMessage}
+                    onClick={() => openApp(AppID.Chat)}
+                    contentColor={contentColor}
+                    paper={paper}
+                  />
                 </div>
-              )}
-            </div>
+                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">{renderPageGrid(page, pageIndex)}</div>
+              </>
+            ) : (
+              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">{renderPageGrid(page, pageIndex)}</div>
+            )}
           </div>
         ))}
       </div>

@@ -16,7 +16,7 @@ import type {
 } from '../types';
 
 export const GRID_COLS = 4;
-export const GRID_ROWS = 6;
+export const GRID_ROWS = 8;
 
 /** 每种条目的默认尺寸（格数）。app 恒为 1×1。 */
 export const DEFAULT_ITEM_SIZE: Record<GridItemKind, { w: number; h: number }> = {
@@ -31,8 +31,14 @@ export const DEFAULT_ITEM_SIZE: Record<GridItemKind, { w: number; h: number }> =
     memo: { w: 2, h: 2 },
 };
 
-/** 默认锁定（不可拖 / 改大小 / 删，除非在编辑态解锁）的三块。 */
-export const DEFAULT_LOCKED_KINDS: ReadonlySet<GridItemKind> = new Set(['clock', 'charCard', 'schedule']);
+/** 默认锁定（不可拖 / 改大小 / 删，除非在编辑态解锁）的条目。 */
+export const DEFAULT_LOCKED_KINDS: ReadonlySet<GridItemKind> = new Set(['schedule']);
+
+/**
+ * 主屏表头专属：时钟 + 角色卡不是网格条目，由 Launcher 在第 1 页顶部单独渲染
+ * （原生流式布局，贴顶，不可删）。它们绝不出现在 page.items 里。
+ */
+export const HEADER_ONLY_KINDS: ReadonlySet<GridItemKind> = new Set(['clock', 'charCard']);
 
 let _seq = 0;
 export const makeItemId = (kind: string): string =>
@@ -209,6 +215,33 @@ export const flowItems = (
 
 export const addPage = (pages: DesktopPage[]): DesktopPage[] => [...pages, emptyPage()];
 
+/** 按阅读顺序（先 y 后 x）把条目重新贴到左上角，去掉空洞。锁定项也一起重排。 */
+export const compactPage = (
+    page: DesktopPage,
+    cols: number = GRID_COLS,
+    rows: number = GRID_ROWS,
+): DesktopPage => {
+    const sorted = [...page.items].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+    let out: DesktopPage = { ...page, items: [] };
+    for (const it of sorted) {
+        const pos = findFreeRect(out, it.w, it.h, cols, rows);
+        out = { ...out, items: [...out.items, pos ? { ...it, x: pos.x, y: pos.y } : it] };
+    }
+    return out;
+};
+
+/** 从每页剔除表头专属条目（clock / charCard），然后压实。给「已迁移过的旧数据」纠偏用。 */
+export const stripHeaderKinds = (pages: DesktopPage[]): DesktopPage[] => {
+    let changed = false;
+    const next = pages.map(p => {
+        const kept = p.items.filter(it => !HEADER_ONLY_KINDS.has(it.kind));
+        if (kept.length === p.items.length) return p;
+        changed = true;
+        return compactPage({ ...p, items: kept });
+    });
+    return changed ? next : pages;
+};
+
 /** 删除某页（纯 splice；调用方负责「非空页要不要确认 / 搬移」）。至少保留 1 页。 */
 export const removePage = (pages: DesktopPage[], index: number): DesktopPage[] => {
     if (index < 0 || index >= pages.length || pages.length <= 1) return pages;
@@ -242,11 +275,13 @@ const dedupe = (ids: (string | undefined | null)[], valid: Set<string>): string[
 /**
  * 旧 launcher 字段 → launcherPages。已经有 launcherPages 就原样返回。
  *
- * 页序与旧版对齐：
+ * 页序：
  *   [0] 负一屏  = launcherMinusOneApps（+ 遗留的 launcherMinusOneWidgets）
- *   [1] 主屏    = clock + charCard（锁定）+ 部分 app
+ *   [1] 主屏    = 部分 app（时钟 / 角色卡是 Launcher 单独渲染的表头，不是条目）
  *   [2] 原风车页 = schedule（锁定）+ music + image + 部分 app
  *   [3+] 剩余 app + 自定义页小组件，按需开页
+ *
+ * 已经有 launcherPages 就只做纠偏：剔掉早期版本误塞进去的 clock / charCard 条目。
  *
  * @param validAppIds 允许出现在网格上的 AppID 集合（调用方已排除 dock / 隐藏 / 未解锁的 dev app）
  */
@@ -257,7 +292,7 @@ export const migrateLegacyLauncher = (
     >,
     validAppIds: Set<string>,
 ): DesktopPage[] => {
-    if (theme.launcherPages && theme.launcherPages.length) return theme.launcherPages;
+    if (theme.launcherPages && theme.launcherPages.length) return stripHeaderKinds(theme.launcherPages);
 
     // ── Page 0：负一屏 ──
     let page0 = emptyPage();
@@ -272,10 +307,8 @@ export const migrateLegacyLauncher = (
         if (res) page0 = res.page;
     }
 
-    // ── Page 1：主屏（锁定的时钟 + 角色卡，贴在一起）──
-    let page1 = emptyPage();
-    page1 = (addItem(page1, { kind: 'clock', locked: true, x: 0, y: 0 }) || { page: page1 }).page;
-    page1 = (addItem(page1, { kind: 'charCard', locked: true, x: 0, y: 3 }) || { page: page1 }).page;
+    // ── Page 1：主屏（时钟 + 角色卡是表头，不在这里；app 从顶格铺起）──
+    const page1 = emptyPage();
 
     // ── Page 2：原风车页（锁定的日程 + 音乐 + 相框）──
     let page2 = emptyPage();

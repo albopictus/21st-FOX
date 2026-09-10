@@ -63,8 +63,9 @@ interface WidgetMeta {
 
 export const WIDGET_META: Record<GridItemKind, WidgetMeta> = {
     app:        { minW: 1, minH: 1, maxW: 1, maxH: 1, label: 'App',    desc: '', galleryHidden: true },
-    clock:      { minW: 4, minH: 2, maxW: 4, maxH: 4, label: '时钟',   desc: '问候语 + 大号时间 + 星期日期', singleton: true, defaultLocked: true },
-    charCard:   { minW: 3, minH: 1, maxW: 4, maxH: 2, label: '角色卡', desc: '当前角色头像、未读与最近一条消息', singleton: true, defaultLocked: true },
+    // 时钟 / 角色卡是主屏表头，Launcher 单独渲染，不做网格条目也不进组件库
+    clock:      { minW: 4, minH: 2, maxW: 4, maxH: 4, label: '时钟',   desc: '', singleton: true, galleryHidden: true },
+    charCard:   { minW: 3, minH: 1, maxW: 4, maxH: 2, label: '角色卡', desc: '', singleton: true, galleryHidden: true },
     schedule:   { minW: 3, minH: 2, maxW: 4, maxH: 3, label: '日程',   desc: '角色此刻在做什么 · 点开看全天', singleton: true, defaultLocked: true },
     music:      { minW: 2, minH: 2, maxW: 4, maxH: 4, label: '黑胶音乐播放器', desc: '正在播放的歌 + 旋转黑胶，可定制贴纸' },
     image:      { minW: 2, minH: 2, maxW: 4, maxH: 4, label: '相框',   desc: '在桌面上摆一张喜欢的图，点一下换' },

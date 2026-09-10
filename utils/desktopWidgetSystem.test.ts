@@ -21,14 +21,25 @@ describe('桌面自由网格系统契约', () => {
     expect(launcherSource).not.toContain('pinwheelOrder');
   });
 
-  it('时钟 / 角色卡 / 日程：默认锁定，可在编辑态解锁', () => {
-    // 注册表标记这三块为 singleton + defaultLocked
-    expect(registrySource).toContain("clock:");
+  it('主屏第一页单独渲染：时钟 + 角色卡当表头，不是网格条目', () => {
+    // Launcher 对 pageIndex===1 特判，顶部放时钟 + 角色卡
+    expect(launcherSource).toContain('pageIndex === 1');
+    expect(launcherSource).toContain('<DesktopClockWidget />');
+    expect(launcherSource).toContain('<CharacterCardWidget');
+    // desktopGrid：这俩是表头专属，迁移不塞成条目，旧数据 stripHeaderKinds 纠偏
+    const gridSource = readFileSync(path.resolve(__dirname, './desktopGrid.ts'), 'utf8');
+    expect(gridSource).toContain('HEADER_ONLY_KINDS');
+    expect(gridSource).toContain("new Set(['clock', 'charCard'])");
+    expect(gridSource).toContain('stripHeaderKinds');
+    // 组件库不列时钟 / 角色卡
+    expect(registrySource).toContain('galleryHidden: true');
+  });
+
+  it('日程默认锁定，可在编辑态解锁', () => {
     expect(registrySource).toContain('defaultLocked: true');
-    // desktopGrid 的默认锁定集合
     const gridSource = readFileSync(path.resolve(__dirname, './desktopGrid.ts'), 'utf8');
     expect(gridSource).toContain("DEFAULT_LOCKED_KINDS");
-    expect(gridSource).toContain("['clock', 'charCard', 'schedule']");
+    expect(gridSource).toContain("new Set(['schedule'])");
     // Launcher 有锁定切换 + 拖拽时跳过锁定项
     expect(launcherSource).toContain('handleToggleLock');
     expect(launcherSource).toContain('if (item.locked');

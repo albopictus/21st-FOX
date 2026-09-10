@@ -23,7 +23,7 @@ describe('desktopGrid · 几何', () => {
     it('withinGrid 边界', () => {
         expect(withinGrid({ x: 0, y: 0, w: 4, h: 6 })).toBe(true);
         expect(withinGrid({ x: 3, y: 0, w: 2, h: 1 })).toBe(false); // 右边越界
-        expect(withinGrid({ x: 0, y: 5, w: 1, h: 2 })).toBe(false); // 底部越界
+        expect(withinGrid({ x: 0, y: 7, w: 1, h: 2 })).toBe(false); // 底部越界（GRID_ROWS=8）
         expect(withinGrid({ x: -1, y: 0, w: 1, h: 1 })).toBe(false);
         expect(withinGrid({ x: 0, y: 0, w: 0, h: 1 })).toBe(false);
     });
@@ -38,7 +38,7 @@ describe('desktopGrid · 几何', () => {
     it('findFreeRect 行优先', () => {
         const p = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 2 })]);
         expect(findFreeRect(p, 1, 1)).toEqual({ x: 0, y: 2 });
-        const full = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 6 })]);
+        const full = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 8 })]);
         expect(findFreeRect(full, 1, 1)).toBeNull();
     });
 });
@@ -53,7 +53,7 @@ describe('desktopGrid · 单页操作（不可变）', () => {
         const r2 = addItem(r1.page, { kind: 'app', refId: 'chat' })!;
         expect(r2.item).toMatchObject({ kind: 'app', refId: 'chat', x: 0, y: 3, w: 1, h: 1 });
 
-        const filled = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 6 })]);
+        const filled = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 8 })]);
         expect(addItem(filled, { kind: 'app', refId: 'x' })).toBeNull();
     });
 
@@ -92,13 +92,13 @@ describe('desktopGrid · 单页操作（不可变）', () => {
 
 describe('desktopGrid · 跨页', () => {
     it('flowItems 溢出到新页，且绕开已有（锁定）条目', () => {
-        const start = page([mk({ id: 'lock', kind: 'clock', x: 0, y: 0, w: 4, h: 2, locked: true })]);
-        const specs = Array.from({ length: 20 }, (_, i) => ({ kind: 'app' as const, refId: `app${i}` }));
+        const start = page([mk({ id: 'lock', kind: 'schedule', x: 0, y: 0, w: 4, h: 2, locked: true })]);
+        const specs = Array.from({ length: 30 }, (_, i) => ({ kind: 'app' as const, refId: `app${i}` }));
         const pages = flowItems([start], specs);
-        // 第一页锁定块占了 rows 0-1，只剩 4 行 = 16 格
-        expect(pages[0].items.filter(i => i.kind === 'app')).toHaveLength(16);
+        // 第一页锁定块占了 rows 0-1，剩 6 行 = 24 格
+        expect(pages[0].items.filter(i => i.kind === 'app')).toHaveLength(24);
         expect(pages.length).toBe(2);
-        expect(pages[1].items.filter(i => i.kind === 'app')).toHaveLength(4);
+        expect(pages[1].items.filter(i => i.kind === 'app')).toHaveLength(6);
         // 锁定块没被动
         expect(pages[0].items.find(i => i.id === 'lock')).toMatchObject({ x: 0, y: 0, locked: true });
     });
@@ -115,12 +115,25 @@ describe('desktopGrid · 跨页', () => {
 describe('desktopGrid · migrateLegacyLauncher', () => {
     const valid = new Set(['chat', 'music', 'gallery', 'settings', 'call', 'social']);
 
-    it('已有 launcherPages 时原样返回', () => {
+    it('已有 launcherPages 且没有表头脏条目时原样返回', () => {
         const existing: DesktopPage[] = [{ id: 'p0', items: [] }];
         expect(migrateLegacyLauncher({ launcherPages: existing }, valid)).toBe(existing);
     });
 
-    it('从旧字段迁移：页序、锁定块、app 去重与过滤', () => {
+    it('已有 launcherPages：早期版本误塞的 clock / charCard 条目会被剔掉并压实', () => {
+        const dirty: DesktopPage[] = [
+            { id: 'p1', items: [
+                { id: 'c', kind: 'clock', x: 0, y: 0, w: 4, h: 3, locked: true },
+                { id: 'cc', kind: 'charCard', x: 0, y: 3, w: 4, h: 2, locked: true },
+                { id: 'a1', kind: 'app', refId: 'chat', x: 0, y: 5, w: 1, h: 1 },
+            ] },
+        ];
+        const out = migrateLegacyLauncher({ launcherPages: dirty }, valid);
+        expect(out[0].items.map(i => i.kind)).toEqual(['app']);
+        expect(out[0].items[0]).toMatchObject({ refId: 'chat', x: 0, y: 0 }); // 压到左上角
+    });
+
+    it('从旧字段迁移：页序、app 去重与过滤（时钟/角色卡不塞成条目）', () => {
         const theme: Partial<OSTheme> = {
             launcherMinusOneApps: ['gallery', 'gallery', 'nonexistent', 'call'],
             launcherAppOrder: ['chat', 'music', 'chat', 'settings', 'bogus'],
@@ -132,12 +145,11 @@ describe('desktopGrid · migrateLegacyLauncher', () => {
         // 页 0 = 负一屏：只有有效且去重后的 app
         expect(pages[0].items.map(i => i.refId)).toEqual(['gallery', 'call']);
 
-        // 页 1 = 主屏：锁定的 clock + charCard
-        const p1kinds = pages[1].items.map(i => i.kind);
-        expect(p1kinds).toContain('clock');
-        expect(p1kinds).toContain('charCard');
-        expect(pages[1].items.find(i => i.kind === 'clock')!.locked).toBe(true);
-        expect(pages[1].items.find(i => i.kind === 'charCard')!.locked).toBe(true);
+        // 页 1 = 主屏：不含时钟 / 角色卡条目（它们是 Launcher 表头）；内容从顶格铺
+        const allKindsFlat = pages.flatMap(p => p.items.map(i => i.kind));
+        expect(allKindsFlat).not.toContain('clock');
+        expect(allKindsFlat).not.toContain('charCard');
+        expect(pages[1].items[0]).toMatchObject({ x: 0, y: 0 });
 
         // 页 2 = 原风车页：锁定的 schedule + music + image（image 带上 dsq 图）
         const p2 = pages[2];

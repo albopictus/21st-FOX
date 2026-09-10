@@ -31,7 +31,7 @@ export const CharacterCardWidget = React.memo(({
     // 动森：村民头像 + AC 对话气泡（显示最近消息，点开聊天）
     if (acnh) {
         return (
-            <div className="animate-fade-in" onClick={onClick}>
+            <div className="mb-4 animate-fade-in" onClick={onClick}>
                 <div className="flex items-end gap-2.5 cursor-pointer active:scale-[0.98] transition-transform">
                     {/* 村民头像（圆角方块 + 白边） */}
                     <div className="relative w-[60px] h-[60px] shrink-0 rounded-[26%] overflow-hidden bg-[#e8e2d6]"
@@ -65,9 +65,9 @@ export const CharacterCardWidget = React.memo(({
     }
 
     return (
-        <div className="group animate-fade-in w-full h-full">
+        <div className="mb-3 group animate-fade-in">
              <div
-                className="relative h-full min-h-[5rem] w-full overflow-hidden rounded-3xl cursor-pointer transition-transform duration-300 active:scale-[0.98]"
+                className="relative h-24 w-full overflow-hidden rounded-3xl cursor-pointer transition-transform duration-300 active:scale-[0.98]"
                 onClick={onClick}
                 style={paper ? {
                     background: 'rgba(224,221,215,0.40)',

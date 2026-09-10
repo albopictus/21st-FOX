@@ -32,7 +32,7 @@ export const DesktopClockWidget = React.memo(() => {
         const weekdayTitle = dayName.charAt(0) + dayName.slice(1).toLowerCase();
         const monthTitle = monthName.charAt(0) + monthName.slice(1).toLowerCase();
         return (
-            <div className="text-center animate-fade-in select-none">
+            <div className="mt-7 mb-5 text-center animate-fade-in select-none">
                 <div className="text-[13px] font-extrabold tracking-wide" style={{ color: '#8a7a5c' }}>
                     🍃 {greeting}, Resident
                 </div>
@@ -47,7 +47,7 @@ export const DesktopClockWidget = React.memo(() => {
     }
 
     return (
-        <div className="flex flex-col relative animate-fade-in" style={{ color: contentColor }}>
+        <div className="flex flex-col mb-5 mt-5 relative animate-fade-in" style={{ color: contentColor }}>
             {/* 顶部装饰 — 状态胶囊 + 细线 */}
             <div className="flex items-center gap-2 mb-3 opacity-90">
                 <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
