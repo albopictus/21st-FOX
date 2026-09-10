@@ -6,6 +6,13 @@
 
 > 包管理器统一用 **pnpm**：装依赖 `pnpm install`、跑测试 `pnpm vitest run`、跑脚本 `pnpm <script>`。别用 npm / yarn（仓库里是 `pnpm-lock.yaml`）。
 
+## ⚠️ 绝对禁令：Git 分支推送红线（最高优先级规则）
+
+1. **绝对禁止未经用户明确同意私自往 `meow` 和 `main` 分支推送任何内容！**
+2. **严禁自动执行 `git push <remote> meow` 或 `git push <remote> main`。**
+3. 代码只能在独立的特性分支（如 `feat/*`、`fix/*`）上开发和测试。
+4. **任何涉及上传或推送的操作，必须在执行前明确向用户询问并获得许可！** 用户没点头前，绝不能上传。
+
 ## 文档地图
 
 | 主题 | 文档 | 什么时候看 |
