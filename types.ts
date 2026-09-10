@@ -214,6 +214,8 @@ export interface OSTheme {
    * 页序：[0] = 负一屏，[1] = 主屏，[2+] = 后续页。见 utils/desktopGrid.ts。
    */
   launcherPages?: DesktopPage[];
+  /** 开机 / 冷启动时落在哪一页（存 DesktopPage.id，加删页不错位）。未设置 = 时钟那页（pages[1]）。 */
+  launcherStartPageId?: string;
   /** 桌面已隐藏/删除的 App ID 列表。可在小组件/应用库中重新添加回桌面。 */
   launcherHiddenApps?: string[];
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */

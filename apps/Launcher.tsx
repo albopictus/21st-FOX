@@ -21,7 +21,7 @@ import {
     migrateLegacyLauncher, collectPlacedAppIds,
     emptyPage, addItem, removeItem, moveItem, resizeItem, toggleLock, canPlace,
 } from '../utils/desktopGrid';
-import { Plus, Minus, X, Lock, LockOpen, ArrowsOutSimple } from '@phosphor-icons/react';
+import { Plus, Minus, X, Lock, LockOpen, ArrowsOutSimple, House } from '@phosphor-icons/react';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
@@ -34,8 +34,9 @@ const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'))
 // 允许任意留空。数据模型 / 纯逻辑见 utils/desktopGrid.ts，组件渲染见 desktopWidgetRegistry。
 // DesktopClock / CharacterWidget / DesktopSquareImage 已抽到 components/os/widgets/。
 
-// 跨 remount 记住停在第几页（默认主屏 = pages[1]，左滑是负一屏 pages[0]）。
-let _lastPageIndex = 1;
+// 跨 remount 记住停在第几页（从 App 返回时用）。-1 = 本次会话首次挂载，还没定位过 →
+// 用 theme.launcherStartPageId 定起始页（未设置 = 时钟那页 pages[1]）。
+let _lastPageIndex = -1;
 
 const Launcher: React.FC = () => {
   const { openApp, characters, activeCharacterId, theme, updateTheme, lastMsgTimestamp, isDataLoaded, unreadMessages } = useOS();
@@ -55,9 +56,21 @@ const Launcher: React.FC = () => {
   const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
 
-  const [activePageIndex, setActivePageIndex] = useState(_lastPageIndex);
-  const activePageIndexRef = useRef(_lastPageIndex);
+  const [activePageIndex, setActivePageIndex] = useState(() => {
+    if (_lastPageIndex < 0) {
+      const pgs = theme.launcherPages || [];
+      const idx = theme.launcherStartPageId ? pgs.findIndex(p => p.id === theme.launcherStartPageId) : -1;
+      _lastPageIndex = idx >= 0 ? idx : 1; // 未设置 / 找不到 → 时钟那页
+    }
+    return Math.max(0, _lastPageIndex);
+  });
+  const activePageIndexRef = useRef(activePageIndex);
   useEffect(() => { activePageIndexRef.current = activePageIndex; }, [activePageIndex]);
+
+  const handleSetStartPage = useCallback((pageId: string) => {
+    const cur = theme.launcherStartPageId;
+    void updateTheme({ launcherStartPageId: cur === pageId ? undefined : pageId });
+  }, [theme.launcherStartPageId, updateTheme]);
 
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageGridRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -193,9 +206,10 @@ const Launcher: React.FC = () => {
   // ───────── 横向翻页（滚动壳）─────────
   useLayoutEffect(() => {
     const el = scrollContainerRef.current;
-    if (el && _lastPageIndex > 0) {
+    const target = Math.max(0, Math.min(pagesRef.current.length - 1, _lastPageIndex));
+    if (el && target > 0) {
       el.style.scrollBehavior = 'auto';
-      el.scrollLeft = el.clientWidth * _lastPageIndex;
+      el.scrollLeft = el.clientWidth * target;
       requestAnimationFrame(() => { el.style.scrollBehavior = 'smooth'; });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -655,6 +669,24 @@ const Launcher: React.FC = () => {
 
       {layoutEditing && (
         <div className="absolute -bottom-1 left-0 right-0 flex items-center justify-center gap-2 pointer-events-none">
+          {(() => {
+            const isStart = theme.launcherStartPageId
+              ? theme.launcherStartPageId === page.id
+              : pageIndex === 1; // 未设置时时钟那页算默认起始页
+            return (
+              <button
+                onClick={() => handleSetStartPage(page.id)}
+                className={`pointer-events-auto px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center gap-1 shadow-md active:scale-95 ${
+                  isStart ? 'bg-amber-400 text-slate-900' : 'bg-white/25 hover:bg-white/35'
+                }`}
+                style={isStart ? undefined : { color: contentColor }}
+                title={isStart ? '当前起始页 · 再点取消（回默认时钟页）' : '设为开机起始页'}
+              >
+                <House size={11} weight={isStart ? 'fill' : 'regular'} />
+                <span>{isStart ? '起始页' : '设为起始页'}</span>
+              </button>
+            );
+          })()}
           {page.items.length === 0 && totalPages > 1 && (
             <button
               onClick={() => handleRemovePage(pageIndex)}

@@ -11,7 +11,7 @@ describe('桌面自由网格系统契约', () => {
   const registrySource = readFileSync(path.resolve(__dirname, '../components/os/desktopWidgetRegistry.tsx'), 'utf8');
 
   it('Launcher 走自由网格模型：读 launcherPages，渲染走注册表', () => {
-    expect(launcherSource).toContain('let _lastPageIndex = 1;');       // 默认停主屏
+    expect(launcherSource).toContain('launcherStartPageId');            // 起始页可自定义（默认时钟页）
     expect(launcherSource).toContain('migrateLegacyLauncher');          // 旧字段一次性迁移
     expect(launcherSource).toContain('renderGridItemContent');          // 统一渲染
     expect(launcherSource).toContain('launcherPages');
