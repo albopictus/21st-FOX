@@ -6,11 +6,16 @@ import AppIcon from '../components/os/AppIcon';
 import TokenImg from '../components/os/TokenImg';
 import { useBlobRefUrl } from '../utils/blobRef';
 import { DB } from '../utils/db';
-import { CharacterProfile, Anniversary, AppID, DailySchedule } from '../types';
+import { CharacterProfile, Anniversary, AppID, DailySchedule, DesktopWidgetInstance, DesktopWidgetKind, DesktopWidgetSize } from '../types';
 import { ScheduleHomeWidget, ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
 import NowPlayingSquareWidget from '../components/os/NowPlayingSquareWidget';
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
+import { CalendarWidget } from '../components/os/widgets/CalendarWidget';
+import { AnniversaryWidget } from '../components/os/widgets/AnniversaryWidget';
+import { MemoHomeWidget } from '../components/os/widgets/MemoHomeWidget';
+import { WidgetGalleryModal } from '../components/os/WidgetGalleryModal';
+import { Plus, Minus, X } from '@phosphor-icons/react';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
@@ -340,138 +345,14 @@ const DesktopSquareImage = React.memo(({ image, contentColor, onClick, acnh = fa
     );
 });
 
-const CALENDAR_WEEKDAYS = [
-    { key: 'sun', label: 'S' },
-    { key: 'mon', label: 'M' },
-    { key: 'tue', label: 'T' },
-    { key: 'wed', label: 'W' },
-    { key: 'thu', label: 'T' },
-    { key: 'fri', label: 'F' },
-    { key: 'sat', label: 'S' },
-] as const;
-
-// 4. Widget Page Component (Calendar + Events)
-const WidgetsPage = React.memo(({ contentColor, openApp, anniversaries, characters, acnh = false, paper = false }: any) => {
-    // 动森：奶油卡片样式（替代暗色玻璃）
-    const acCard = acnh ? { background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)' } : undefined;
-    const acDot = acnh ? '#6fba2c' : undefined;
-    const now = new Date();
-    const currentYear = now.getFullYear();
-    const currentMonth = now.getMonth();
-    const monthName = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'][currentMonth];
-    
-    const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
-    const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
-    
-    const totalDays = getDaysInMonth(currentYear, currentMonth);
-    const startOffset = getFirstDayOfMonth(currentYear, currentMonth);
-    
-    const calendarDays = Array.from({ length: totalDays }, (_, i) => i + 1);
-    const paddingDays = Array.from({ length: startOffset }, () => null);
-
-    // --- Upcoming events: only today + future, soonest first (non-mutating), paginated ---
-    const todayStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    const upcomingEvents = useMemo(
-        () => [...(anniversaries as any[])]
-            .filter((a: any) => a.date >= todayStr)
-            .sort((a: any, b: any) => a.date.localeCompare(b.date)),
-        [anniversaries, todayStr]
-    );
-    const EVENTS_PER_PAGE = 4;
-    const eventPageCount = Math.max(1, Math.ceil(upcomingEvents.length / EVENTS_PER_PAGE));
-    const [eventPage, setEventPage] = useState(0);
-    // Clamp the page if the list shrinks (e.g. an event passes / is removed)
-    useEffect(() => {
-        if (eventPage > eventPageCount - 1) setEventPage(eventPageCount - 1);
-    }, [eventPageCount, eventPage]);
-    const pagedEvents = upcomingEvents.slice(eventPage * EVENTS_PER_PAGE, eventPage * EVENTS_PER_PAGE + EVENTS_PER_PAGE);
-
-    return (
-        <div className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-24 pb-8 space-y-6 h-full overflow-y-auto no-scrollbar">
-              <div className={`rounded-3xl p-6 ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
-                  <div className="flex justify-between items-center mb-4" style={{ color: contentColor }}>
-                      <h3 className="text-xl font-bold tracking-widest">{monthName} {currentYear}</h3>
-                      <div onClick={() => openApp('schedule')} className={`p-2 rounded-full cursor-pointer transition-colors ${acnh ? 'bg-[#82D5BB]/30 hover:bg-[#82D5BB]/50' : paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : 'bg-white/20 hover:bg-white/40'}`}>
-                          <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-                      </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-7 gap-y-3 gap-x-1 text-center mb-2">
-                      {CALENDAR_WEEKDAYS.map(day => <div key={day.key} className="text-[10px] font-bold opacity-40" style={{ color: contentColor }}>{day.label}</div>)}
-                  </div>
-                  
-                  <div className="grid grid-cols-7 gap-y-2 gap-x-1 text-center">
-                      {paddingDays.map((_, i) => <div key={`pad-${i}`} />)}
-                      {calendarDays.map(day => {
-                          const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                          const isToday = day === now.getDate();
-                          const hasEvent = anniversaries.some((a: any) => a.date === dateStr);
-                          
-                          return (
-                              <div key={day} className="flex flex-col items-center justify-center h-8 relative">
-                                  <div
-                                    className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium ${isToday ? (acnh ? 'text-white font-bold' : paper ? 'text-white font-bold' : 'bg-white text-black font-bold shadow-lg') : 'opacity-80'}`}
-                                    style={isToday ? (acnh ? { background: '#19c8b9' } : paper ? { background: '#788369', boxShadow: '0 4px 10px rgba(91,72,51,0.14)' } : {}) : { color: contentColor }}
-                                  >
-                                      {day}
-                                  </div>
-                                  {hasEvent && <div className="w-1.5 h-1.5 rounded-full absolute bottom-0 shadow-sm border border-black/10" style={{ background: acDot || (paper ? '#a66f52' : '#c084fc') }}></div>}
-                              </div>
-                          );
-                      })}
-                  </div>
-              </div>
-
-              <div className={`rounded-3xl p-5 flex flex-col flex-1 min-h-[200px] ${acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'}`} style={paper ? { background: 'rgba(224,221,215,0.36)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 5px 16px rgba(91,72,51,0.05)' } : acCard}>
-                  <div className="flex items-center justify-between mb-4">
-                      <h3 className="text-xs font-bold opacity-60 uppercase tracking-widest flex items-center gap-2" style={{ color: contentColor }}>
-                          <span className="w-2 h-2 rounded-full" style={{ background: acDot || (paper ? '#a66f52' : '#c084fc') }}></span> Upcoming Events
-                      </h3>
-                      {eventPageCount > 1 && (
-                          <div className="flex items-center gap-2 shrink-0" style={{ color: contentColor }}>
-                              <button
-                                  onClick={(e) => { e.stopPropagation(); setEventPage(p => Math.max(0, p - 1)); }}
-                                  disabled={eventPage === 0}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center disabled:opacity-25 transition-colors active:scale-90 ${paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : 'bg-white/15 hover:bg-white/30'}`}
-                                  aria-label="Previous events"
-                              >
-                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5L8.25 12l7.5-7.5" /></svg>
-                              </button>
-                              <span className="text-[10px] font-mono opacity-60 tabular-nums">{eventPage + 1}/{eventPageCount}</span>
-                              <button
-                                  onClick={(e) => { e.stopPropagation(); setEventPage(p => Math.min(eventPageCount - 1, p + 1)); }}
-                                  disabled={eventPage >= eventPageCount - 1}
-                                  className={`w-6 h-6 rounded-full flex items-center justify-center disabled:opacity-25 transition-colors active:scale-90 ${paper ? 'bg-[#788369]/10 hover:bg-[#788369]/20' : 'bg-white/15 hover:bg-white/30'}`}
-                                  aria-label="Next events"
-                              >
-                                  <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor" className="w-3 h-3"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
-                              </button>
-                          </div>
-                      )}
-                  </div>
-                  <div className="space-y-3">
-                      {upcomingEvents.length > 0 ? pagedEvents.map((anni: any) => (
-                          <div key={anni.id} className={`flex items-center gap-3 p-3 rounded-xl ${acnh ? 'bg-[#efe7d4] border border-[#e0d6c0]' : paper ? 'bg-[#f3ecdf]/70 border border-[#5b4833]/10' : 'bg-white/5 border border-white/10'}`}>
-                              <div className={`w-10 h-10 shrink-0 rounded-lg flex flex-col items-center justify-center ${acnh ? 'bg-[#82D5BB] text-white border border-[#6cc0a6]' : paper ? 'bg-[#a66f52]/12 text-[#8c5d46] border border-[#a66f52]/15' : 'bg-purple-500/20 text-purple-200 border border-purple-500/30'}`}>
-                                  <span className="text-[9px] opacity-70">{anni.date.split('-')[1]}</span>
-                                  <span className="text-sm font-bold leading-none">{anni.date.split('-')[2]}</span>
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-bold truncate" style={{ color: contentColor }}>{anni.title}</div>
-                                  <div className="text-[10px] opacity-50 truncate" style={{ color: contentColor }}>{characters.find((c: any) => c.id === anni.charId)?.name || 'Unknown'}</div>
-                              </div>
-                          </div>
-                      )) : (
-                          <div className="text-center opacity-30 text-xs py-8" style={{ color: contentColor }}>No upcoming events</div>
-                      )}
-                  </div>
-              </div>
-        </div>
-    );
-});
+const DEFAULT_MINUS_ONE_WIDGETS: DesktopWidgetInstance[] = [
+    { id: 'w-calendar-default', kind: 'calendar', size: '4x2', title: '整月日历' },
+    { id: 'w-anniversary-default', kind: 'anniversary', size: '4x2', title: '纪念日与倒计时' },
+];
 
 // --- Persist scroll page across remounts (e.g. returning from apps) ---
-let _lastPageIndex = 0;
+// 默认定位在主屏（Screen 1，即原主屏）；左滑进入负一屏（Screen 0）
+let _lastPageIndex = 1;
 
 // --- Main Launcher ---
 
@@ -486,6 +367,51 @@ const Launcher: React.FC = () => {
   const [scheduleCharId, setScheduleCharId] = useState<string | null>(null);
   const [scheduleViewerOpen, setScheduleViewerOpen] = useState(false);
   const [layoutEditing, setLayoutEditing] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryTarget, setGalleryTarget] = useState<'minus_one' | 'desktop'>('minus_one');
+
+  const minusOneWidgets = useMemo(() => {
+      if (theme.launcherMinusOneWidgets !== undefined) {
+          return theme.launcherMinusOneWidgets;
+      }
+      return DEFAULT_MINUS_ONE_WIDGETS;
+  }, [theme.launcherMinusOneWidgets]);
+
+  const handleRemoveMinusOneWidget = useCallback(async (id: string) => {
+      const next = minusOneWidgets.filter(w => w.id !== id);
+      await updateTheme({ launcherMinusOneWidgets: next });
+  }, [minusOneWidgets, updateTheme]);
+
+  const handleAddWidget = useCallback(async (kind: DesktopWidgetKind, size: DesktopWidgetSize, title: string) => {
+      const newWidget: DesktopWidgetInstance = {
+          id: `w-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          kind,
+          size,
+          title,
+      };
+      const next = [...minusOneWidgets, newWidget];
+      await updateTheme({ launcherMinusOneWidgets: next });
+  }, [minusOneWidgets, updateTheme]);
+
+  const handleAddPage = useCallback(async () => {
+      const curCustom = theme.launcherCustomPages || [];
+      const nextCustom = [...curCustom, { id: `page-${Date.now()}` }];
+      await updateTheme({ launcherCustomPages: nextCustom });
+  }, [theme.launcherCustomPages, updateTheme]);
+
+  const handleRemovePage = useCallback(async (screenIdx: number) => {
+      // Screen 0: -1 screen; Screen 1: Home; Screen 2: Schedule; Screen 3+: Custom pages
+      const customIdx = screenIdx - 3;
+      const curCustom = [...(theme.launcherCustomPages || [])];
+      if (customIdx >= 0 && customIdx < curCustom.length) {
+          curCustom.splice(customIdx, 1);
+          await updateTheme({ launcherCustomPages: curCustom });
+      } else if (curCustom.length > 0) {
+          curCustom.pop();
+          await updateTheme({ launcherCustomPages: curCustom });
+      }
+  }, [theme.launcherCustomPages, updateTheme]);
+
   const layoutPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const layoutPointer = useRef<{
       pointerId: number;
@@ -586,22 +512,23 @@ const Launcher: React.FC = () => {
   // Pages: 0 = clock+chat+music+grid (original), 1 = pinwheel, 2 = widget images + grid,
   //        3+ = plain grid. Pad to at least 3 slots so the pinwheel/widget pages always exist.
   const APPS_PER_PAGE = 8;
+  const minPages = 3 + (theme.launcherCustomPages?.length || 0);
   const appPages = useMemo(() => {
       const pages: typeof INSTALLED_APPS[] = [];
       for (let i = 0; i < gridApps.length; i += APPS_PER_PAGE) {
           pages.push(gridApps.slice(i, i + APPS_PER_PAGE));
       }
-      while (pages.length < 3) pages.push([]);
+      while (pages.length < minPages) pages.push([]);
       return pages;
-  }, [gridApps]);
+  }, [gridApps, minPages]);
 
   // Page 2 (pinwheel) uses appPages[1]: split into two 2x2 quads
   const page2Apps = appPages[1] || [];
   const page2QuadA = useMemo(() => page2Apps.slice(0, 4), [page2Apps]);
   const page2QuadB = useMemo(() => page2Apps.slice(4, 8), [page2Apps]);
 
-  // Total pages = App Pages + 1 Widget Page
-  const totalPages = appPages.length + 1;
+  // Total pages = 1 (-1 负一屏) + App Pages
+  const totalPages = 1 + appPages.length;
 
   useEffect(() => { activePageIndexRef.current = activePageIndex; }, [activePageIndex]);
 
@@ -760,7 +687,9 @@ const Launcher: React.FC = () => {
       if (from < 0) return;
       const [moved] = currentOrder.splice(from, 1);
 
-      const targetPage = Math.max(0, Math.min(appPages.length - 1, pageIndex));
+      // Screen 0 为负一屏；Screen 1 对应 appPages[0]，Screen 2 对应 appPages[1]...
+      const appPageIndex = Math.max(0, pageIndex - 1);
+      const targetPage = Math.max(0, Math.min(appPages.length - 1, appPageIndex));
       const targetApps = appPages[targetPage] || [];
       let insertIdx = currentOrder.length;
       if (targetApps.length > 0) {
@@ -826,8 +755,10 @@ const Launcher: React.FC = () => {
               clearLayoutPageTurn();
               return;
           }
-          const maxAppPage = Math.max(0, appPages.length - 1);
-          const nextPage = Math.max(0, Math.min(maxAppPage, activePageIndexRef.current + direction));
+          // App 放置从 Screen 1 开始（Screen 0 为负一屏组件专属画布）
+          const minScreen = 1;
+          const maxScreen = Math.max(minScreen, totalPages - 1);
+          const nextPage = Math.max(minScreen, Math.min(maxScreen, activePageIndexRef.current + direction));
           if (nextPage === activePageIndexRef.current) {
               clearLayoutPageTurn();
               return;
@@ -842,7 +773,7 @@ const Launcher: React.FC = () => {
           layoutPageTurnTimer.current = setTimeout(turn, 760);
       };
       layoutPageTurnTimer.current = setTimeout(turn, 560);
-  }, [appPages.length, clearLayoutPageTurn]);
+  }, [totalPages, clearLayoutPageTurn]);
 
   useEffect(() => () => {
       clearLayoutPressTimer();
@@ -1009,10 +940,20 @@ const Launcher: React.FC = () => {
       `}</style>
 
       {layoutEditing && (
-          <div className="absolute top-[calc(var(--safe-top)+0.65rem)] left-4 right-4 z-50 flex items-center justify-between rounded-full px-3 py-2"
-              style={{ background: 'rgba(75,65,54,0.88)', color: '#fffdf8', boxShadow: '0 8px 24px rgba(75,65,54,0.20)' }}>
-              <span className="text-[10px] font-semibold tracking-wide">按住拖动，松手交换位置</span>
-              <button onClick={finishLayoutEditing} className="ml-3 px-3 py-1 rounded-full text-[10px] font-bold bg-white/15 active:scale-95">完成</button>
+          <div className="absolute top-[calc(var(--safe-top)+0.65rem)] left-4 right-4 z-50 flex items-center justify-between rounded-full px-3 py-2 backdrop-blur-md"
+              style={{ background: paper ? 'rgba(75,65,54,0.92)' : 'rgba(25,20,32,0.88)', color: '#fffdf8', boxShadow: '0 8px 24px rgba(0,0,0,0.25)' }}>
+              <button
+                onClick={() => {
+                  setGalleryTarget(activePageIndex === 0 ? 'minus_one' : 'desktop');
+                  setGalleryOpen(true);
+                }}
+                className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-white/20 hover:bg-white/30 active:scale-95 transition shadow-xs"
+              >
+                <Plus size={13} weight="bold" />
+                <span>小组件</span>
+              </button>
+              <span className="text-[10px] font-medium tracking-wide opacity-85">点击 − 移除，按住拖动</span>
+              <button onClick={finishLayoutEditing} className="px-3 py-1 rounded-full text-[10px] font-bold bg-white/20 hover:bg-white/30 active:scale-95 transition">完成</button>
           </div>
       )}
       
@@ -1047,6 +988,143 @@ const Launcher: React.FC = () => {
             WebkitOverflowScrolling: 'touch',
         }}
       >
+          {/* Screen 0: 负一屏 (-1 屏 / 自由小组件看板) */}
+          <div
+            key="screen-minus-one"
+            className="w-full flex-shrink-0 snap-center snap-always flex flex-col px-6 pt-14 pb-28 h-full overflow-y-auto no-scrollbar space-y-4"
+            style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
+          >
+              <div className="flex items-center justify-between px-1 mb-1">
+                  <span className="text-[11px] font-black tracking-widest uppercase opacity-75" style={{ color: contentColor }}>
+                      负一屏 · 小组件
+                  </span>
+                  {layoutEditing && (
+                      <button
+                          onClick={() => { setGalleryTarget('minus_one'); setGalleryOpen(true); }}
+                          className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-white/20 hover:bg-white/30 active:scale-95 transition"
+                          style={{ color: contentColor }}
+                      >
+                          <Plus size={12} weight="bold" />
+                          <span>添加组件</span>
+                      </button>
+                  )}
+              </div>
+
+              {minusOneWidgets.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 text-center opacity-60">
+                      <div className="w-14 h-14 rounded-3xl bg-white/10 flex items-center justify-center mb-3">
+                          <Plus size={24} weight="bold" style={{ color: contentColor }} />
+                      </div>
+                      <div className="text-sm font-bold" style={{ color: contentColor }}>负一屏暂无小组件</div>
+                      <div className="text-xs opacity-75 mt-1" style={{ color: contentColor }}>长按进入编辑模式，轻触下方按钮添加组件</div>
+                      <button
+                          onClick={() => { setGalleryTarget('minus_one'); setGalleryOpen(true); }}
+                          className="mt-4 px-4 py-2 rounded-full font-bold text-xs bg-white/20 hover:bg-white/30 active:scale-95 transition"
+                          style={{ color: contentColor }}
+                      >
+                          ＋ 添加小组件
+                      </button>
+                  </div>
+              ) : (
+                  minusOneWidgets.map((widget) => {
+                      if (widget.kind === 'calendar') {
+                          return (
+                              <CalendarWidget
+                                  key={widget.id}
+                                  contentColor={contentColor}
+                                  openApp={openApp}
+                                  anniversaries={anniversaries}
+                                  acnh={acnh}
+                                  paper={paper}
+                                  editing={layoutEditing}
+                                  onDelete={() => handleRemoveMinusOneWidget(widget.id)}
+                              />
+                          );
+                      }
+                      if (widget.kind === 'anniversary') {
+                          return (
+                              <AnniversaryWidget
+                                  key={widget.id}
+                                  contentColor={contentColor}
+                                  openApp={openApp}
+                                  anniversaries={anniversaries}
+                                  characters={characters}
+                                  acnh={acnh}
+                                  paper={paper}
+                                  editing={layoutEditing}
+                                  onDelete={() => handleRemoveMinusOneWidget(widget.id)}
+                              />
+                          );
+                      }
+                      if (widget.kind === 'memo') {
+                          return (
+                              <MemoHomeWidget
+                                  key={widget.id}
+                                  contentColor={contentColor}
+                                  openApp={openApp}
+                                  acnh={acnh}
+                                  paper={paper}
+                                  editing={layoutEditing}
+                                  size={widget.size}
+                                  onDelete={() => handleRemoveMinusOneWidget(widget.id)}
+                              />
+                          );
+                      }
+                      if (widget.kind === 'music') {
+                          return (
+                              <div key={widget.id} className="relative group w-full aspect-square max-w-[260px] mx-auto">
+                                  {layoutEditing && (
+                                      <button
+                                          onClick={(e) => { e.stopPropagation(); handleRemoveMinusOneWidget(widget.id); }}
+                                          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600"
+                                          title="删除音乐组件"
+                                      >
+                                          <Minus size={14} weight="bold" />
+                                      </button>
+                                  )}
+                                  <NowPlayingSquareWidget contentColor={contentColor} />
+                              </div>
+                          );
+                      }
+                      if (widget.kind === 'image') {
+                          return (
+                              <div key={widget.id} className="relative group w-full aspect-square max-w-[260px] mx-auto">
+                                  {layoutEditing && (
+                                      <button
+                                          onClick={(e) => { e.stopPropagation(); handleRemoveMinusOneWidget(widget.id); }}
+                                          className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600"
+                                          title="删除相框"
+                                      >
+                                          <Minus size={14} weight="bold" />
+                                      </button>
+                                  )}
+                                  <DesktopSquareImage
+                                      image={theme.launcherWidgets?.['dsq']}
+                                      contentColor={contentColor}
+                                      onClick={() => { if (!layoutEditing) openApp(AppID.Appearance); }}
+                                      acnh={acnh}
+                                  />
+                              </div>
+                          );
+                      }
+                      return null;
+                  })
+              )}
+
+              {minusOneWidgets.length > 0 && layoutEditing && (
+                  <div className="flex justify-center pt-2">
+                      <button
+                          onClick={() => { setGalleryTarget('minus_one'); setGalleryOpen(true); }}
+                          className="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-xs bg-white/20 hover:bg-white/30 shadow-md active:scale-95 transition backdrop-blur-md"
+                          style={{ color: contentColor }}
+                      >
+                          <Plus size={14} weight="bold" />
+                          <span>添加更多组件</span>
+                      </button>
+                  </div>
+              )}
+          </div>
+
           {/* Render App Pages */}
           {appPages.map((pageApps, idx) => (
               <div
@@ -1112,6 +1190,16 @@ const Launcher: React.FC = () => {
                   ) : (
                       // Page 3+: Widget Images (idx===2 only) + Free Decorations + Apps
                       <div className="pt-10 flex-1 flex flex-col relative">
+                          {layoutEditing && idx >= 2 && (
+                              <button
+                                  onClick={() => handleRemovePage(idx + 1)}
+                                  className="absolute top-2 right-0 px-2.5 py-1 rounded-full text-[10px] font-bold bg-red-500/80 hover:bg-red-500 text-white flex items-center gap-1 shadow-md active:scale-95 transition z-30"
+                                  title="移除此页"
+                              >
+                                  <X size={12} weight="bold" />
+                                  <span>移除此页</span>
+                              </button>
+                          )}
                           {idx === 2 && (() => {
                             const raw = theme.launcherWidgets || {};
                             const w = { ...raw };
@@ -1170,20 +1258,23 @@ const Launcher: React.FC = () => {
                                 editing={layoutEditing}
                           />
                           <div className="flex-1"></div>
+
+                          {layoutEditing && idx === appPages.length - 1 && (
+                              <div className="flex justify-center pt-4 pb-2">
+                                  <button
+                                      onClick={handleAddPage}
+                                      className="flex items-center gap-1.5 px-4 py-2 rounded-full font-bold text-xs bg-white/20 hover:bg-white/30 active:scale-95 transition shadow-md"
+                                      style={{ color: contentColor }}
+                                  >
+                                      <Plus size={14} weight="bold" />
+                                      <span>添加新页面</span>
+                                  </button>
+                              </div>
+                          )}
                       </div>
                   )}
               </div>
           ))}
-
-          {/* Final Page: Widgets */}
-          <WidgetsPage
-            contentColor={contentColor}
-            openApp={openApp}
-            anniversaries={anniversaries}
-            characters={characters}
-            acnh={acnh}
-            paper={paper}
-          />
 
       </div>
 
@@ -1240,6 +1331,15 @@ const Launcher: React.FC = () => {
           schedule={scheduleData}
           activeCharacter={scheduleChar}
           contentColor={contentColor}
+      />
+
+      <WidgetGalleryModal
+          isOpen={galleryOpen}
+          onClose={() => setGalleryOpen(false)}
+          onSelectWidget={handleAddWidget}
+          targetLabel={galleryTarget === 'minus_one' ? '到负一屏' : '到桌面'}
+          acnh={acnh}
+          paper={paper}
       />
 
     </div>

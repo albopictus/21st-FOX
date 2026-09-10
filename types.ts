@@ -104,6 +104,31 @@ export interface JournalAppearance {
   customCss?: string;
 }
 
+/** 桌面自由小组件类型定义 */
+export type DesktopWidgetKind =
+  | 'music'
+  | 'memo'
+  | 'image'
+  | 'calendar'
+  | 'anniversary'
+  | 'quad_apps';
+
+export type DesktopWidgetSize = '2x2' | '4x2';
+
+export interface DesktopWidgetInstance {
+  id: string;
+  kind: DesktopWidgetKind;
+  size: DesktopWidgetSize;
+  title?: string;
+  config?: Record<string, any>;
+}
+
+export interface DesktopCustomPage {
+  id: string;
+  widgets?: DesktopWidgetInstance[];
+  appIds?: string[];
+}
+
 export interface OSTheme {
   hue: number;
   saturation: number;
@@ -133,6 +158,12 @@ export interface OSTheme {
   launcherAppOrder?: string[];
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** 黑胶音乐小组件自定义中心旋转贴纸。未设置时显示当前歌曲封面。 */
+  customVinylSticker?: string;
+  /** 负一屏（-1屏）小组件列表。未设置时默认装载日历与纪念日组件。 */
+  launcherMinusOneWidgets?: DesktopWidgetInstance[];
+  /** 自定义新增桌面页面（Page 2+）。 */
+  launcherCustomPages?: DesktopCustomPage[];
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */

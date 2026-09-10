@@ -292,6 +292,10 @@ export async function migrateAppearancePresetBlobRefs(
         theme.launcherWidgets = widgets;
     }
 
+    if (theme.customVinylSticker) {
+        theme.customVinylSticker = (await migrate(theme.customVinylSticker)) || theme.customVinylSticker;
+    }
+
     // launcherWidgetImage 是死字段：types.ts 标了 DEPRECATED，OSContext 加载 / 应用预设时
     // 一律剥掉，永远不会渲染。老美化包的预设里还压着一张几百 KB 的 base64，转成令牌只是
     // 把死重量换个地方存，直接扔掉。
