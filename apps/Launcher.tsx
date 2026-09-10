@@ -277,6 +277,7 @@ const AppGridPage = React.memo(({
                  >
                      {editing && onRemoveApp && (
                          <button
+                             data-launcher-action="remove"
                              onClick={(e) => {
                                  e.stopPropagation();
                                  onRemoveApp(app.id);
@@ -316,6 +317,7 @@ const AppQuadGrid = React.memo(({
                 <div key={app.id} data-launcher-item={app.id} data-launcher-kind="app" className={`relative transition-transform duration-200 active:scale-95 ${editing ? 'launcher-edit-item' : ''}`}>
                     {editing && onRemoveApp && (
                         <button
+                            data-launcher-action="remove"
                             onClick={(e) => {
                                 e.stopPropagation();
                                 onRemoveApp(app.id);
@@ -881,9 +883,9 @@ const Launcher: React.FC = () => {
 
   const handleLayoutPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-      // If the touch/click originates from an action button (e.g., red minus delete button)
-      // inside a launcher item, don't activate drag — let the button's onClick fire normally.
-      if ((e.target as HTMLElement).closest('button')) return;
+      // Skip drag activation if pointer is on an action button (e.g. the red minus delete badge).
+      // Use a data attribute so we don't accidentally block AppIcon's own <button> wrapper.
+      if ((e.target as HTMLElement).closest('[data-launcher-action]')) return;
       const launcherRoot = e.currentTarget;
       const item = (e.target as HTMLElement).closest<HTMLElement>('[data-launcher-item]');
       if (!item) return;
@@ -1053,6 +1055,7 @@ const Launcher: React.FC = () => {
               <div key={widget.id} className="relative group w-full aspect-square max-w-[260px] mx-auto">
                   {layoutEditing && (
                       <button
+                          data-launcher-action="remove"
                           onClick={(e) => { e.stopPropagation(); onDelete(); }}
                           className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600 cursor-pointer"
                           title="删除音乐组件"
@@ -1069,6 +1072,7 @@ const Launcher: React.FC = () => {
               <div key={widget.id} className="relative group w-full aspect-square max-w-[260px] mx-auto">
                   {layoutEditing && (
                       <button
+                          data-launcher-action="remove"
                           onClick={(e) => { e.stopPropagation(); onDelete(); }}
                           className="absolute -top-2.5 -right-2.5 w-6 h-6 rounded-full bg-red-500 text-white font-black text-sm flex items-center justify-center shadow-lg active:scale-90 z-30 transition-transform hover:bg-red-600 cursor-pointer"
                           title="删除相框"
@@ -1472,6 +1476,7 @@ const Launcher: React.FC = () => {
                    <div key={app.id} data-launcher-item={app.id} data-launcher-kind="dock" className={`relative ${layoutEditing ? 'launcher-edit-item' : ''}`}>
                         {layoutEditing && (
                             <button
+                                data-launcher-action="remove"
                                 onClick={(e) => {
                                     e.stopPropagation();
                                     handleRemoveApp(app.id);

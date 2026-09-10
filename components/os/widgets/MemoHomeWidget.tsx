@@ -65,6 +65,7 @@ export const MemoHomeWidget: React.FC<MemoHomeWidgetProps> = ({
       {/* 编辑模式下的红色删除按钮 */}
       {editing && onDelete && (
         <button
+          data-launcher-action="remove"
           onClick={(e) => {
             e.stopPropagation();
             onDelete();
