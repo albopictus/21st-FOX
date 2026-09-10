@@ -1678,6 +1678,41 @@ const Chat: React.FC = () => {
         await reloadMessages(visibleCountRef.current);
     }, [char, reloadMessages, addToast]);
 
+    const refreshContentFavoriteIds = useCallback(async () => {
+        const items = await listContentFavorites().catch(() => []);
+        setContentFavoriteIds(new Set(items.map(item => item.id)));
+    }, []);
+
+    useEffect(() => {
+        void refreshContentFavoriteIds();
+        window.addEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
+        return () => window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
+    }, [refreshContentFavoriteIds]);
+
+    const handleToggleContentFavorite = useCallback(async (msg: Message) => {
+        if (!msg?.id) return;
+        const favoriteId = contentFavoriteIdForMessage(msg);
+        try {
+            if (contentFavoriteIds.has(favoriteId)) {
+                await removeContentFavoriteById(favoriteId);
+                setContentFavoriteIds(previous => {
+                    const next = new Set(previous);
+                    next.delete(favoriteId);
+                    return next;
+                });
+                addToast(msg.type === 'image' ? '已取消收藏图片' : '已取消收藏聊天消息', 'info');
+                return;
+            }
+            await saveMessageContentFavorite(msg, char?.name || '未知角色');
+            setContentFavoriteIds(previous => new Set(previous).add(favoriteId));
+            addToast(msg.type === 'image' ? '已收藏图片（仅保存引用）' : '已收藏聊天消息', 'success');
+            trackEvent(msg.type === 'image' ? '收藏聊天图片' : '收藏聊天消息');
+        } catch (error) {
+            console.warn('[Chat] favorite content failed', error);
+            addToast('收藏失败，请稍后重试', 'error');
+        }
+    }, [char?.name, contentFavoriteIds, addToast]);
+
     // 用户收藏/取消收藏礼物（与系统收藏合一，并同步角色礼物列表）
     const handleCollectGift = useCallback(async (msg: Message) => {
         if (!char) return;
@@ -2734,41 +2769,6 @@ const Chat: React.FC = () => {
             }, 450);
         }));
         window.setTimeout(() => setFlashMsgId(null), 2200);
-    };
-
-    const refreshContentFavoriteIds = useCallback(async () => {
-        const items = await listContentFavorites().catch(() => []);
-        setContentFavoriteIds(new Set(items.map(item => item.id)));
-    }, []);
-
-    useEffect(() => {
-        void refreshContentFavoriteIds();
-        window.addEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
-        return () => window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
-    }, [refreshContentFavoriteIds]);
-
-    const handleToggleContentFavorite = async (msg: Message) => {
-        if (!msg?.id) return;
-        const favoriteId = contentFavoriteIdForMessage(msg);
-        try {
-            if (contentFavoriteIds.has(favoriteId)) {
-                await removeContentFavoriteById(favoriteId);
-                setContentFavoriteIds(previous => {
-                    const next = new Set(previous);
-                    next.delete(favoriteId);
-                    return next;
-                });
-                addToast(msg.type === 'image' ? '已取消收藏图片' : '已取消收藏聊天消息', 'info');
-                return;
-            }
-            await saveMessageContentFavorite(msg, char?.name || '未知角色');
-            setContentFavoriteIds(previous => new Set(previous).add(favoriteId));
-            addToast(msg.type === 'image' ? '已收藏图片（仅保存引用）' : '已收藏聊天消息', 'success');
-            trackEvent(msg.type === 'image' ? '收藏聊天图片' : '收藏聊天消息');
-        } catch (error) {
-            console.warn('[Chat] favorite content failed', error);
-            addToast('收藏失败，请稍后重试', 'error');
-        }
     };
 
     const handleOpenFavoriteMessage = (charId: string, messageId: number) => {
