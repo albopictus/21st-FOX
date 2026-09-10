@@ -688,8 +688,7 @@ ${addUsage}
             block += `### 共享备忘录与便签 (Shared Notes & Memos)\n`;
             memos.slice(0, 6).forEach(m => {
                 const editor = m.lastEditedBy === 'user' ? userName : (m.authorName || charName);
-                const snippet = m.content.replace(/\r?\n/g, ' ').slice(0, 100);
-                block += `- 《${m.title}》: ${snippet}${m.content.length > 100 ? '...' : ''} [最后由 ${editor} 修改]\n`;
+                block += `- 《${m.title}》 [最后由 ${editor} 修改]\n`;
             });
             block += `\n`;
         }
