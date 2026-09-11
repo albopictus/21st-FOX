@@ -326,9 +326,20 @@ const Launcher: React.FC = () => {
     }, 520);
   };
 
-  useEffect(() => () => { clearPress(); clearPageTurn(); gesture.current?.ghost?.remove(); }, []);
+  // 拖拽「幽灵」元素直接挂在 document.body 上（脱离 React 管控），只靠自己清理。
+  // 手机上偶尔会出现清不掉的残影（真机上 pointerup/pointercancel 没有可靠触发，
+  // 比如系统手势打断、切后台），所以除了正常清理，再加一道扫场兜底：
+  // 进入/退出整理态、每次按下新的拖拽、组件挂载卸载时都清一遍，绝不留死角。
+  const sweepStrayGhosts = () => {
+    document.querySelectorAll('.launcher-drag-ghost').forEach(el => el.remove());
+  };
+  useEffect(() => {
+    sweepStrayGhosts(); // 挂载时清掉上个会话/崩溃可能留下的残影
+    return () => { clearPress(); clearPageTurn(); gesture.current?.ghost?.remove(); sweepStrayGhosts(); };
+  }, []);
 
   const makeGhost = (el: HTMLElement) => {
+    sweepStrayGhosts(); // 万一上一次没清干净，新建之前先扫一遍，绝不叠加
     const rect = el.getBoundingClientRect();
     const ghost = el.cloneNode(true) as HTMLElement;
     ghost.removeAttribute('data-grid-item');
@@ -487,7 +498,9 @@ const Launcher: React.FC = () => {
   const onRootPointerUp = (e?: React.PointerEvent<HTMLDivElement>) => {
     bgPressStart.current = null;
     const g = gesture.current;
-    if (e && g && g.pointerId !== e.pointerId) return;
+    // pointerId 对不上（多指 / 系统手势打断了原来那根手指的序列）也不能放过残影：
+    // 真正拥有这个手势的 gesture.ghost 清一遍，再顺手扫场一次兜底。
+    if (e && g && g.pointerId !== e.pointerId) { g.ghost?.remove(); sweepStrayGhosts(); return; }
     clearPress();
     clearPageTurn();
 
@@ -524,7 +537,7 @@ const Launcher: React.FC = () => {
     gesture.current = null;
   };
 
-  const finishEditing = () => { onRootPointerUp(); setLayoutEditing(false); };
+  const finishEditing = () => { onRootPointerUp(); sweepStrayGhosts(); setLayoutEditing(false); };
 
   // ───────── 条目增删 / 页面增删 ─────────
   const handleDeleteItem = useCallback((pageIndex: number, itemId: string) => {
