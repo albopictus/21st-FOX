@@ -142,9 +142,9 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
       style={{ contain: 'layout' }}
     >
       {isHomePage ? (
-        <div className="my-auto w-full min-h-0 flex flex-col">
+        <>
           {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删。宽度与下方网格对齐居中。
-              整个表头+网格现在当一个整体，跟其它页一样靠 my-auto 居中，不再撑满整页顶对齐。 */}
+              贴顶对齐，不居中——跟图标页是一组，风车页才是单独居中的那个。 */}
           <div className="shrink-0 w-full mx-auto px-6" style={{ maxWidth: `${gridWidthPx + 48}px` }}>
             <DesktopClockWidget />
             <CharacterCardWidget
@@ -157,7 +157,7 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
             />
           </div>
           <div
-            className="shrink-0 px-6 flex flex-col"
+            className="flex-1 min-h-0 overflow-hidden px-6 flex flex-col"
           >
             <div
               ref={el => registerPageGridRef(pageIndex, el)}
@@ -269,7 +269,7 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
               )}
             </div>
           </div>
-        </div>
+        </>
       ) : (
         <div
           className="flex-1 min-h-0 overflow-hidden px-6 flex flex-col"
@@ -472,6 +472,8 @@ const Launcher: React.FC = () => {
   const [layoutEditing, setLayoutEditing] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryInitialTab, setGalleryInitialTab] = useState<'widgets' | 'apps'>('widgets');
+  // 点 ◀+/+▶ 弹出的小菜单：选"普通页"还是"风车页"，为 null 时菜单关闭。
+  const [addPageMenu, setAddPageMenu] = useState<null | 'left' | 'right'>(null);
 
   const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
@@ -683,17 +685,19 @@ const Launcher: React.FC = () => {
     settle();
 
     let rafId = 0;
-    let frames = 0;
     const tick = () => {
-      frames++;
       settle();
-      if (!interacted && frames < 30) rafId = requestAnimationFrame(tick);
+      if (!interacted) rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
 
     const ro = new ResizeObserver(settle);
     ro.observe(el);
-    const stopTimer = setTimeout(() => { interacted = true; ro.disconnect(); restoreSnap(); }, 1500);
+    // 安全阀原来是 1.5s——真机上（尤其隔着隧道/慢网络）数据和布局稳定经常
+    // 要好几秒，之前测出来 1.5s 内没稳住就提前把 snap 恢复了，反而在它还没
+    // 真正贴对目标页时被吸附盖掉，复现过"该停在主屏却停在第 0 页"。拉长到
+    // 12s 兜底，rAF 循环本身每帧只做一次比较，空转不费什么。
+    const stopTimer = setTimeout(() => { interacted = true; ro.disconnect(); restoreSnap(); }, 12000);
 
     return () => {
       ro.disconnect();
@@ -717,6 +721,7 @@ const Launcher: React.FC = () => {
       activePageIndexRef.current = index;
       _lastPageIndex = index;
       setActivePageIndex(index);
+      setAddPageMenu(null); // 翻页了，之前那页弹出的加页菜单跟当前页对不上了，收掉
       try {
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
           navigator.vibrate(10);
@@ -1229,7 +1234,7 @@ const Launcher: React.FC = () => {
     gesture.current = null;
   };
 
-  const finishEditing = () => { onRootPointerUp(); sweepStrayGhosts(); setLayoutEditing(false); };
+  const finishEditing = () => { onRootPointerUp(); sweepStrayGhosts(); setLayoutEditing(false); setAddPageMenu(null); };
 
   // ───────── 条目增删 / 页面增删 ─────────
   const handleDeleteItem = useCallback((pageIndex: number, itemId: string) => {
@@ -1269,10 +1274,10 @@ const Launcher: React.FC = () => {
   // 新页插在"当前页的左边"还是"右边"——不再是只能往最后追加一页。主屏的表头
   // 跟着 layout:'home' 标记走（见 desktopGrid.ts），不跟下标，所以就算往主屏左边
   // 插页把主屏从下标 1 挤到别的位置，表头也不会跟丢。
-  const handleAddPage = useCallback((direction: 'left' | 'right') => {
+  const handleAddPage = useCallback((direction: 'left' | 'right', layout?: 'windmill') => {
     const cur = activePageIndexRef.current;
     const insertAt = direction === 'left' ? cur : cur + 1;
-    const newPage = emptyPage();
+    const newPage = emptyPage(undefined, layout);
     const next = [
       ...pagesRef.current.slice(0, insertAt),
       newPage,
@@ -1569,20 +1574,35 @@ const Launcher: React.FC = () => {
                 <X size={12} weight="bold" />移除空页
               </button>
             )}
-            <button
-              onClick={() => handleAddPage('left')}
-              title="在当前页左边插入新页"
-              className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
-            >
-              <CaretLeft size={12} weight="bold" /><Plus size={12} weight="bold" />
-            </button>
-            <button
-              onClick={() => handleAddPage('right')}
-              title="在当前页右边插入新页"
-              className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
-            >
-              <Plus size={12} weight="bold" /><CaretRight size={12} weight="bold" />
-            </button>
+            {(['left', 'right'] as const).map(direction => (
+              <div key={direction} className="relative">
+                <button
+                  onClick={() => setAddPageMenu(m => (m === direction ? null : direction))}
+                  title={direction === 'left' ? '在当前页左边插入新页' : '在当前页右边插入新页'}
+                  className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
+                >
+                  {direction === 'left'
+                    ? <><CaretLeft size={12} weight="bold" /><Plus size={12} weight="bold" /></>
+                    : <><Plus size={12} weight="bold" /><CaretRight size={12} weight="bold" /></>}
+                </button>
+                {addPageMenu === direction && (
+                  <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 flex flex-col gap-1 p-1.5 rounded-2xl bg-white/95 backdrop-blur-xl border border-white/50 shadow-xl z-40 whitespace-nowrap">
+                    <button
+                      onClick={() => { handleAddPage(direction); setAddPageMenu(null); }}
+                      className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-slate-800 hover:bg-slate-100 active:scale-95 text-left"
+                    >
+                      普通页
+                    </button>
+                    <button
+                      onClick={() => { handleAddPage(direction, 'windmill'); setAddPageMenu(null); }}
+                      className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-slate-800 hover:bg-slate-100 active:scale-95 text-left"
+                    >
+                      风车页
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         );
       })()}
