@@ -244,15 +244,18 @@ const Launcher: React.FC = () => {
     if (!initialScrollDone.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
-    const index = Math.round(el.scrollLeft / el.clientWidth);
-    setActivePageIndex(index);
-    activePageIndexRef.current = index;
-    _lastPageIndex = index;
+    const index = Math.max(0, Math.min(pagesRef.current.length - 1, Math.round(el.scrollLeft / el.clientWidth)));
+    if (index !== activePageIndexRef.current) {
+      activePageIndexRef.current = index;
+      _lastPageIndex = index;
+      setActivePageIndex(index);
+    }
   };
 
   // 桌面鼠标拖拽翻页（非编辑态）
   const isMouseDragging = useRef(false);
   const mouseStartX = useRef(0);
+  const mouseStartTime = useRef(0);
   const mouseScrollLeft = useRef(0);
   const mouseMoved = useRef(0);
   const suppressClickUntil = useRef(0);
@@ -262,6 +265,7 @@ const Launcher: React.FC = () => {
     isMouseDragging.current = true;
     mouseMoved.current = 0;
     mouseStartX.current = e.pageX - scrollContainerRef.current.offsetLeft;
+    mouseStartTime.current = Date.now();
     mouseScrollLeft.current = scrollContainerRef.current.scrollLeft;
     scrollContainerRef.current.style.scrollBehavior = 'auto';
     scrollContainerRef.current.style.scrollSnapType = 'none';
@@ -273,12 +277,35 @@ const Launcher: React.FC = () => {
     scrollContainerRef.current.scrollLeft = mouseScrollLeft.current - (x - mouseStartX.current);
     mouseMoved.current = Math.abs(x - mouseStartX.current);
   };
-  const handleMouseUp = () => {
-    if (!isMouseDragging.current || !scrollContainerRef.current) return;
+  const handleMouseUp = (e: React.MouseEvent) => {
+    const el = scrollContainerRef.current;
+    if (!isMouseDragging.current || !el) return;
     isMouseDragging.current = false;
     if (mouseMoved.current > 5) suppressClickUntil.current = Date.now() + 200;
-    scrollContainerRef.current.style.scrollBehavior = 'smooth';
-    scrollContainerRef.current.style.scrollSnapType = 'x mandatory';
+
+    const x = e.pageX - el.offsetLeft;
+    const dx = x - mouseStartX.current;
+    const dt = Math.max(1, Date.now() - mouseStartTime.current);
+    const velocity = dx / dt; // px / ms
+
+    const curPage = Math.round(mouseScrollLeft.current / el.clientWidth);
+    let targetPage = curPage;
+
+    // 只要有明显的快速甩动（速度 > 0.35 或拖动超过 25% 页面宽度），就顺畅翻页
+    if (velocity < -0.35 || dx < -el.clientWidth * 0.25) {
+      targetPage = Math.min(pagesRef.current.length - 1, curPage + 1);
+    } else if (velocity > 0.35 || dx > el.clientWidth * 0.25) {
+      targetPage = Math.max(0, curPage - 1);
+    }
+
+    el.style.scrollBehavior = 'smooth';
+    el.scrollTo({ left: targetPage * el.clientWidth, behavior: 'smooth' });
+
+    setTimeout(() => {
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.style.scrollSnapType = 'x mandatory';
+      }
+    }, 280);
   };
   const handleClickCapture = (e: React.MouseEvent) => {
     if (mouseMoved.current > 5 || Date.now() < suppressClickUntil.current) {
@@ -406,8 +433,21 @@ const Launcher: React.FC = () => {
     clearPress();
 
     if (!layoutEditing) {
-      // 长按进入整理
+      // 长按进入整理：如果手指发生移动（滑动手势），立即解除长按计时，避免阻塞滑动
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const onMoveCancel = (me: PointerEvent) => {
+        if (Math.hypot(me.clientX - startX, me.clientY - startY) > 8) {
+          clearPress();
+          window.removeEventListener('pointermove', onMoveCancel);
+          window.removeEventListener('pointerup', onMoveCancel);
+        }
+      };
+      window.addEventListener('pointermove', onMoveCancel, { passive: true });
+      window.addEventListener('pointerup', onMoveCancel, { passive: true, once: true });
       pressTimer.current = setTimeout(() => {
+        window.removeEventListener('pointermove', onMoveCancel);
+        window.removeEventListener('pointerup', onMoveCancel);
         setLayoutEditing(true);
         trackEvent('进入桌面整理模式');
         suppressClickUntil.current = Date.now() + 700;
@@ -776,7 +816,7 @@ const Launcher: React.FC = () => {
   const totalUnread = Object.values(unreadMessages).reduce((a, b) => a + b, 0);
   const widgetUnread = widgetChar && unreadMessages[widgetChar.id] ? unreadMessages[widgetChar.id] : 0;
 
-  const widgetCtx: WidgetRenderContext = {
+  const widgetCtx: WidgetRenderContext = useMemo(() => ({
     contentColor, acnh, paper, editing: layoutEditing,
     openApp: (id: string) => openApp(id as AppID),
     anniversaries, characters,
@@ -786,7 +826,12 @@ const Launcher: React.FC = () => {
     onOpenSchedule: () => { setScheduleViewerOpen(true); trackEvent('打开角色日程面板'); },
     onEditImage: openImagePicker,
     onOpenQuadManager: handleOpenQuadManager,
-  };
+  }), [
+    contentColor, acnh, paper, layoutEditing, openApp,
+    anniversaries, characters, widgetChar, widgetUnread,
+    lastMessage, scheduleData, scheduleChar, openImagePicker,
+    handleOpenQuadManager,
+  ]);
 
   const dockAppsConfig = useMemo(() => {
     const byId = new Map(INSTALLED_APPS.map(app => [app.id, app]));
@@ -1008,7 +1053,7 @@ const Launcher: React.FC = () => {
         style={{
           scrollBehavior: 'smooth', overscrollBehaviorX: 'contain', overscrollBehaviorY: 'none',
           touchAction: layoutEditing ? 'none' : 'pan-x pan-y',
-          willChange: 'scroll-position', contain: 'layout paint', transform: 'translateZ(0)',
+          contain: 'layout', transform: 'translateZ(0)',
           WebkitOverflowScrolling: 'touch',
         }}
       >
@@ -1021,7 +1066,7 @@ const Launcher: React.FC = () => {
             <div
               key={page.id}
               className={`w-full flex-shrink-0 snap-center snap-always h-full px-6 flex flex-col ${pagePadClass}`}
-              style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
+              style={{ contain: 'layout', transform: 'translateZ(0)' }}
             >
             {pageIndex === 1 ? (
               <>
@@ -1037,10 +1082,10 @@ const Launcher: React.FC = () => {
                     paper={paper}
                   />
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar" style={{ overscrollBehaviorY: 'contain' }}>{renderPageGrid(page, pageIndex)}</div>
+                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar" style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-x pan-y' }}>{renderPageGrid(page, pageIndex)}</div>
               </>
             ) : (
-              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar" style={{ overscrollBehaviorY: 'contain' }}>{renderPageGrid(page, pageIndex)}</div>
+              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar" style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-x pan-y' }}>{renderPageGrid(page, pageIndex)}</div>
             )}
           </div>
         );
