@@ -51,6 +51,8 @@ export interface WidgetRenderContext {
     onRemoveQuadApp?: (item: PlacedItem, slotIndex: number) => void;
     /** quad_apps 用：单独为某个槽位添加应用 */
     onAddQuadApp?: (item: PlacedItem, slotIndex: number) => void;
+    /** 小组件背景透明度字典 (0~100) */
+    widgetOpacity?: Record<string, number | undefined>;
 }
 
 interface WidgetMeta {
@@ -105,6 +107,7 @@ export const renderGridItemContent = (
                 <AppIcon
                     app={app}
                     onClick={() => { if (!ctx.editing) ctx.openApp(app.id); }}
+                    disabled={ctx.editing}
                     size="md"
                 />
             );
@@ -119,6 +122,7 @@ export const renderGridItemContent = (
                     acnh={ctx.acnh}
                     paper={ctx.paper}
                     onOpenManager={(slotIndex) => ctx.onOpenQuadManager?.(item, slotIndex)}
+                    opacity={item.config?.opacity ?? ctx.widgetOpacity?.quad_apps ?? 100}
                 />
             );
         case 'clock':
@@ -144,11 +148,19 @@ export const renderGridItemContent = (
                     onOpen={ctx.onOpenSchedule}
                     acnh={ctx.acnh}
                     paper={ctx.paper}
+                    editing={ctx.editing}
                     detailed={item.h >= 3}
+                    opacity={item.config?.opacity ?? ctx.widgetOpacity?.schedule ?? 100}
                 />
             );
         case 'music':
-            return <NowPlayingSquareWidget contentColor={ctx.contentColor} />;
+            return (
+                <NowPlayingSquareWidget
+                    contentColor={ctx.contentColor}
+                    openApp={ctx.openApp}
+                    editing={ctx.editing}
+                />
+            );
         case 'image':
             return (
                 <DesktopImageWidget
@@ -166,6 +178,8 @@ export const renderGridItemContent = (
                     anniversaries={ctx.anniversaries}
                     acnh={ctx.acnh}
                     paper={ctx.paper}
+                    editing={ctx.editing}
+                    opacity={item.config?.opacity ?? ctx.widgetOpacity?.calendar ?? 100}
                 />
             );
         case 'anniversary':
@@ -177,6 +191,7 @@ export const renderGridItemContent = (
                     characters={ctx.characters}
                     acnh={ctx.acnh}
                     paper={ctx.paper}
+                    editing={ctx.editing}
                 />
             );
         case 'memo':
@@ -186,7 +201,9 @@ export const renderGridItemContent = (
                     openApp={ctx.openApp}
                     acnh={ctx.acnh}
                     paper={ctx.paper}
+                    editing={ctx.editing}
                     size={item.w >= 4 ? '4x2' : '2x2'}
+                    opacity={item.config?.opacity ?? ctx.widgetOpacity?.memo ?? 100}
                 />
             );
         default:

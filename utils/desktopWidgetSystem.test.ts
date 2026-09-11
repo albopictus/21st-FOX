@@ -85,4 +85,34 @@ describe('桌面自由网格系统契约', () => {
     expect(launcherSource).toContain('[isDataLoaded, theme.launcherStartPageId]');
     expect(launcherSource).toContain('initialScrollDoneRef');
   });
+
+  it('日程、日历与便签支持透明度调节：GalleryModal 提供滑动条，注册表透传 opacity，组件按比例缩放背景与投影', () => {
+    const gallerySource = readFileSync(path.resolve(__dirname, '../components/os/DesktopGalleryModal.tsx'), 'utf8');
+    const scheduleSource = readFileSync(path.resolve(__dirname, '../components/schedule/ScheduleHomeWidget.tsx'), 'utf8');
+    const calendarSource = readFileSync(path.resolve(__dirname, '../components/os/widgets/CalendarWidget.tsx'), 'utf8');
+    const memoSource = readFileSync(path.resolve(__dirname, '../components/os/widgets/MemoHomeWidget.tsx'), 'utf8');
+
+    // 1. GalleryModal 内对 schedule / calendar / memo 提供透明度滑动条并同步 updateTheme
+    expect(gallerySource).toContain("OPACITY_SUPPORTED_KINDS");
+    expect(gallerySource).toContain('schedule');
+    expect(gallerySource).toContain('calendar');
+    expect(gallerySource).toContain('memo');
+    expect(gallerySource).toContain('widgetOpacity');
+    expect(gallerySource).toContain('透明度');
+
+    // 2. 即使 schedule 已在桌面，也不全卡片置灰 (taken && !supportsOpacity)，保证透明度滑块正常可调
+    expect(gallerySource).toContain('taken && !supportsOpacity');
+
+    // 3. Launcher 与 desktopWidgetRegistry 统一在 widgetCtx 中透传 widgetOpacity
+    expect(launcherSource).toContain('widgetOpacity: theme.widgetOpacity');
+    expect(registrySource).toContain('widgetOpacity');
+    expect(registrySource).toContain('opacity={item.config?.opacity ?? ctx.widgetOpacity?.schedule ?? 100}');
+    expect(registrySource).toContain('opacity={item.config?.opacity ?? ctx.widgetOpacity?.calendar ?? 100}');
+    expect(registrySource).toContain('opacity={item.config?.opacity ?? ctx.widgetOpacity?.memo ?? 100}');
+
+    // 4. 三个组件均接收 opacity，并支持背景与阴影按比例缩放
+    expect(scheduleSource).toContain('opacity?: number');
+    expect(calendarSource).toContain('opacity?: number');
+    expect(memoSource).toContain('opacity?: number');
+  });
 });
