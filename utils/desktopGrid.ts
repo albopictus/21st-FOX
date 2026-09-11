@@ -27,13 +27,38 @@ export const HOME_PAGE_ROWS = 2;
 export const WINDMILL_PAGE_ROWS = 6;
 export const APP_PAGE_ROWS = 6;
 
-/** 某个 Screen 的网格行数。screenIndex：0=负一屏(6)，1=主屏(2)，2=风车页(6)，3+=普通应用页(6)；若 page 指定了 layout 则优先以 layout 为准。 */
+/**
+ * 某个 Screen 的网格行数。优先看 page.layout 标记（'home' 认作主屏矮行数，
+ * 不管它现在被摆在第几页——主屏可以被用户挪到任意下标）；没打标记的旧数据
+ * 才退回到"下标 1 = 主屏"这条兜底规则。0/2 已经和 3+ 同值(6)，只是历史遗留区分。
+ */
 export const rowsForScreen = (screenIndex: number, page?: DesktopPage): number => {
+    // layout:'home' 优先级最高：主屏被挪到哪个下标都要认出矮行数。
+    if (page?.layout === 'home') return HOME_PAGE_ROWS;
+    // 其它情况维持原优先级：下标 1（旧数据没打 home 标记时的兜底）先于
+    // 'windmill'/'standard' 这两个纯语义标记。
     if (screenIndex === 1) return HOME_PAGE_ROWS;
     if (page?.layout === 'windmill') return WINDMILL_PAGE_ROWS;
     if (page?.layout === 'standard') return APP_PAGE_ROWS;
     if (screenIndex === 0 || screenIndex === 2) return WINDMILL_PAGE_ROWS;
     return APP_PAGE_ROWS;
+};
+
+/**
+ * 主屏在 pages 数组里的下标：优先找打了 layout:'home' 标记的那一页（可能被用户
+ * 挪到任意位置），找不到（旧数据还没打过标记）就退回"下标 1"兜底。
+ */
+export const findHomeIndex = (pages: DesktopPage[]): number => {
+    const tagged = pages.findIndex(p => p.layout === 'home');
+    if (tagged >= 0) return tagged;
+    return Math.min(1, pages.length - 1);
+};
+
+/** 旧数据里还没有任何一页打 layout:'home' 标记时，给兜底识别出的那一页补上标记一次。 */
+export const ensureHomeTag = (pages: DesktopPage[]): DesktopPage[] => {
+    if (pages.length === 0 || pages.some(p => p.layout === 'home')) return pages;
+    const idx = findHomeIndex(pages);
+    return pages.map((p, i) => (i === idx ? { ...p, layout: 'home' as const } : p));
 };
 
 /** 每种条目的默认尺寸（格数）。app 恒为 1×1。 */
@@ -118,7 +143,7 @@ export const findFreeRect = (
 
 export const emptyPage = (
     id: string = makePageId(),
-    layout?: 'windmill' | 'standard',
+    layout?: 'windmill' | 'standard' | 'home',
 ): DesktopPage => ({
     id,
     items: [],
@@ -280,7 +305,8 @@ export const stripHeaderKinds = (pages: DesktopPage[]): DesktopPage[] => {
  */
 export const enforceHomeRowCap = (pages: DesktopPage[]): DesktopPage[] => {
     if (pages.length < 2) return pages;
-    const home = pages[1];
+    const homeIdx = findHomeIndex(pages);
+    const home = pages[homeIdx];
     const overflow = home.items.filter(it => it.y + it.h > HOME_PAGE_ROWS || it.x + it.w > GRID_COLS);
     if (overflow.length === 0) return pages;
     const kept = home.items.filter(it => !overflow.includes(it));
@@ -288,9 +314,10 @@ export const enforceHomeRowCap = (pages: DesktopPage[]): DesktopPage[] => {
     const overflowSpecs: NewItemSpec[] = overflow.map(it => ({
         kind: it.kind, refId: it.refId, w: it.w, h: it.h, locked: it.locked, title: it.title, config: it.config,
     }));
-    const rest = pages.slice(2);
-    const flowed = flowItems(rest.length ? rest : [emptyPage()], overflowSpecs, GRID_COLS, (idx, pg) => rowsForScreen(idx + 2, pg));
-    return [pages[0], newHome, ...flowed];
+    const before = pages.slice(0, homeIdx);
+    const rest = pages.slice(homeIdx + 1);
+    const flowed = flowItems(rest.length ? rest : [emptyPage()], overflowSpecs, GRID_COLS, (idx, pg) => rowsForScreen(idx + before.length + 1, pg));
+    return [...before, newHome, ...flowed];
 };
 
 /**
@@ -382,7 +409,7 @@ export const migrateLegacyLauncher = (
     validAppIds: Set<string>,
 ): DesktopPage[] => {
     if (theme.launcherPages && theme.launcherPages.length) {
-        return repairOverlaps(enforceHomeRowCap(stripHeaderKinds(theme.launcherPages)));
+        return repairOverlaps(enforceHomeRowCap(stripHeaderKinds(ensureHomeTag(theme.launcherPages))));
     }
 
     // ── Page 0：负一屏 ──
@@ -399,7 +426,7 @@ export const migrateLegacyLauncher = (
     }
 
     // ── Page 1：主屏（时钟 + 角色卡是表头，不在这里；app 从顶格铺起）──
-    let page1 = emptyPage();
+    let page1 = emptyPage(makePageId(), 'home');
 
     // ── Page 2：原风车页（锁定的日程 + 音乐 + 四宫格A + 四宫格B + 相框）──
     let page2 = emptyPage(makePageId(), 'windmill');

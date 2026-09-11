@@ -116,8 +116,21 @@ describe('desktopGrid · migrateLegacyLauncher', () => {
     const valid = new Set(['chat', 'music', 'gallery', 'settings', 'call', 'social']);
 
     it('已有 launcherPages 且没有表头脏条目时原样返回', () => {
-        const existing: DesktopPage[] = [{ id: 'p0', items: [] }];
+        // 已经打过 layout:'home' 标记（正常已迁移过的数据都会有）时，
+        // ensureHomeTag 不需要再补标记，才谈得上"原样返回"。
+        const existing: DesktopPage[] = [{ id: 'p0', items: [], layout: 'home' }];
         expect(migrateLegacyLauncher({ launcherPages: existing }, valid)).toBe(existing);
+    });
+
+    it('已有 launcherPages 但还没打过 layout:home 标记（旧数据）：兜底给下标 1（或唯一一页）补标记', () => {
+        const legacyNoTag: DesktopPage[] = [{ id: 'only', items: [] }];
+        const out = migrateLegacyLauncher({ launcherPages: legacyNoTag }, valid);
+        expect(out[0].layout).toBe('home');
+
+        const twoPages: DesktopPage[] = [{ id: 'a', items: [] }, { id: 'b', items: [] }];
+        const out2 = migrateLegacyLauncher({ launcherPages: twoPages }, valid);
+        expect(out2[0].layout).toBeUndefined();
+        expect(out2[1].layout).toBe('home');
     });
 
     it('已有 launcherPages：早期版本误塞的 clock / charCard 条目会被剔掉并压实', () => {

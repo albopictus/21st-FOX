@@ -168,8 +168,14 @@ export interface PlacedItem {
 export interface DesktopPage {
   id: string;
   items: PlacedItem[];
-  /** 页面规格：'windmill' = 6×4 呼吸感组件/风车页（24px行距、舒适留白），'standard' = 7×4 紧凑应用页（14px行距、高密度） */
-  layout?: 'windmill' | 'standard';
+  /**
+   * 页面规格：'windmill' / 'standard' 目前行数一致，只做语义区分；
+   * 'home' 是主屏表头（时钟+角色卡）专属标记——主屏不再靠"固定在第 1 页"这个下标
+   * 认出来，而是靠这个标记，这样用户可以在主屏左右两侧自由插页，主屏挪到哪个
+   * 下标都不会跟丢表头。没有这个标记的旧数据仍然按下标 1 兜底识别（见
+   * desktopGrid.ts 的 findHomeIndex / rowsForScreen）。
+   */
+  layout?: 'windmill' | 'standard' | 'home';
 }
 
 export interface OSTheme {

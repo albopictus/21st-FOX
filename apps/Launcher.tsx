@@ -19,10 +19,10 @@ import {
 } from '../components/os/desktopWidgetRegistry';
 import {
     GRID_COLS, GRID_ROWS, rowsForScreen, DEFAULT_LOCKED_KINDS,
-    migrateLegacyLauncher, collectPlacedAppIds,
+    migrateLegacyLauncher, collectPlacedAppIds, findHomeIndex,
     emptyPage, addItem, removeItem, moveItem, resizeItem, toggleLock, canPlace,
 } from '../utils/desktopGrid';
-import { Plus, Minus, X, Lock, LockOpen, ArrowsOutSimple, House } from '@phosphor-icons/react';
+import { Plus, Minus, X, Lock, LockOpen, ArrowsOutSimple, House, CaretLeft, CaretRight } from '@phosphor-icons/react';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
 import { resolveCharTimeZone } from '../utils/timezone';
@@ -38,6 +38,13 @@ const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'))
 const PAGE_PAD_X = 24; // px-6
 const GRID_COL_GAP = 8;  // gap-x-2
 const GRID_ROW_GAP = 12; // 紧凑行距(12px)，对齐手机视口高度，防纵向撑满滚动
+
+// 所有页面统一用这份公式算格子高度：横向 gap(GRID_COL_GAP) 和纵向 gap(GRID_ROW_GAP)
+// 不相等，如果格子高度直接照抄 cellPx，跨 2 格拼出来的组件（四宫格、相框、音乐组件……）
+// 就不是正方形。反推出 cellH，让"2 格 + 1 个 gap"横竖拼出来的总长度相等，2×2 组件
+// 无论放在哪一页都严格是正方形。以前这份公式只套在"风车页"身上，其它页面直接用
+// cellPx 当高度，导致同款 2×2 组件挪到别的页面就不方了——现在统一，不再分页面特判。
+const cellHeightFor = (cellPx: number) => Math.floor((2 * cellPx + GRID_COL_GAP - GRID_ROW_GAP) / 2);
 
 // 长按进整理态阈值：原来 520ms 偏短，正常单击稍慢一点就容易被判成长按，
 // 点开 App 的点击被吞掉却毫无征兆。调到 620ms 拉开与单击的安全距离；
@@ -105,24 +112,39 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
   paper,
 }) => {
   const rows = rowsForScreen(pageIndex, page);
-  const isWindmillPage = page.layout === 'windmill' || pageIndex === 2;
-  const rowGap = isWindmillPage ? 16 : GRID_ROW_GAP;
-  // 动态保证 2x2 风车方块为严格正方形：2 * cellH + rowGap === 2 * cellPx + GRID_COL_GAP
-  const cellH = isWindmillPage ? Math.floor((2 * cellPx + GRID_COL_GAP - rowGap) / 2) : cellPx;
-  const isCompactAppPage = rows >= 6 && !isWindmillPage;
-  const pagePadClass =
-    pageIndex === 1 ? 'pt-10 pb-8' :
-    isWindmillPage ? 'pt-2 pb-4' :
-    isCompactAppPage ? 'pt-[calc(var(--safe-top)+1.25rem)] pb-4' : 'pt-10 pb-8';
+  // 主屏表头（时钟+角色卡）认哪一页不再靠"是不是第 1 页"这个下标——
+  // 主屏可以被用户拖到左右任意位置，靠 layout:'home' 标记跟着走。
+  const isHomePage = page.layout === 'home';
+  // 风车页同理靠标记认，不再顺带认"不管什么页只要摆在下标 2 就算风车页"——
+  // 主屏都能被挪走了，死认下标更站不住脚。
+  const isWindmillPage = page.layout === 'windmill';
+  // rowGap / cellH 不再按页面类型特判，所有页面统一走同一份正方形补偿公式
+  // （这条是真 bug 修复，保留：不然 2×2 组件挪到非风车页就不方了）。
+  const rowGap = GRID_ROW_GAP;
+  const cellH = cellHeightFor(cellPx);
+  // 内边距 / 是否居中：对照上游原版发现，原版只有风车页这一种"更小顶部留白 +
+  // 整体居中"的松弛观感；主屏和纯图标页（自定义页 / -1 屏）原本就是贴顶对齐、
+  // 彼此风格一致的——不是历史遗留的不统一，是设计上本来就该分两种。之前误把
+  // 风车页的观感套到所有页面头上，这里改回来：主屏和图标页一组，风车页单独一组。
+  const pagePadClass = isWindmillPage ? 'pt-2 pb-4' : 'pt-10 pb-8';
 
   return (
     <div
       className={`w-full flex-shrink-0 snap-center snap-always h-full flex flex-col ${pagePadClass}`}
-      style={{ contain: 'layout paint', transform: 'translateZ(0)' }}
+      // 之前给每一页都加了 translateZ(0) + contain:'layout paint'，想法是"每页独立合成层"，
+      // 但这个项目所有页面是一直全部挂载在 DOM 里的（不管可不可见），页数一多，
+      // 就变成同时存在一大堆独立合成层，反而更费——而且这个仓库自己的提交历史里
+      // 就有一条"移除 contentVisibility 避免滑入掉帧"，之前顺手把 translateZ/contain:paint
+      // 也降回了 contain:'layout'，大概率不是误删，是真的测出来有问题。先退回去验证。
+      // scrollSnapStop:'always' 会强制浏览器碰到下一个吸附点就先停下来，能防止用力
+      // 甩动时跳过好几页，但代价是每次甩动都被"摁停"，手感会发软、损失了原本靠惯性
+      // 顺畅翻页的跟手感——测出来这个副作用比较明显，先撤回默认的 'normal'。
+      style={{ contain: 'layout' }}
     >
-      {pageIndex === 1 ? (
+      {isHomePage ? (
         <>
-          {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删。宽度与下方网格对齐居中 */}
+          {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删。宽度与下方网格对齐居中。
+              贴顶对齐，不居中——跟图标页是一组，风车页才是单独居中的那个。 */}
           <div className="shrink-0 w-full mx-auto px-6" style={{ maxWidth: `${gridWidthPx + 48}px` }}>
             <DesktopClockWidget />
             <CharacterCardWidget
@@ -135,8 +157,7 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
             />
           </div>
           <div
-            className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-6"
-            style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-x pan-y' }}
+            className="flex-1 min-h-0 overflow-hidden px-6 flex flex-col"
           >
             <div
               ref={el => registerPageGridRef(pageIndex, el)}
@@ -146,8 +167,8 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
                 rowGap: `${rowGap}px`,
                 width: `${gridWidthPx}px`,
                 gridTemplateColumns: `repeat(${GRID_COLS}, ${cellPx}px)`,
-                gridTemplateRows: `repeat(${rows}, ${cellPx}px)`,
-                gridAutoRows: `${cellPx}px`,
+                gridTemplateRows: `repeat(${rows}, ${cellH}px)`,
+                gridAutoRows: `${cellH}px`,
               }}
             >
               {page.items.map(item => {
@@ -251,8 +272,7 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
         </>
       ) : (
         <div
-          className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-6 flex flex-col"
-          style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-x pan-y' }}
+          className="flex-1 min-h-0 overflow-hidden px-6 flex flex-col"
         >
           <div
             ref={el => registerPageGridRef(pageIndex, el)}
@@ -452,6 +472,8 @@ const Launcher: React.FC = () => {
   const [layoutEditing, setLayoutEditing] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [galleryInitialTab, setGalleryInitialTab] = useState<'widgets' | 'apps'>('widgets');
+  // 点 ◀+/+▶ 弹出的小菜单：选"普通页"还是"风车页"，为 null 时菜单关闭。
+  const [addPageMenu, setAddPageMenu] = useState<null | 'left' | 'right'>(null);
 
   const [devDebugVisible, setDevDebugVisible] = useState(() => isDevDebugAvailable());
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
@@ -604,8 +626,18 @@ const Launcher: React.FC = () => {
 
   // ───────── 横向翻页（滚动壳）─────────
   // 初始定位：本次会话首次挂载（_lastPageIndex < 0）用 launcherStartPageId 定起始页
-  // （未设置 = 时钟那页 pages[1]）；从 App 返回则回上次浏览页。定位完成前忽略 onScroll，
-  // 免得容器刚挂载时 scrollLeft=0 触发的那次事件把落点覆盖成负一屏。
+  // （未设置 = 主屏，不管主屏现在被挪到第几页）；从 App 返回则回上次浏览页。
+  // 定位完成前忽略 onScroll，免得容器刚挂载时 scrollLeft=0 触发的那次事件把落点
+  // 覆盖成第一页。
+  //
+  // 这里按当时的 el.clientWidth 算 scrollLeft 只是「第一次」定位，还不算完事：
+  // 外壳（PhoneShell）挂载后经常还会有一次视口宽度收缩（铺满窗口 → 收成手机画幅），
+  // 这次收缩发生在这段定位逻辑跑完*之后*，会让刚刚按旧宽度算好的绝对像素值
+  // 对不上收缩后的新页宽——实测复现过好几次「明明该停在主屏却停在第 0 页」。
+  // 用 ResizeObserver 盯着容器宽度：用户还没自己动过手（interacted）之前，
+  // 宽度一变就按当前目标页重新贴一次 scrollLeft；用户一旦自己滑动/长按过，
+  // 就再也不插手，避免和用户手势打架。1.5s 安全阀兜底，防止某些设备上宽度
+  // 一直抖动导致纠正逻辑永远不退出。
   useLayoutEffect(() => {
     const el = scrollContainerRef.current;
     const pgs = pagesRef.current;
@@ -614,7 +646,7 @@ const Launcher: React.FC = () => {
       const idx = theme.launcherStartPageId
         ? pgs.findIndex(p => p.id === theme.launcherStartPageId)
         : -1;
-      target = idx >= 0 ? idx : Math.min(1, pgs.length - 1);
+      target = idx >= 0 ? idx : findHomeIndex(pgs);
     } else {
       target = _lastPageIndex;
     }
@@ -622,12 +654,58 @@ const Launcher: React.FC = () => {
     _lastPageIndex = target;
     activePageIndexRef.current = target;
     setActivePageIndex(target);
-    if (el) {
-      el.scrollLeft = el.clientWidth * target;
+    if (!el) {
       initialScrollDone.current = true;
-    } else {
-      initialScrollDone.current = true;
+      return;
     }
+    // 这里按当时的宽度/滚动范围把 scrollLeft 赋值一次，但那一刻的布局不一定
+    // 已经稳定——实测过好几种没稳的情况：外壳（PhoneShell）随后收缩视口宽度、
+    // 或者这几个页面 div 当时还没被布局引擎撑到各自的真实宽度（scrollWidth
+    // 一度就等于 clientWidth，滚不动，赋值被直接钳成 0）。加上跟 handleMouseDown
+    // 一样，snap-x snap-mandatory 生效时直接赋值也不可靠。于是：赋值期间关掉
+    // snap；再用 rAF 连续几帧 + ResizeObserver 双保险反复贴回目标页，直到布局
+    // 真正稳定（scrollLeft 落在目标值上）或用户自己动手/超时兜底为止。
+    el.style.scrollSnapType = 'none';
+    initialScrollDone.current = true;
+
+    let interacted = false;
+    const restoreSnap = () => {
+      const container = scrollContainerRef.current;
+      if (container) container.style.scrollSnapType = 'x mandatory';
+    };
+    const markInteracted = () => { interacted = true; restoreSnap(); };
+    el.addEventListener('pointerdown', markInteracted, { once: true });
+
+    const settle = () => {
+      const container = scrollContainerRef.current;
+      if (interacted || !container) return;
+      const want = container.clientWidth * activePageIndexRef.current;
+      if (container.scrollLeft !== want) container.scrollLeft = want;
+    };
+    settle();
+
+    let rafId = 0;
+    const tick = () => {
+      settle();
+      if (!interacted) rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+
+    const ro = new ResizeObserver(settle);
+    ro.observe(el);
+    // 安全阀原来是 1.5s——真机上（尤其隔着隧道/慢网络）数据和布局稳定经常
+    // 要好几秒，之前测出来 1.5s 内没稳住就提前把 snap 恢复了，反而在它还没
+    // 真正贴对目标页时被吸附盖掉，复现过"该停在主屏却停在第 0 页"。拉长到
+    // 12s 兜底，rAF 循环本身每帧只做一次比较，空转不费什么。
+    const stopTimer = setTimeout(() => { interacted = true; ro.disconnect(); restoreSnap(); }, 12000);
+
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(rafId);
+      clearTimeout(stopTimer);
+      el.removeEventListener('pointerdown', markInteracted);
+      restoreSnap();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleScroll = () => {
@@ -643,6 +721,12 @@ const Launcher: React.FC = () => {
       activePageIndexRef.current = index;
       _lastPageIndex = index;
       setActivePageIndex(index);
+      setAddPageMenu(null); // 翻页了，之前那页弹出的加页菜单跟当前页对不上了，收掉
+      try {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate(10);
+        }
+      } catch {}
     }
   };
 
@@ -654,9 +738,19 @@ const Launcher: React.FC = () => {
   const mouseMoved = useRef(0);
   const suppressClickUntil = useRef(0);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!scrollContainerRef.current || layoutEditing || e.button !== 0) return;
+  // 只认「真鼠标」：绑在 onPointerDown 上并用 pointerType 过滤，而不是绑在
+  // onMouseDown/window 'mousemove'/'mouseup' 上。原因：手机浏览器在一次触摸
+  // 结束后经常会补发一遍兼容性的 mousedown/mouseup/click（无障碍/兼容历史包袱），
+  // 之前这段逻辑绑的正是这几个事件——每次真实的手指滑动都会被这几个"迟到"的
+  // 假鼠标事件二次触发一遍：先把 scroll-snap 关掉，再在 mouseup 里用一个（相对
+  // 触摸手势而言）过时的起始坐标算出一个目标页，强行 scrollTo 回去——原生触摸
+  // 滚动明明已经顺滑地停在正确的页上，却被这段代码"纠正"回去或叠加一次动画，
+  // 表现出来就是横向来回抖一下。PointerEvent 自带 pointerType，触摸产生的指针
+  // 永远是 'touch'，不会被误判成 'mouse'，从根上避免踩到这个兼容事件的坑。
+  const handleMouseDown = (e: React.PointerEvent) => {
+    if (!scrollContainerRef.current || layoutEditing || e.pointerType !== 'mouse' || e.button !== 0) return;
     const scroller = scrollContainerRef.current;
+    const pointerId = e.pointerId;
     isMouseDragging.current = true;
     mouseMoved.current = 0;
     mouseStartX.current = e.pageX;
@@ -666,16 +760,18 @@ const Launcher: React.FC = () => {
     // 拖动过程中临时禁用 CSS snap，确保像素级跟随鼠标，不被吸附引擎强行拉扯
     scroller.style.scrollSnapType = 'none';
 
-    const onWindowMouseMove = (me: MouseEvent) => {
-      if (!isMouseDragging.current || !scrollContainerRef.current) return;
+    const onWindowPointerMove = (me: PointerEvent) => {
+      if (me.pointerId !== pointerId || !isMouseDragging.current || !scrollContainerRef.current) return;
       const dx = me.pageX - mouseStartX.current;
       scrollContainerRef.current.scrollLeft = mouseScrollLeft.current - dx;
       mouseMoved.current = Math.abs(dx);
     };
 
-    const onWindowMouseUp = (ue: MouseEvent) => {
-      window.removeEventListener('mousemove', onWindowMouseMove);
-      window.removeEventListener('mouseup', onWindowMouseUp);
+    const onWindowPointerUp = (ue: PointerEvent) => {
+      if (ue.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onWindowPointerMove);
+      window.removeEventListener('pointerup', onWindowPointerUp);
+      window.removeEventListener('pointercancel', onWindowPointerUp);
 
       const el = scrollContainerRef.current;
       if (!isMouseDragging.current || !el) return;
@@ -711,8 +807,9 @@ const Launcher: React.FC = () => {
       setTimeout(restoreSnap, 420); // 兜底
     };
 
-    window.addEventListener('mousemove', onWindowMouseMove);
-    window.addEventListener('mouseup', onWindowMouseUp);
+    window.addEventListener('pointermove', onWindowPointerMove);
+    window.addEventListener('pointerup', onWindowPointerUp);
+    window.addEventListener('pointercancel', onWindowPointerUp);
   };
 
   const handleClickCapture = (e: React.MouseEvent) => {
@@ -721,6 +818,7 @@ const Launcher: React.FC = () => {
       e.preventDefault();
     }
   };
+
 
   // ───────── 编辑态：长按进入 + 拖拽 / 改大小 ─────────
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -776,8 +874,21 @@ const Launcher: React.FC = () => {
   const bgPressStart = useRef<{ x: number; y: number; pointerId: number } | null>(null);
   const onBackgroundPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    if (layoutEditing) return;
     if ((e.target as HTMLElement).closest('[data-grid-item], [data-grid-action]')) return;
+    if (layoutEditing) {
+      // 已经在整理态了，空白处长按进整理态这套没意义——但整理态下滚动容器
+      // 整个是 touchAction:'none'（给拖拽腾地方），原生触摸翻页被彻底关掉，
+      // 按在空白处就再也没有任何手势能翻页了。这里直接起一个 'scroll' 手势，
+      // 交给 onRootPointerMove/onRootPointerUp 里已有的翻页逻辑接手。
+      clearPress();
+      if (scrollContainerRef.current) scrollContainerRef.current.style.scrollSnapType = 'none';
+      gesture.current = {
+        mode: 'scroll', pointerId: e.pointerId,
+        startX: e.clientX, startY: e.clientY, active: true,
+        scrollStartLeft: scrollContainerRef.current?.scrollLeft ?? 0,
+      };
+      return;
+    }
     clearPress();
     bgPressStart.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
     pressTimer.current = setTimeout(() => {
@@ -820,9 +931,9 @@ const Launcher: React.FC = () => {
     if (!el) return null;
     const page = pagesRef.current[pageIndex];
     const rows = rowsForScreen(pageIndex, page);
-    const isWindmill = page?.layout === 'windmill' || pageIndex === 2;
-    const rowGap = isWindmill ? 16 : GRID_ROW_GAP;
-    const cellH = isWindmill ? Math.floor((2 * cellPx + GRID_COL_GAP - rowGap) / 2) : cellPx;
+    // 命中测试要跟渲染用的同一份公式，否则拖拽落点会跟视觉格子对不上。
+    const rowGap = GRID_ROW_GAP;
+    const cellH = cellHeightFor(cellPx);
     const r = el.getBoundingClientRect();
     let col = Math.floor((clientX - r.left) / (cellPx + GRID_COL_GAP));
     let row = Math.floor((clientY - r.top) / (cellH + rowGap));
@@ -939,21 +1050,28 @@ const Launcher: React.FC = () => {
       return;
     }
 
+    // 'scroll' 模式一旦确认就要一直跟手翻页，不能再卡在下面 `!g.active` 那道
+    // 只服务于 move/resize 的门槛后面——active 只在长按计时器真正触发时才会
+    // 变 true，而模式切成 'scroll' 后那个计时器回调会因为 g.mode !== 'move'
+    // 直接放弃，active 永远停在 false。放在 !g.active 前面判断，才不会每次
+    // pointermove 都卡在下面直接 return，导致翻页手势形同虚设。
+    if (g.mode === 'scroll') {
+      const container = scrollContainerRef.current;
+      if (container && g.scrollStartLeft !== undefined) {
+        container.scrollLeft = g.scrollStartLeft - (e.clientX - g.startX);
+      }
+      return;
+    }
+
     if (!g.active) {
-      // 还没进入拖拽：横向大幅移动 → 当作翻页滑动
+      // 还没进入拖拽：横向大幅移动 → 当作翻页滑动。跟 handleMouseDown 一样，
+      // 直接赋值 scrollLeft 期间 snap 机制会捣乱，先关掉，松手时再恢复。
       const dx = e.clientX - g.startX;
       const dy = e.clientY - g.startY;
       if (Math.hypot(dx, dy) > 8 && Math.abs(dx) > Math.abs(dy) * 1.5) {
         clearPress();
         g.mode = 'scroll';
-      }
-      return;
-    }
-
-    if (g.mode === 'scroll') {
-      const container = scrollContainerRef.current;
-      if (container && g.scrollStartLeft !== undefined) {
-        container.scrollLeft = g.scrollStartLeft - (e.clientX - g.startX);
+        if (scrollContainerRef.current) scrollContainerRef.current.style.scrollSnapType = 'none';
       }
       return;
     }
@@ -1093,6 +1211,21 @@ const Launcher: React.FC = () => {
         g.el.style.opacity = '';
       }
       suppressClickUntil.current = Date.now() + 400;
+    } else if (g?.active && g.mode === 'scroll') {
+      // 整理态下的翻页手势（不管是按在图标上滑出来的，还是直接按空白处起手的）：
+      // 手指跟随期间 scrollLeft 是逐帧手动赋值的，没有原生惯性，松手就近贴到
+      // 最近一页，跟其它翻页路径的手感对齐。贴完再把手势开始前关掉的 snap 恢复。
+      const container = scrollContainerRef.current;
+      if (container) {
+        const target = Math.max(0, Math.min(totalPages - 1, Math.round(container.scrollLeft / container.clientWidth)));
+        activePageIndexRef.current = target;
+        _lastPageIndex = target;
+        setActivePageIndex(target);
+        container.scrollTo({ left: target * container.clientWidth, behavior: 'smooth' });
+        const restoreSnap = () => { if (scrollContainerRef.current) scrollContainerRef.current.style.scrollSnapType = 'x mandatory'; };
+        container.addEventListener('scrollend', restoreSnap, { once: true });
+        setTimeout(restoreSnap, 420);
+      }
     } else if (g?.el) {
       g.el.style.opacity = '';
       g.ghost?.remove();
@@ -1101,7 +1234,7 @@ const Launcher: React.FC = () => {
     gesture.current = null;
   };
 
-  const finishEditing = () => { onRootPointerUp(); sweepStrayGhosts(); setLayoutEditing(false); };
+  const finishEditing = () => { onRootPointerUp(); sweepStrayGhosts(); setLayoutEditing(false); setAddPageMenu(null); };
 
   // ───────── 条目增删 / 页面增删 ─────────
   const handleDeleteItem = useCallback((pageIndex: number, itemId: string) => {
@@ -1138,17 +1271,29 @@ const Launcher: React.FC = () => {
     trackEvent('桌面添加条目', { kind: spec.kind });
   }, [replacePage, commitPages]);
 
-  const handleAddPage = useCallback(() => {
-    const newPage = emptyPage();
-    const next = [...pagesRef.current, newPage];
+  // 新页插在"当前页的左边"还是"右边"——不再是只能往最后追加一页。主屏的表头
+  // 跟着 layout:'home' 标记走（见 desktopGrid.ts），不跟下标，所以就算往主屏左边
+  // 插页把主屏从下标 1 挤到别的位置，表头也不会跟丢。
+  const handleAddPage = useCallback((direction: 'left' | 'right', layout?: 'windmill') => {
+    const cur = activePageIndexRef.current;
+    const insertAt = direction === 'left' ? cur : cur + 1;
+    const newPage = emptyPage(undefined, layout);
+    const next = [
+      ...pagesRef.current.slice(0, insertAt),
+      newPage,
+      ...pagesRef.current.slice(insertAt),
+    ];
     commitPages(next);
-    const newIndex = next.length - 1;
-    setActivePageIndex(newIndex);
-    activePageIndexRef.current = newIndex;
-    _lastPageIndex = newIndex;
+    setActivePageIndex(insertAt);
+    activePageIndexRef.current = insertAt;
+    _lastPageIndex = insertAt;
     const el = scrollContainerRef.current;
     if (el) {
-      el.scrollTo({ left: el.clientWidth * newIndex, behavior: 'smooth' });
+      // 插在左边时前面页数变多，得等这一帧布局（页宽 × 下标）落定了再跳，
+      // 不然会用旧的页面数量算出错误的 scrollLeft。
+      requestAnimationFrame(() => {
+        el.scrollTo({ left: el.clientWidth * insertAt, behavior: 'auto' });
+      });
     }
   }, [commitPages]);
 
@@ -1355,10 +1500,11 @@ const Launcher: React.FC = () => {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        onMouseDown={handleMouseDown}
+        onPointerDown={handleMouseDown}
         onClickCapture={handleClickCapture}
         className="flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar cursor-grab active:cursor-grabbing"
         style={{
+          scrollBehavior: 'smooth',
           overscrollBehaviorX: 'contain',
           overscrollBehaviorY: 'none',
           touchAction: layoutEditing ? 'none' : 'pan-x pan-y',
@@ -1407,7 +1553,7 @@ const Launcher: React.FC = () => {
         if (!curPage) return null;
         const isStart = theme.launcherStartPageId
           ? theme.launcherStartPageId === curPage.id
-          : activePageIndex === 1;
+          : curPage.layout === 'home';
         return (
           <div className="relative z-30 flex items-center justify-center gap-2 pb-2">
             <button
@@ -1428,12 +1574,35 @@ const Launcher: React.FC = () => {
                 <X size={12} weight="bold" />移除空页
               </button>
             )}
-            <button
-              onClick={handleAddPage}
-              className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
-            >
-              <Plus size={12} weight="bold" />新页面
-            </button>
+            {(['left', 'right'] as const).map(direction => (
+              <div key={direction} className="relative">
+                <button
+                  onClick={() => setAddPageMenu(m => (m === direction ? null : direction))}
+                  title={direction === 'left' ? '在当前页左边插入新页' : '在当前页右边插入新页'}
+                  className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
+                >
+                  {direction === 'left'
+                    ? <><CaretLeft size={12} weight="bold" /><Plus size={12} weight="bold" /></>
+                    : <><Plus size={12} weight="bold" /><CaretRight size={12} weight="bold" /></>}
+                </button>
+                {addPageMenu === direction && (
+                  <div className="absolute bottom-full mb-1.5 left-1/2 -translate-x-1/2 flex flex-col gap-1 p-1.5 rounded-2xl bg-white/95 backdrop-blur-xl border border-white/50 shadow-xl z-40 whitespace-nowrap">
+                    <button
+                      onClick={() => { handleAddPage(direction); setAddPageMenu(null); }}
+                      className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-slate-800 hover:bg-slate-100 active:scale-95 text-left"
+                    >
+                      普通页
+                    </button>
+                    <button
+                      onClick={() => { handleAddPage(direction, 'windmill'); setAddPageMenu(null); }}
+                      className="px-3 py-1.5 rounded-xl text-[11px] font-bold text-slate-800 hover:bg-slate-100 active:scale-95 text-left"
+                    >
+                      风车页
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
         );
       })()}
