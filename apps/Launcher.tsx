@@ -118,7 +118,15 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
   return (
     <div
       className={`w-full flex-shrink-0 snap-center snap-always h-full flex flex-col ${pagePadClass}`}
-      style={{ contain: 'layout paint', transform: 'translateZ(0)' }}
+      // 之前给每一页都加了 translateZ(0) + contain:'layout paint'，想法是"每页独立合成层"，
+      // 但这个项目所有页面是一直全部挂载在 DOM 里的（不管可不可见），页数一多，
+      // 就变成同时存在一大堆独立合成层，反而更费——而且这个仓库自己的提交历史里
+      // 就有一条"移除 contentVisibility 避免滑入掉帧"，之前顺手把 translateZ/contain:paint
+      // 也降回了 contain:'layout'，大概率不是误删，是真的测出来有问题。先退回去验证。
+      // scrollSnapStop:'always' 会强制浏览器碰到下一个吸附点就先停下来，能防止用力
+      // 甩动时跳过好几页，但代价是每次甩动都被"摁停"，手感会发软、损失了原本靠惯性
+      // 顺畅翻页的跟手感——测出来这个副作用比较明显，先撤回默认的 'normal'。
+      style={{ contain: 'layout' }}
     >
       {pageIndex === 1 ? (
         <>
@@ -654,9 +662,19 @@ const Launcher: React.FC = () => {
   const mouseMoved = useRef(0);
   const suppressClickUntil = useRef(0);
 
-  const handleMouseDown = (e: React.MouseEvent) => {
-    if (!scrollContainerRef.current || layoutEditing || e.button !== 0) return;
+  // 只认「真鼠标」：绑在 onPointerDown 上并用 pointerType 过滤，而不是绑在
+  // onMouseDown/window 'mousemove'/'mouseup' 上。原因：手机浏览器在一次触摸
+  // 结束后经常会补发一遍兼容性的 mousedown/mouseup/click（无障碍/兼容历史包袱），
+  // 之前这段逻辑绑的正是这几个事件——每次真实的手指滑动都会被这几个"迟到"的
+  // 假鼠标事件二次触发一遍：先把 scroll-snap 关掉，再在 mouseup 里用一个（相对
+  // 触摸手势而言）过时的起始坐标算出一个目标页，强行 scrollTo 回去——原生触摸
+  // 滚动明明已经顺滑地停在正确的页上，却被这段代码"纠正"回去或叠加一次动画，
+  // 表现出来就是横向来回抖一下。PointerEvent 自带 pointerType，触摸产生的指针
+  // 永远是 'touch'，不会被误判成 'mouse'，从根上避免踩到这个兼容事件的坑。
+  const handleMouseDown = (e: React.PointerEvent) => {
+    if (!scrollContainerRef.current || layoutEditing || e.pointerType !== 'mouse' || e.button !== 0) return;
     const scroller = scrollContainerRef.current;
+    const pointerId = e.pointerId;
     isMouseDragging.current = true;
     mouseMoved.current = 0;
     mouseStartX.current = e.pageX;
@@ -666,16 +684,18 @@ const Launcher: React.FC = () => {
     // 拖动过程中临时禁用 CSS snap，确保像素级跟随鼠标，不被吸附引擎强行拉扯
     scroller.style.scrollSnapType = 'none';
 
-    const onWindowMouseMove = (me: MouseEvent) => {
-      if (!isMouseDragging.current || !scrollContainerRef.current) return;
+    const onWindowPointerMove = (me: PointerEvent) => {
+      if (me.pointerId !== pointerId || !isMouseDragging.current || !scrollContainerRef.current) return;
       const dx = me.pageX - mouseStartX.current;
       scrollContainerRef.current.scrollLeft = mouseScrollLeft.current - dx;
       mouseMoved.current = Math.abs(dx);
     };
 
-    const onWindowMouseUp = (ue: MouseEvent) => {
-      window.removeEventListener('mousemove', onWindowMouseMove);
-      window.removeEventListener('mouseup', onWindowMouseUp);
+    const onWindowPointerUp = (ue: PointerEvent) => {
+      if (ue.pointerId !== pointerId) return;
+      window.removeEventListener('pointermove', onWindowPointerMove);
+      window.removeEventListener('pointerup', onWindowPointerUp);
+      window.removeEventListener('pointercancel', onWindowPointerUp);
 
       const el = scrollContainerRef.current;
       if (!isMouseDragging.current || !el) return;
@@ -711,8 +731,9 @@ const Launcher: React.FC = () => {
       setTimeout(restoreSnap, 420); // 兜底
     };
 
-    window.addEventListener('mousemove', onWindowMouseMove);
-    window.addEventListener('mouseup', onWindowMouseUp);
+    window.addEventListener('pointermove', onWindowPointerMove);
+    window.addEventListener('pointerup', onWindowPointerUp);
+    window.addEventListener('pointercancel', onWindowPointerUp);
   };
 
   const handleClickCapture = (e: React.MouseEvent) => {
@@ -721,6 +742,7 @@ const Launcher: React.FC = () => {
       e.preventDefault();
     }
   };
+
 
   // ───────── 编辑态：长按进入 + 拖拽 / 改大小 ─────────
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1355,10 +1377,18 @@ const Launcher: React.FC = () => {
       <div
         ref={scrollContainerRef}
         onScroll={handleScroll}
-        onMouseDown={handleMouseDown}
+        onPointerDown={handleMouseDown}
         onClickCapture={handleClickCapture}
         className="flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar cursor-grab active:cursor-grabbing"
         style={{
+          // 对照原版（qegj567-cloud/SullyOS master）发现原版这里还有 scrollBehavior:
+          // 'smooth' 和 WebkitOverflowScrolling: 'touch'，之前我把后者当成跟
+          // scroll-snap 冲突的坑给删了——但原版明明两个都有且不晃，说明这俩不是
+          // 元凶，先补回来跟原版对齐，把变量收窄到别的地方。
+          // 测试用：Firefox 对 scroll-behavior:smooth + scroll-snap-type:mandatory 这个组合
+          // 有名的historically 不按规范来（规范说 smooth 不该影响用户手势触发的滚动，
+          // 但 Firefox 实测容易把它套到触摸吸附收尾的动效上），先去掉看看火狐是否改善。
+          // scrollBehavior: 'smooth',
           overscrollBehaviorX: 'contain',
           overscrollBehaviorY: 'none',
           touchAction: layoutEditing ? 'none' : 'pan-x pan-y',
