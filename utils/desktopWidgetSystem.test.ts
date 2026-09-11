@@ -22,8 +22,8 @@ describe('桌面自由网格系统契约', () => {
   });
 
   it('主屏第一页单独渲染：时钟 + 角色卡当表头，不是网格条目', () => {
-    // Launcher 对 pageIndex===1 特判，顶部放时钟 + 角色卡
-    expect(launcherSource).toContain('pageIndex === 1');
+    // Launcher 对 isHomePage (page.layout === 'home') 特判，顶部放时钟 + 角色卡
+    expect(launcherSource).toContain('isHomePage');
     expect(launcherSource).toContain('<DesktopClockWidget />');
     expect(launcherSource).toContain('<CharacterCardWidget');
     // desktopGrid：这俩是表头专属，迁移不塞成条目，旧数据 stripHeaderKinds 纠偏
@@ -79,5 +79,10 @@ describe('桌面自由网格系统契约', () => {
     await migrateAppearancePresetBlobRefs(mockTheme as OSTheme);
     expect(mockTheme.customVinylSticker).toBeDefined();
     expect(typeof mockTheme.customVinylSticker).toBe('string');
+  });
+
+  it('起始页定位契约：冷启动必须等待 isDataLoaded 并监听 launcherStartPageId，避免时序竞态将冷启动定死在第 1 页', () => {
+    expect(launcherSource).toContain('[isDataLoaded, theme.launcherStartPageId]');
+    expect(launcherSource).toContain('initialScrollDoneRef');
   });
 });

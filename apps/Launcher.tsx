@@ -479,10 +479,18 @@ const Launcher: React.FC = () => {
   useEffect(() => subscribeDevDebugAvailability(setDevDebugVisible), []);
 
   // 初始页在下面的 useLayoutEffect 里定位（要用到已迁移的 pages + startPageId）。这里先给个占位。
-  const [activePageIndex, setActivePageIndex] = useState(() => Math.max(0, _lastPageIndex < 0 ? 1 : _lastPageIndex));
+  const [activePageIndex, setActivePageIndex] = useState(() => {
+    if (_lastPageIndex >= 0) return _lastPageIndex;
+    if (theme.launcherStartPageId && theme.launcherPages) {
+      const idx = theme.launcherPages.findIndex(p => p.id === theme.launcherStartPageId);
+      if (idx >= 0) return idx;
+    }
+    return 1;
+  });
   const activePageIndexRef = useRef(activePageIndex);
   useEffect(() => { activePageIndexRef.current = activePageIndex; }, [activePageIndex]);
-  const initialScrollDone = useRef(false);
+  const [initialScrollDone, setInitialScrollDone] = useState(false);
+  const initialScrollDoneRef = useRef(false);
 
   const handleSetStartPage = useCallback((pageId: string) => {
     const cur = theme.launcherStartPageId;
@@ -639,77 +647,92 @@ const Launcher: React.FC = () => {
   // 就再也不插手，避免和用户手势打架。1.5s 安全阀兜底，防止某些设备上宽度
   // 一直抖动导致纠正逻辑永远不退出。
   useLayoutEffect(() => {
+    if (initialScrollDoneRef.current) return;
     const el = scrollContainerRef.current;
+    if (!el) return;
+
     const pgs = pagesRef.current;
     let target: number;
-    if (_lastPageIndex < 0) {
+    if (_lastPageIndex >= 0) {
+      target = _lastPageIndex;
+    } else if (isDataLoaded) {
       const idx = theme.launcherStartPageId
         ? pgs.findIndex(p => p.id === theme.launcherStartPageId)
         : -1;
       target = idx >= 0 ? idx : findHomeIndex(pgs);
+      _lastPageIndex = target;
     } else {
-      target = _lastPageIndex;
+      target = findHomeIndex(pgs);
     }
     target = Math.max(0, Math.min(pgs.length - 1, target));
-    _lastPageIndex = target;
+
     activePageIndexRef.current = target;
     setActivePageIndex(target);
-    if (!el) {
-      initialScrollDone.current = true;
-      return;
-    }
-    // 这里按当时的宽度/滚动范围把 scrollLeft 赋值一次，但那一刻的布局不一定
-    // 已经稳定——实测过好几种没稳的情况：外壳（PhoneShell）随后收缩视口宽度、
-    // 或者这几个页面 div 当时还没被布局引擎撑到各自的真实宽度（scrollWidth
-    // 一度就等于 clientWidth，滚不动，赋值被直接钳成 0）。加上跟 handleMouseDown
-    // 一样，snap-x snap-mandatory 生效时直接赋值也不可靠。于是：赋值期间关掉
-    // snap；再用 rAF 连续几帧 + ResizeObserver 双保险反复贴回目标页，直到布局
-    // 真正稳定（scrollLeft 落在目标值上）或用户自己动手/超时兜底为止。
-    el.style.scrollSnapType = 'none';
-    initialScrollDone.current = true;
 
+    let settledCount = 0;
+    let rafId = 0;
     let interacted = false;
-    const restoreSnap = () => {
-      const container = scrollContainerRef.current;
-      if (container) container.style.scrollSnapType = 'x mandatory';
+
+    const markDone = () => {
+      if (!initialScrollDoneRef.current) {
+        initialScrollDoneRef.current = true;
+        setInitialScrollDone(true);
+      }
     };
-    const markInteracted = () => { interacted = true; restoreSnap(); };
+
+    const markInteracted = () => {
+      interacted = true;
+      markDone();
+    };
     el.addEventListener('pointerdown', markInteracted, { once: true });
 
     const settle = () => {
-      const container = scrollContainerRef.current;
-      if (interacted || !container) return;
-      const want = container.clientWidth * activePageIndexRef.current;
-      if (container.scrollLeft !== want) container.scrollLeft = want;
-    };
-    settle();
+      if (interacted || !el) return;
+      const clientW = el.clientWidth;
+      const scrollW = el.scrollWidth;
+      // 容器子页面尚未展开时，直接跳过等下一帧
+      if (target > 0 && scrollW <= clientW) return;
 
-    let rafId = 0;
+      const want = clientW * target;
+      if (Math.abs(el.scrollLeft - want) > 1) {
+        el.scrollLeft = want;
+        settledCount = 0;
+      } else {
+        settledCount++;
+        // 稳定对齐连续 2 帧，且如果数据已经就绪（或从 App 返回），完成初始定位！
+        if (settledCount >= 2 && (_lastPageIndex >= 0 || isDataLoaded)) {
+          markDone();
+        }
+      }
+    };
+
+    settle();
     const tick = () => {
       settle();
-      if (!interacted) rafId = requestAnimationFrame(tick);
+      if (!interacted && !initialScrollDoneRef.current) {
+        rafId = requestAnimationFrame(tick);
+      }
     };
     rafId = requestAnimationFrame(tick);
 
     const ro = new ResizeObserver(settle);
     ro.observe(el);
-    // 安全阀原来是 1.5s——真机上（尤其隔着隧道/慢网络）数据和布局稳定经常
-    // 要好几秒，之前测出来 1.5s 内没稳住就提前把 snap 恢复了，反而在它还没
-    // 真正贴对目标页时被吸附盖掉，复现过"该停在主屏却停在第 0 页"。拉长到
-    // 12s 兜底，rAF 循环本身每帧只做一次比较，空转不费什么。
-    const stopTimer = setTimeout(() => { interacted = true; ro.disconnect(); restoreSnap(); }, 12000);
+
+    const stopTimer = setTimeout(() => {
+      markDone();
+      ro.disconnect();
+    }, 8000);
 
     return () => {
       ro.disconnect();
       cancelAnimationFrame(rafId);
       clearTimeout(stopTimer);
       el.removeEventListener('pointerdown', markInteracted);
-      restoreSnap();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isDataLoaded, theme.launcherStartPageId]);
 
   const handleScroll = () => {
-    if (!initialScrollDone.current) return;
+    if (!initialScrollDoneRef.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
     // 真的在横向翻页了 → 说明这一下是滑动手势，不是长按：兜底清掉挂起的
@@ -1502,9 +1525,9 @@ const Launcher: React.FC = () => {
         onScroll={handleScroll}
         onPointerDown={handleMouseDown}
         onClickCapture={handleClickCapture}
-        className="flex-1 flex overflow-x-auto snap-x snap-mandatory no-scrollbar cursor-grab active:cursor-grabbing"
+        className={`flex-1 flex overflow-x-auto no-scrollbar cursor-grab active:cursor-grabbing ${initialScrollDone ? 'snap-x snap-mandatory' : ''}`}
         style={{
-          scrollBehavior: 'smooth',
+          scrollBehavior: initialScrollDone ? 'smooth' : 'auto',
           overscrollBehaviorX: 'contain',
           overscrollBehaviorY: 'none',
           touchAction: layoutEditing ? 'none' : 'pan-x pan-y',
