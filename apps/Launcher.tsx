@@ -39,6 +39,13 @@ const PAGE_PAD_X = 24; // px-6
 const GRID_COL_GAP = 8;  // gap-x-2
 const GRID_ROW_GAP = 12; // 紧凑行距(12px)，对齐手机视口高度，防纵向撑满滚动
 
+// 长按进整理态阈值：原来 520ms 偏短，正常单击稍慢一点就容易被判成长按，
+// 点开 App 的点击被吞掉却毫无征兆。调到 620ms 拉开与单击的安全距离；
+// WARN_MS 是提前量，从这个时刻起图标会轻微下沉变暗作为"再按住就要进编辑了"
+// 的预警，用户看到就能主动松手取消，不会莫名其妙地打不开 App。
+const LONGPRESS_MS = 620;
+const LONGPRESS_WARN_MS = 340;
+
 const canResize = (kind: GridItemKind) => {
   const m = WIDGET_META[kind];
   return kind !== 'app' && (m.maxW > m.minW || m.maxH > m.minH);
@@ -99,18 +106,19 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
 }) => {
   const rows = rowsForScreen(pageIndex, page);
   const isWindmillPage = page.layout === 'windmill' || pageIndex === 2;
-  const rowGap = isWindmillPage ? 20 : GRID_ROW_GAP;
-  const cellH = isWindmillPage ? 84 : cellPx;
+  const rowGap = isWindmillPage ? 16 : GRID_ROW_GAP;
+  // 动态保证 2x2 风车方块为严格正方形：2 * cellH + rowGap === 2 * cellPx + GRID_COL_GAP
+  const cellH = isWindmillPage ? Math.floor((2 * cellPx + GRID_COL_GAP - rowGap) / 2) : cellPx;
   const isCompactAppPage = rows >= 6 && !isWindmillPage;
   const pagePadClass =
     pageIndex === 1 ? 'pt-10 pb-8' :
-    isWindmillPage ? 'pt-4 pb-6' :
+    isWindmillPage ? 'pt-2 pb-4' :
     isCompactAppPage ? 'pt-[calc(var(--safe-top)+1.25rem)] pb-4' : 'pt-10 pb-8';
 
   return (
     <div
       className={`w-full flex-shrink-0 snap-center snap-always h-full flex flex-col ${pagePadClass}`}
-      style={{ contain: 'layout' }}
+      style={{ contain: 'layout paint', transform: 'translateZ(0)' }}
     >
       {pageIndex === 1 ? (
         <>
@@ -243,12 +251,12 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
         </>
       ) : (
         <div
-          className={`flex-1 min-h-0 overflow-y-auto no-scrollbar px-6 flex flex-col ${isWindmillPage ? 'justify-center' : ''}`}
+          className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-6 flex flex-col"
           style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-x pan-y' }}
         >
           <div
             ref={el => registerPageGridRef(pageIndex, el)}
-            className="relative grid mx-auto"
+            className={`relative grid mx-auto ${isWindmillPage ? 'my-auto' : ''}`}
             style={{
               columnGap: `${GRID_COL_GAP}px`,
               rowGap: `${rowGap}px`,
@@ -626,6 +634,10 @@ const Launcher: React.FC = () => {
     if (!initialScrollDone.current) return;
     const el = scrollContainerRef.current;
     if (!el) return;
+    // 真的在横向翻页了 → 说明这一下是滑动手势，不是长按：兜底清掉挂起的
+    // 长按计时器（正常情况下 onRootPointerMove 的位移阈值已经会清，这里
+    // 是双保险，防止个别设备指针事件被合并/延迟导致长按误触发编辑态）。
+    if (bgPressStart.current || itemPressStart.current) clearPress();
     const index = Math.max(0, Math.min(pagesRef.current.length - 1, Math.round(el.scrollLeft / el.clientWidth)));
     if (index !== activePageIndexRef.current) {
       activePageIndexRef.current = index;
@@ -742,7 +754,22 @@ const Launcher: React.FC = () => {
     };
   }>(null);
 
-  const clearPress = () => { if (pressTimer.current) clearTimeout(pressTimer.current); pressTimer.current = null; };
+  // 长按预警：按到临界值前一小段时间，先让被按住的图标轻微下沉变暗，
+  // 给用户一个「再按住就要进编辑态了」的信号，可以主动松手取消——
+  // 不然单击稍微慢一点点、又完全没有过渡提示，很容易莫名其妙把 App 点开失败。
+  const pressWarnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pressWarnEl = useRef<HTMLElement | null>(null);
+  const clearPressWarn = () => {
+    if (pressWarnTimer.current) clearTimeout(pressWarnTimer.current);
+    pressWarnTimer.current = null;
+    pressWarnEl.current?.classList.remove('launcher-press-warn');
+    pressWarnEl.current = null;
+  };
+  const clearPress = () => {
+    if (pressTimer.current) clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+    clearPressWarn();
+  };
   const clearPageTurn = () => { if (pageTurnTimer.current) clearTimeout(pageTurnTimer.current); pageTurnTimer.current = null; pageTurnDir.current = 0; };
 
   // 长按桌面空白处（不是某个图标/组件）也能进整理态，不用非得按在图标上。
@@ -758,7 +785,7 @@ const Launcher: React.FC = () => {
       bgPressStart.current = null;
       setLayoutEditing(true);
       trackEvent('进入桌面整理模式（空白处长按）');
-    }, 520);
+    }, LONGPRESS_MS);
   };
 
   // 拖拽「幽灵」元素直接挂在 document.body 上（脱离 React 管控），只靠自己清理。
@@ -794,8 +821,8 @@ const Launcher: React.FC = () => {
     const page = pagesRef.current[pageIndex];
     const rows = rowsForScreen(pageIndex, page);
     const isWindmill = page?.layout === 'windmill' || pageIndex === 2;
-    const rowGap = isWindmill ? 20 : GRID_ROW_GAP;
-    const cellH = isWindmill ? 84 : cellPx;
+    const rowGap = isWindmill ? 16 : GRID_ROW_GAP;
+    const cellH = isWindmill ? Math.floor((2 * cellPx + GRID_COL_GAP - rowGap) / 2) : cellPx;
     const r = el.getBoundingClientRect();
     let col = Math.floor((clientX - r.left) / (cellPx + GRID_COL_GAP));
     let row = Math.floor((clientY - r.top) / (cellH + rowGap));
@@ -835,13 +862,21 @@ const Launcher: React.FC = () => {
     if (!layoutEditing) {
       // 长按进入整理：记录起始坐标，若发生轻微移动则取消计时
       itemPressStart.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
+      if (itemEl) {
+        pressWarnEl.current = itemEl;
+        pressWarnTimer.current = setTimeout(() => {
+          if (!itemPressStart.current || itemPressStart.current.pointerId !== e.pointerId) return;
+          itemEl.classList.add('launcher-press-warn');
+        }, LONGPRESS_WARN_MS);
+      }
       pressTimer.current = setTimeout(() => {
+        clearPressWarn();
         if (!itemPressStart.current || itemPressStart.current.pointerId !== e.pointerId) return;
         itemPressStart.current = null;
         setLayoutEditing(true);
         trackEvent('进入桌面整理模式');
         suppressClickUntil.current = Date.now() + 700;
-      }, 520);
+      }, LONGPRESS_MS);
       return;
     }
 
@@ -1263,6 +1298,8 @@ const Launcher: React.FC = () => {
         .launcher-drag-ghost { opacity:.96; filter: drop-shadow(0 12px 14px rgba(75,65,54,.18)); }
         .launcher-edit-wobble { animation: launcherWobble 2.4s ease-in-out infinite; }
         @keyframes launcherWobble { 0%,100%{transform:rotate(-0.5deg)} 50%{transform:rotate(0.5deg)} }
+        /* 长按预警：还没到「进入整理态」的临界点，先给个「快松手」的信号 */
+        .launcher-press-warn { transition: transform 160ms ease, filter 160ms ease, opacity 160ms ease; transform: scale(0.88); filter: brightness(0.8); opacity: 0.85; }
       `}</style>
 
       {layoutEditing && (
@@ -1325,7 +1362,9 @@ const Launcher: React.FC = () => {
           overscrollBehaviorX: 'contain',
           overscrollBehaviorY: 'none',
           touchAction: layoutEditing ? 'none' : 'pan-x pan-y',
-          contain: 'layout',
+          willChange: 'scroll-position',
+          contain: 'layout paint',
+          transform: 'translateZ(0)',
           WebkitOverflowScrolling: 'touch',
         }}
       >
