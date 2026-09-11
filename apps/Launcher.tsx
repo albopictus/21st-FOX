@@ -668,7 +668,10 @@ const Launcher: React.FC = () => {
             }}
             onPointerDown={(e) => onItemPointerDown(e, item, pageIndex)}
           >
-            <div className={`w-full h-full overflow-hidden ${item.kind === 'app' ? 'flex items-center justify-center' : ''}`}>{content}</div>
+            {/* 非 app 的小组件卡片自带 box-shadow：留 3px 内缩空隙让阴影能完整画出来，
+                不然卡片严丝合缝贴着这层 overflow-hidden 的裁切边，阴影会被贴边裁得
+                东一块西一块（圆角处漏一点、直边处全被裁掉），看着很诡异。 */}
+            <div className={`w-full h-full overflow-hidden ${item.kind === 'app' ? 'flex items-center justify-center' : 'p-[3px]'}`}>{content}</div>
 
             {layoutEditing && (
               item.locked ? (
