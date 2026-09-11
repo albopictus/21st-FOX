@@ -201,6 +201,58 @@ describe('desktopGrid · migrateLegacyLauncher', () => {
         expect(rowsForScreen(1)).toBe(HOME_PAGE_ROWS);
         expect(rowsForScreen(0)).toBe(GRID_ROWS);
         expect(rowsForScreen(2)).toBe(GRID_ROWS);
+        expect(rowsForScreen(3)).toBe(7);
+    });
+
+    it('风车页（Screen 2）与 Screen 3+ 7行网格排布正确', () => {
+        const theme: Partial<OSTheme> = {
+            launcherAppOrder: Array.from({ length: 30 }, (_, i) => `app_${i}`),
+        };
+        const validApps = new Set(theme.launcherAppOrder);
+        const pages = migrateLegacyLauncher(theme as OSTheme, validApps);
+
+        // Screen 2 是风车页：日程 + 音乐 + 四宫格A + 四宫格B + 相框
+        const p2 = pages[2];
+        expect(p2.layout).toBe('windmill');
+        expect(p2.items).toHaveLength(5);
+        expect(p2.items.find(i => i.kind === 'schedule')).toMatchObject({ x: 0, y: 0, w: 4, h: 2, locked: true });
+        expect(p2.items.find(i => i.kind === 'music')).toMatchObject({ x: 0, y: 2, w: 2, h: 2 });
+        const quadA = p2.items.find(i => i.kind === 'quad_apps' && i.x === 2 && i.y === 2);
+        expect(quadA).toBeDefined();
+        expect(quadA?.config?.apps).toEqual(['app_8', 'app_9', 'app_10', 'app_11']);
+        const quadB = p2.items.find(i => i.kind === 'quad_apps' && i.x === 0 && i.y === 4);
+        expect(quadB).toBeDefined();
+        expect(quadB?.config?.apps).toEqual(['app_12', 'app_13', 'app_14', 'app_15']);
+        expect(p2.items.find(i => i.kind === 'image')).toMatchObject({ x: 2, y: 4, w: 2, h: 2 });
+
+        // Screen 3+ 为 7 行网格
+        expect(rowsForScreen(3)).toBe(7);
+        expect(rowsForScreen(4)).toBe(7);
+
+        // 指定 layout 时优先尊重 layout（除 Screen 1 主屏外）
+        expect(rowsForScreen(5, { id: 'p5', items: [], layout: 'windmill' })).toBe(6);
+        expect(rowsForScreen(2, { id: 'p2', items: [], layout: 'standard' })).toBe(7);
+        expect(rowsForScreen(1, { id: 'p1', items: [], layout: 'windmill' })).toBe(HOME_PAGE_ROWS);
+
+        // addPage 支持 layout
+        const withWindmill = addPage([], 'windmill');
+        expect(withWindmill[0].layout).toBe('windmill');
+        const withStandard = addPage([], 'standard');
+        expect(withStandard[0].layout).toBe('standard');
+
+        // 30 个 app 全部被统计到（无遗漏，包括四宫格内的）
+        const placed = collectPlacedAppIds(pages);
+        expect(placed.size).toBe(30);
+
+        // 四宫格如果移除某个 app 变成 null，不会被 collectPlacedAppIds 收集
+        const pageWithQuadNull: DesktopPage = {
+            id: 'p_null',
+            items: [
+                { id: 'q1', kind: 'quad_apps', x: 0, y: 0, w: 2, h: 2, config: { apps: ['app_1', null, 'app_2', undefined] } },
+            ],
+        };
+        const placedWithNull = collectPlacedAppIds([pageWithQuadNull]);
+        expect(placedWithNull).toEqual(new Set(['app_1', 'app_2']));
     });
 });
 

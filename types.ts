@@ -146,7 +146,8 @@ export type GridItemKind =
   | 'image'
   | 'calendar'
   | 'anniversary'
-  | 'memo';
+  | 'memo'
+  | 'quad_apps';
 
 /** 网格上的一个条目。x/y 是左上角格子坐标（0 起），w/h 是横竖占用格数。 */
 export interface PlacedItem {
@@ -167,6 +168,8 @@ export interface PlacedItem {
 export interface DesktopPage {
   id: string;
   items: PlacedItem[];
+  /** 页面规格：'windmill' = 6×4 呼吸感组件/风车页（24px行距、舒适留白），'standard' = 7×4 紧凑应用页（14px行距、高密度） */
+  layout?: 'windmill' | 'standard';
 }
 
 export interface OSTheme {

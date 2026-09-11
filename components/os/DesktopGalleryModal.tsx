@@ -44,6 +44,7 @@ const KIND_ICON: Record<GridItemKind, React.ReactNode> = {
   calendar: <CalendarDots size={22} weight="fill" />,
   anniversary: <CalendarHeart size={22} weight="fill" />,
   memo: <Note size={22} weight="fill" />,
+  quad_apps: <SquaresFour size={22} weight="fill" />,
 };
 
 const KIND_TINT: Partial<Record<GridItemKind, string>> = {
@@ -55,6 +56,7 @@ const KIND_TINT: Partial<Record<GridItemKind, string>> = {
   calendar: 'bg-blue-500/15 text-blue-500',
   anniversary: 'bg-pink-500/15 text-pink-500',
   memo: 'bg-amber-500/15 text-amber-500',
+  quad_apps: 'bg-indigo-500/15 text-indigo-500',
 };
 
 export const DesktopGalleryModal: React.FC<DesktopGalleryModalProps> = ({

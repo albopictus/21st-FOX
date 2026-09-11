@@ -10,6 +10,7 @@ import { MemoHomeWidget } from './widgets/MemoHomeWidget';
 import { DesktopClockWidget } from './widgets/DesktopClockWidget';
 import { CharacterCardWidget } from './widgets/CharacterCardWidget';
 import { DesktopImageWidget } from './widgets/DesktopImageWidget';
+import { QuadAppsWidget } from './widgets/QuadAppsWidget';
 import { DEFAULT_ITEM_SIZE } from '../../utils/desktopGrid';
 
 /**
@@ -44,6 +45,12 @@ export interface WidgetRenderContext {
     onOpenSchedule: () => void;
     /** image 用：点一下换图 */
     onEditImage: (item: PlacedItem) => void;
+    /** quad_apps 用：打开四宫格应用管理抽屉 */
+    onOpenQuadManager?: (item: PlacedItem, slotIndex?: number) => void;
+    /** quad_apps 用：单独移除某个槽位的应用 */
+    onRemoveQuadApp?: (item: PlacedItem, slotIndex: number) => void;
+    /** quad_apps 用：单独为某个槽位添加应用 */
+    onAddQuadApp?: (item: PlacedItem, slotIndex: number) => void;
 }
 
 interface WidgetMeta {
@@ -72,6 +79,7 @@ export const WIDGET_META: Record<GridItemKind, WidgetMeta> = {
     calendar:   { minW: 4, minH: 2, maxW: 4, maxH: 4, label: '整月日历', desc: '整月日期与日程标记，轻触直达日程' },
     anniversary:{ minW: 4, minH: 2, maxW: 4, maxH: 3, label: '纪念日与倒计时', desc: '与角色的特殊日子，支持翻页与倒数' },
     memo:       { minW: 2, minH: 2, maxW: 4, maxH: 3, label: '便签',   desc: '置顶与最新想法的小纸条' },
+    quad_apps:  { minW: 2, minH: 2, maxW: 2, maxH: 2, label: '四宫格风车组件', desc: '经典四合一应用方块，收纳 4 个 App，支持直接拖入与点开管理' },
 };
 
 export const defaultSizeFor = (kind: GridItemKind): { w: number; h: number } =>
@@ -101,6 +109,18 @@ export const renderGridItemContent = (
                 />
             );
         }
+        case 'quad_apps':
+            return (
+                <QuadAppsWidget
+                    apps={item.config?.apps}
+                    openApp={ctx.openApp}
+                    editing={ctx.editing}
+                    contentColor={ctx.contentColor}
+                    acnh={ctx.acnh}
+                    paper={ctx.paper}
+                    onOpenManager={(slotIndex) => ctx.onOpenQuadManager?.(item, slotIndex)}
+                />
+            );
         case 'clock':
             return <DesktopClockWidget />;
         case 'charCard':
