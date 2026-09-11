@@ -61,7 +61,7 @@ export const MemoHomeWidget: React.FC<MemoHomeWidgetProps> = ({
   const isWide = size === '4x2';
 
   return (
-    <div className={`relative group select-none ${isWide ? 'w-full' : 'w-full h-full aspect-square'}`}>
+    <div className="relative group select-none w-full h-full">
       {/* 编辑模式下的红色删除按钮 */}
       {editing && onDelete && (
         <button
