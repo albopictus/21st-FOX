@@ -86,7 +86,7 @@ export const MemoHomeWidget: React.FC<MemoHomeWidgetProps> = ({
             ? 'shadow-sm'
             : paper
             ? 'bg-[#f4efe4] border border-[#5b4833]/15 shadow-sm text-[#3c3226]'
-            : 'bg-white/20 backdrop-blur-xl border border-white/25 shadow-xl text-white'
+            : 'bg-white/20 backdrop-blur-xl border border-white/25 shadow-[0_8px_24px_rgba(0,0,0,0.14)] text-white'
         }`}
         style={
           paper

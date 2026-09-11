@@ -295,7 +295,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
             }}
             role="button"
             tabIndex={0}
-            className="sully-schedule-root sully-schedule-widget w-full shrink-0 group text-left rounded-3xl overflow-hidden transition-transform duration-200 active:scale-[0.98] relative"
+            className="sully-schedule-root sully-schedule-widget w-full h-full group text-left rounded-3xl overflow-hidden transition-transform duration-200 active:scale-[0.98] relative"
             style={effectivePaper ? {
                 ...scheduleVars,
                 background: 'rgba(224,221,215,0.40)',
@@ -346,16 +346,16 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                 style={{ background: effectivePaper ? 'linear-gradient(to bottom, #788369, rgba(120,131,105,0.12))' : `linear-gradient(to bottom, ${accentHsl}, transparent)` }}
             />
 
-            <div className="relative flex flex-col p-4 gap-3">
+            <div className="relative flex flex-col p-4 gap-3 h-full min-h-0">
                 {/* Header row: label + character name + time */}
-                <div className="sully-schedule-header flex items-center gap-2 pr-8 text-[9px] tracking-[0.22em] uppercase opacity-60">
+                <div className="sully-schedule-header shrink-0 flex items-center gap-2 pr-8 text-[9px] tracking-[0.22em] uppercase opacity-60">
                     <span className="font-bold">Daily Schedule</span>
                     <div className="h-px flex-1" style={{ background: contentColor, opacity: 0.25 }}></div>
                     <span className="sully-schedule-time font-mono tracking-wider opacity-80">{timeLabel}</span>
                 </div>
 
                 {/* Main row: avatar | activity */}
-                <div className="flex items-center gap-4">
+                <div className="shrink-0 flex items-center gap-4">
                     <div
                         className={`w-[72px] h-[72px] shrink-0 rounded-2xl overflow-hidden relative ${effectivePaper ? 'bg-[#ded2c1]' : 'bg-slate-800/60'}`}
                         style={{
@@ -432,7 +432,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
 
                 {/* Timeline footer */}
                 {timelineSlots.length > 0 && (
-                    <div className="sully-schedule-timeline flex items-center gap-1.5 pt-1">
+                    <div className="sully-schedule-timeline shrink-0 flex items-center gap-1.5 pt-1">
                         {timelineSlots.slice(0, 10).map((slot, i) => {
                             const isCurrent = i === currentIdx;
                             const isPast = currentIdx >= 0 && i < currentIdx;
@@ -468,17 +468,17 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                     const upcoming = timelineSlots.filter((_, i) => i > currentIdx).slice(0, 4);
                     return (
                         <div
-                            className="mt-1 pt-2 border-t space-y-1.5 overflow-hidden"
+                            className="mt-1 pt-2 border-t space-y-1.5 flex-1 min-h-0 overflow-hidden"
                             style={{ borderColor: effectivePaper ? 'rgba(91,72,51,0.10)' : palette.line }}
                         >
                             <div className="text-[8px] font-bold tracking-[0.22em] uppercase opacity-45">接下来</div>
                             {upcoming.length === 0 ? (
                                 <div className="text-[10px] opacity-45">今天的安排到这儿了</div>
                             ) : upcoming.map((slot, i) => (
-                                <div key={i} className="flex items-start gap-2 text-[10px] leading-snug">
-                                    <span className="font-mono opacity-50 shrink-0 pt-px">{slot.startTime.slice(0, 5)}</span>
+                                <div key={i} className="flex items-center gap-2 text-[10px] leading-snug">
+                                    <span className="font-mono opacity-50 shrink-0">{slot.startTime.slice(0, 5)}</span>
                                     {slot.emoji && <span className="shrink-0">{slot.emoji}</span>}
-                                    <div className="min-w-0 flex-1">
+                                    <div className="min-w-0 flex-1 truncate">
                                         <span className="font-semibold">{slot.activity}</span>
                                         {slot.description && <span className="opacity-55"> · {slot.description}</span>}
                                     </div>

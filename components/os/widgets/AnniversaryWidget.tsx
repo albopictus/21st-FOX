@@ -71,7 +71,7 @@ export const AnniversaryWidget: React.FC<AnniversaryWidgetProps> = ({
 
       <div
         className={`rounded-3xl p-5 flex flex-col flex-1 min-h-[200px] ${
-          acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'
+          acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-[0_8px_24px_rgba(0,0,0,0.14)]'
         }`}
         style={
           paper

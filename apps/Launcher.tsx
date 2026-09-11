@@ -834,10 +834,10 @@ const Launcher: React.FC = () => {
                     paper={paper}
                   />
                 </div>
-                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">{renderPageGrid(page, pageIndex)}</div>
+                <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar" style={{ overscrollBehaviorY: 'contain' }}>{renderPageGrid(page, pageIndex)}</div>
               </>
             ) : (
-              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar">{renderPageGrid(page, pageIndex)}</div>
+              <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar" style={{ overscrollBehaviorY: 'contain' }}>{renderPageGrid(page, pageIndex)}</div>
             )}
           </div>
         ))}

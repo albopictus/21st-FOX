@@ -68,7 +68,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
 
       <div
         className={`h-full flex flex-col rounded-3xl p-3 overflow-hidden ${
-          acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-xl'
+          acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-[0_8px_24px_rgba(0,0,0,0.14)]'
         }`}
         style={
           paper
