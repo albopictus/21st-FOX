@@ -357,7 +357,12 @@ export const migrateLegacyLauncher = (
     }) || { page: page2 }).page;
 
     // ── 待铺的流：主桌面 app + 自定义页小组件 + 旧的 tl/tr/wide 条幅图 ──
-    const appSpecs: NewItemSpec[] = dedupe(theme.launcherAppOrder || [], validAppIds)
+    // launcherAppOrder 为空（全新安装 / 「一键还原外观」清空整个 theme 之后）时，
+    // 不能铺出一个没有任何 App 的空桌面——退回「全部已装 App」。
+    const appSourceIds = theme.launcherAppOrder && theme.launcherAppOrder.length
+        ? theme.launcherAppOrder
+        : Array.from(validAppIds);
+    const appSpecs: NewItemSpec[] = dedupe(appSourceIds, validAppIds)
         .map(id => ({ kind: 'app' as GridItemKind, refId: id }));
     const widgetSpecs: NewItemSpec[] = (theme.launcherCustomPages || [])
         .flatMap(p => p.widgets || [])

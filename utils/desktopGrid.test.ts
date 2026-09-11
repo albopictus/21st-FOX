@@ -225,3 +225,14 @@ describe('desktopGrid · enforceHomeRowCap', () => {
         expect(enforceHomeRowCap(pages)).toBe(pages);
     });
 });
+
+describe('desktopGrid · migrateLegacyLauncher 空 launcherAppOrder 兜底', () => {
+    it('launcherAppOrder 缺失（全新安装 / 一键还原外观清空 theme 后）不会铺出空桌面', () => {
+        const valid = new Set(['chat', 'music', 'settings']);
+        const pages = migrateLegacyLauncher({} as OSTheme, valid);
+        const placed = collectPlacedAppIds(pages);
+        expect(placed.has('chat')).toBe(true);
+        expect(placed.has('music')).toBe(true);
+        expect(placed.has('settings')).toBe(true);
+    });
+});

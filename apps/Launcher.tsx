@@ -70,9 +70,28 @@ const Launcher: React.FC = () => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const pageGridRefs = useRef<(HTMLDivElement | null)[]>([]);
 
-  // 网格：默认 4 列 × GRID_ROWS 行，各占等分（1fr），铺满整页。宽屏用 max-width 收窄居中，
-  // 不做 JS 测量自适应（之前那版格子太小、组件文字被截）。
-  const GRID_MAX_W = '27rem';
+  // 格子边长只按宽度算，不管高度——所有页用同一个 cellPx，处处正方形。
+  // 行数按页不同（rowsForScreen：首页矮、其它页高），但格子本身大小不变，
+  // 不会出现「切页时格子形状变了」。总网格高度 = 行数 × cellPx + 行距，超出可纵向滚动。
+  // 间距照原项目的约定：横 gap-x-2(8px) / 竖 gap-y-6(24px) 不对称，竖向留够呼吸感，
+  // 不然卡片圆角/阴影贴在一起会看着像重叠。页面左右留白也照原项目用 px-6(24px)。
+  const PAGE_PAD_X = 24; // px-6
+  const GRID_COL_GAP = 8;  // gap-x-2
+  const GRID_ROW_GAP = 24; // gap-y-6
+  const [cellPx, setCellPx] = useState(84);
+  useLayoutEffect(() => {
+    const measure = () => {
+      const raw = scrollContainerRef.current?.clientWidth || 380;
+      const w = Math.min(raw, 27 * 16); // 27rem 上限（宽屏收窄居中）
+      const inner = w - PAGE_PAD_X * 2 - GRID_COL_GAP * (GRID_COLS - 1);
+      const size = Math.max(64, Math.floor(inner / GRID_COLS));
+      setCellPx(prev => (prev === size ? prev : size));
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
+  const gridWidthPx = GRID_COLS * cellPx + (GRID_COLS - 1) * GRID_COL_GAP;
 
   // ───────── 页面数据 ─────────
   const validAppIds = useMemo(
@@ -283,6 +302,22 @@ const Launcher: React.FC = () => {
   const clearPress = () => { if (pressTimer.current) clearTimeout(pressTimer.current); pressTimer.current = null; };
   const clearPageTurn = () => { if (pageTurnTimer.current) clearTimeout(pageTurnTimer.current); pageTurnTimer.current = null; pageTurnDir.current = 0; };
 
+  // 长按桌面空白处（不是某个图标/组件）也能进整理态，不用非得按在图标上。
+  const bgPressStart = useRef<{ x: number; y: number; pointerId: number } | null>(null);
+  const onBackgroundPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    if (layoutEditing) return;
+    if ((e.target as HTMLElement).closest('[data-grid-item], [data-grid-action]')) return;
+    clearPress();
+    bgPressStart.current = { x: e.clientX, y: e.clientY, pointerId: e.pointerId };
+    pressTimer.current = setTimeout(() => {
+      if (!bgPressStart.current || bgPressStart.current.pointerId !== e.pointerId) return;
+      bgPressStart.current = null;
+      setLayoutEditing(true);
+      trackEvent('进入桌面整理模式（空白处长按）');
+    }, 520);
+  };
+
   useEffect(() => () => { clearPress(); clearPageTurn(); gesture.current?.ghost?.remove(); }, []);
 
   const makeGhost = (el: HTMLElement) => {
@@ -304,8 +339,9 @@ const Launcher: React.FC = () => {
     if (!el) return null;
     const rows = rowsForScreen(pageIndex);
     const r = el.getBoundingClientRect();
-    let col = Math.floor((clientX - r.left) / (r.width / GRID_COLS));
-    let row = Math.floor((clientY - r.top) / (r.height / rows));
+    // 格子固定正方形边长；横竖间距不对称（照原项目 gap-x-2/gap-y-6），步距分开算
+    let col = Math.floor((clientX - r.left) / (cellPx + GRID_COL_GAP));
+    let row = Math.floor((clientY - r.top) / (cellPx + GRID_ROW_GAP));
     col = Math.max(0, Math.min(GRID_COLS - w, col));
     row = Math.max(0, Math.min(rows - h, row));
     return { x: col, y: row };
@@ -380,6 +416,12 @@ const Launcher: React.FC = () => {
   };
 
   const onRootPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (bgPressStart.current && bgPressStart.current.pointerId === e.pointerId) {
+      const dx = e.clientX - bgPressStart.current.x;
+      const dy = e.clientY - bgPressStart.current.y;
+      if (Math.hypot(dx, dy) > 10) { clearPress(); bgPressStart.current = null; }
+      return; // 空白处手势不参与拖拽/改大小逻辑
+    }
     const g = gesture.current;
     if (!g || g.pointerId !== e.pointerId) return;
 
@@ -435,6 +477,7 @@ const Launcher: React.FC = () => {
   };
 
   const onRootPointerUp = (e?: React.PointerEvent<HTMLDivElement>) => {
+    bgPressStart.current = null;
     const g = gesture.current;
     if (e && g && g.pointerId !== e.pointerId) return;
     clearPress();
@@ -573,17 +616,19 @@ const Launcher: React.FC = () => {
     return kind !== 'app' && (m.maxW > m.minW || m.maxH > m.minH);
   };
 
-  // 一页的自由网格：4 列 × GRID_ROWS 行等分铺满整页。宽屏 max-width 收窄居中。
-  // 主屏(pageIndex===1)放在时钟+角色卡表头下面，其余页铺满整页。
+  // 一页的自由网格：固定边长的正方形格子，4 列 × rowsForScreen(pageIndex) 行。
+  // 格子大小处处一样（不随页高变），总高度随行数变化，超出纵向滚动。
   const renderPageGrid = (page: DesktopPage, pageIndex: number) => (
     <div
       ref={el => { pageGridRefs.current[pageIndex] = el; }}
-      className="relative w-full h-full grid gap-2 mx-auto"
+      className="relative grid mx-auto"
       style={{
-        maxWidth: GRID_MAX_W,
-        gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
-        gridTemplateRows: `repeat(${rowsForScreen(pageIndex)}, 1fr)`,
-        gridAutoRows: '1fr',
+        columnGap: `${GRID_COL_GAP}px`,
+        rowGap: `${GRID_ROW_GAP}px`,
+        width: `${gridWidthPx}px`,
+        gridTemplateColumns: `repeat(${GRID_COLS}, ${cellPx}px)`,
+        gridTemplateRows: `repeat(${rowsForScreen(pageIndex)}, ${cellPx}px)`,
+        gridAutoRows: `${cellPx}px`,
       }}
     >
       {page.items.map(item => {
@@ -609,39 +654,39 @@ const Launcher: React.FC = () => {
                 <button
                   data-grid-action="lock"
                   onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
-                  className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-slate-700 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
+                  className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-slate-700 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
                   title="已锁定 · 点击解锁"
                 >
-                  <Lock size={11} weight="fill" />
+                  <Lock size={13} weight="fill" />
                 </button>
               ) : (
                 <>
                   <button
                     data-grid-action="delete"
                     onClick={(e) => { e.stopPropagation(); handleDeleteItem(pageIndex, item.id); }}
-                    className="absolute -top-1.5 -left-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30 hover:bg-red-600"
+                    className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30 hover:bg-red-600"
                     title="移除"
                   >
-                    <Minus size={11} weight="bold" />
+                    <Minus size={13} weight="bold" />
                   </button>
                   {WIDGET_META[item.kind].defaultLocked && (
                     <button
                       data-grid-action="lock"
                       onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
-                      className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-slate-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
+                      className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-slate-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
                       title="锁定"
                     >
-                      <LockOpen size={11} weight="fill" />
+                      <LockOpen size={13} weight="fill" />
                     </button>
                   )}
                   {canResize(item.kind) && (
                     <button
                       data-grid-action="resize"
                       onPointerDown={(e) => onResizePointerDown(e, item, pageIndex)}
-                      className="absolute -bottom-1.5 -right-1.5 w-5 h-5 rounded-full bg-white/90 text-slate-700 flex items-center justify-center shadow-md active:scale-90 z-30 cursor-nwse-resize"
+                      className="absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-white/90 text-slate-700 flex items-center justify-center shadow-md active:scale-90 z-30 cursor-nwse-resize"
                       title="拖动改大小"
                     >
-                      <ArrowsOutSimple size={11} weight="bold" />
+                      <ArrowsOutSimple size={13} weight="bold" />
                     </button>
                   )}
                 </>
@@ -670,6 +715,7 @@ const Launcher: React.FC = () => {
     <div
       data-launcher-root
       className="h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none"
+      onPointerDown={onBackgroundPointerDown}
       onPointerMove={onRootPointerMove}
       onPointerUp={onRootPointerUp}
       onPointerCancel={onRootPointerUp}
@@ -786,13 +832,13 @@ const Launcher: React.FC = () => {
         {pages.map((page, pageIndex) => (
           <div
             key={page.id}
-            className="w-full flex-shrink-0 snap-center snap-always h-full px-4 pt-12 pb-8 flex flex-col"
+            className="w-full flex-shrink-0 snap-center snap-always h-full px-6 pt-12 pb-8 flex flex-col"
             style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
           >
             {pageIndex === 1 ? (
               <>
                 {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删。宽度与下方网格对齐居中 */}
-                <div className="shrink-0 w-full mx-auto" style={{ maxWidth: GRID_MAX_W }}>
+                <div className="shrink-0 w-full mx-auto" style={{ maxWidth: `${gridWidthPx}px` }}>
                   <DesktopClockWidget />
                   <CharacterCardWidget
                     char={widgetChar}
