@@ -26,18 +26,31 @@ export const QuadAppsWidget: React.FC<QuadAppsWidgetProps> = React.memo(({
     return [0, 1, 2, 3].map(idx => (apps && apps[idx]) ? apps[idx] : null);
   }, [apps]);
 
-  const bgClass = acnh
-    ? 'bg-[#faf6ec]/75 border border-[#e8e2d6] shadow-sm text-[#725d42]'
-    : paper
-    ? 'bg-white/45 border border-[#5b4833]/10 shadow-sm text-[#4a3e31]'
-    : 'bg-white/20 dark:bg-white/5 border border-white/25 dark:border-white/10 shadow-sm backdrop-blur-md';
+  const widgetStyle: React.CSSProperties = paper ? {
+    background: 'rgba(224,221,215,0.38)',
+    border: '1px solid rgba(91,72,51,0.07)',
+    boxShadow: '0 5px 16px rgba(91,72,51,0.055)',
+    color: '#4b4136',
+  } : acnh ? {
+    background: 'rgb(247,243,223)',
+    border: '2px solid #e8e2d6',
+    boxShadow: '0 6px 18px rgba(61,52,40,0.12)',
+    color: '#725d42',
+  } : {
+    background: 'rgba(255,255,255,0.22)',
+    border: '1px solid rgba(255,255,255,0.22)',
+    boxShadow: '0 8px 30px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.07)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+  };
 
   return (
     <div
       onClick={() => {
         if (editing) onOpenManager?.();
       }}
-      className={`w-full h-full rounded-3xl p-2 grid grid-cols-2 grid-rows-2 place-items-center gap-x-1 gap-y-2 transition-all duration-200 select-none ${bgClass} ${
+      style={widgetStyle}
+      className={`w-full h-full rounded-[1.75rem] p-2 grid grid-cols-2 grid-rows-2 place-items-center gap-x-1 gap-y-2 transition-transform active:scale-[0.98] select-none ${
         editing ? 'cursor-pointer' : ''
       }`}
     >

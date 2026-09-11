@@ -53,7 +53,7 @@ export const AnniversaryWidget: React.FC<AnniversaryWidgetProps> = ({
   );
 
   return (
-    <div className="relative group w-full select-none">
+    <div className="relative group w-full h-full select-none">
       {/* 编辑模式下的红色删除按钮 */}
       {editing && onDelete && (
         <button
@@ -70,15 +70,15 @@ export const AnniversaryWidget: React.FC<AnniversaryWidgetProps> = ({
       )}
 
       <div
-        className={`rounded-3xl p-5 flex flex-col flex-1 min-h-[200px] ${
-          acnh ? 'shadow-sm' : paper ? '' : 'bg-white/25 border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.08)]'
+        className={`w-full h-full rounded-3xl p-5 flex flex-col ${
+          acnh ? '' : paper ? '' : 'bg-white/25 backdrop-blur-xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.08)]'
         }`}
         style={
           paper
             ? {
                 background: 'rgba(224,221,215,0.36)',
                 border: '1px solid rgba(91,72,51,0.07)',
-                boxShadow: '0 5px 16px rgba(91,72,51,0.05)',
+                boxShadow: '0 5px 16px rgba(91,72,51,0.055)',
               }
             : acCard
         }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import type { DesktopPage, OSTheme, PlacedItem } from '../types';
 import {
-    GRID_COLS, GRID_ROWS, HOME_PAGE_ROWS, rowsForScreen,
+    GRID_COLS, GRID_ROWS, HOME_PAGE_ROWS, APP_PAGE_ROWS, rowsForScreen,
     rectsOverlap, withinGrid, canPlace, findFreeRect,
     emptyPage, addItem, removeItem, moveItem, resizeItem, toggleLock,
     flowItems, addPage, removePage, enforceHomeRowCap, repairOverlaps,
@@ -201,10 +201,10 @@ describe('desktopGrid · migrateLegacyLauncher', () => {
         expect(rowsForScreen(1)).toBe(HOME_PAGE_ROWS);
         expect(rowsForScreen(0)).toBe(GRID_ROWS);
         expect(rowsForScreen(2)).toBe(GRID_ROWS);
-        expect(rowsForScreen(3)).toBe(7);
+        expect(rowsForScreen(3)).toBe(APP_PAGE_ROWS);
     });
 
-    it('风车页（Screen 2）与 Screen 3+ 7行网格排布正确', () => {
+    it('风车页（Screen 2）与 Screen 3+ 网格排布正确', () => {
         const theme: Partial<OSTheme> = {
             launcherAppOrder: Array.from({ length: 30 }, (_, i) => `app_${i}`),
         };
@@ -225,13 +225,13 @@ describe('desktopGrid · migrateLegacyLauncher', () => {
         expect(quadB?.config?.apps).toEqual(['app_12', 'app_13', 'app_14', 'app_15']);
         expect(p2.items.find(i => i.kind === 'image')).toMatchObject({ x: 2, y: 4, w: 2, h: 2 });
 
-        // Screen 3+ 为 7 行网格
-        expect(rowsForScreen(3)).toBe(7);
-        expect(rowsForScreen(4)).toBe(7);
+        // Screen 3+ 为标准 6 行网格
+        expect(rowsForScreen(3)).toBe(APP_PAGE_ROWS);
+        expect(rowsForScreen(4)).toBe(APP_PAGE_ROWS);
 
         // 指定 layout 时优先尊重 layout（除 Screen 1 主屏外）
         expect(rowsForScreen(5, { id: 'p5', items: [], layout: 'windmill' })).toBe(6);
-        expect(rowsForScreen(2, { id: 'p2', items: [], layout: 'standard' })).toBe(7);
+        expect(rowsForScreen(2, { id: 'p2', items: [], layout: 'standard' })).toBe(APP_PAGE_ROWS);
         expect(rowsForScreen(1, { id: 'p1', items: [], layout: 'windmill' })).toBe(HOME_PAGE_ROWS);
 
         // addPage 支持 layout

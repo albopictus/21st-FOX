@@ -25,9 +25,9 @@ export const GRID_ROWS = 6;
  */
 export const HOME_PAGE_ROWS = 2;
 export const WINDMILL_PAGE_ROWS = 6;
-export const APP_PAGE_ROWS = 7;
+export const APP_PAGE_ROWS = 6;
 
-/** 某个 Screen 的网格行数。screenIndex：0=负一屏(6)，1=主屏(2)，2=风车页(6)，3+=普通应用页(7)；若 page 指定了 layout 则优先以 layout 为准。 */
+/** 某个 Screen 的网格行数。screenIndex：0=负一屏(6)，1=主屏(2)，2=风车页(6)，3+=普通应用页(6)；若 page 指定了 layout 则优先以 layout 为准。 */
 export const rowsForScreen = (screenIndex: number, page?: DesktopPage): number => {
     if (screenIndex === 1) return HOME_PAGE_ROWS;
     if (page?.layout === 'windmill') return WINDMILL_PAGE_ROWS;
@@ -441,7 +441,7 @@ export const migrateLegacyLauncher = (
         ...(theme.launcherWidgets?.dsq ? { config: { src: theme.launcherWidgets.dsq } } : {}),
     }) || { page: page2 }).page;
 
-    // 剩余 app 顺流铺进 Page 3+（每页 7 行，即 APP_PAGE_ROWS）
+    // 剩余 app 顺流铺进 Page 3+（每页 6 行，即 APP_PAGE_ROWS）
     const remainingAppIds = dedupedAppIds.slice(16);
     const appSpecs: NewItemSpec[] = remainingAppIds.map(id => ({ kind: 'app' as GridItemKind, refId: id }));
 

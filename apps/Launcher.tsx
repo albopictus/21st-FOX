@@ -9,7 +9,6 @@ import { ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWid
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
 import { DesktopGalleryModal } from '../components/os/DesktopGalleryModal';
-import { DesktopAddPageModal } from '../components/os/DesktopAddPageModal';
 import { QuadAppPickerModal } from '../components/os/QuadAppPickerModal';
 import { ImagePickerModal } from '../components/os/ImagePickerModal';
 import { DesktopClockWidget } from '../components/os/widgets/DesktopClockWidget';
@@ -38,7 +37,7 @@ const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'))
 
 const PAGE_PAD_X = 24; // px-6
 const GRID_COL_GAP = 8;  // gap-x-2
-const GRID_ROW_GAP = 24; // gap-y-6
+const GRID_ROW_GAP = 12; // 紧凑行距(12px)，对齐手机视口高度，防纵向撑满滚动
 
 const canResize = (kind: GridItemKind) => {
   const m = WIDGET_META[kind];
@@ -99,21 +98,24 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
   paper,
 }) => {
   const rows = rowsForScreen(pageIndex, page);
-  const rowGap = rows >= 7 ? 14 : GRID_ROW_GAP;
-  const isCompactAppPage = rows >= 7;
+  const isWindmillPage = page.layout === 'windmill' || pageIndex === 2;
+  const rowGap = isWindmillPage ? 20 : GRID_ROW_GAP;
+  const cellH = isWindmillPage ? 84 : cellPx;
+  const isCompactAppPage = rows >= 6 && !isWindmillPage;
   const pagePadClass =
-    pageIndex === 1 ? 'pt-12 pb-8' :
-    isCompactAppPage ? 'pt-[calc(var(--safe-top)+1.85rem)] pb-6' : 'pt-10 pb-8';
+    pageIndex === 1 ? 'pt-10 pb-8' :
+    isWindmillPage ? 'pt-4 pb-6' :
+    isCompactAppPage ? 'pt-[calc(var(--safe-top)+1.25rem)] pb-4' : 'pt-10 pb-8';
 
   return (
     <div
-      className={`w-full flex-shrink-0 snap-center snap-always h-full px-6 flex flex-col ${pagePadClass}`}
+      className={`w-full flex-shrink-0 snap-center snap-always h-full flex flex-col ${pagePadClass}`}
       style={{ contain: 'layout' }}
     >
       {pageIndex === 1 ? (
         <>
           {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删。宽度与下方网格对齐居中 */}
-          <div className="shrink-0 w-full mx-auto" style={{ maxWidth: `${gridWidthPx}px` }}>
+          <div className="shrink-0 w-full mx-auto px-6" style={{ maxWidth: `${gridWidthPx + 48}px` }}>
             <DesktopClockWidget />
             <CharacterCardWidget
               char={widgetChar}
@@ -125,8 +127,8 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
             />
           </div>
           <div
-            className="flex-1 min-h-0 overflow-y-auto no-scrollbar"
-            style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-y' }}
+            className="flex-1 min-h-0 overflow-y-auto no-scrollbar px-6"
+            style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-x pan-y' }}
           >
             <div
               ref={el => registerPageGridRef(pageIndex, el)}
@@ -156,7 +158,7 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
                     }}
                     onPointerDown={(e) => onItemPointerDown(e, item, pageIndex)}
                   >
-                    <div className={`w-full h-full overflow-hidden ${item.kind === 'app' ? 'flex items-center justify-center' : 'p-[3px]'}`}>
+                    <div className={`w-full h-full overflow-visible ${item.kind === 'app' ? 'flex items-center justify-center' : ''}`}>
                       {content}
                     </div>
 
@@ -241,8 +243,8 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
         </>
       ) : (
         <div
-          className="flex-1 min-h-0 overflow-y-auto no-scrollbar"
-          style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-y' }}
+          className={`flex-1 min-h-0 overflow-y-auto no-scrollbar px-6 flex flex-col ${isWindmillPage ? 'justify-center' : ''}`}
+          style={{ overscrollBehaviorY: 'contain', touchAction: layoutEditing ? 'none' : 'pan-x pan-y' }}
         >
           <div
             ref={el => registerPageGridRef(pageIndex, el)}
@@ -252,8 +254,8 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
               rowGap: `${rowGap}px`,
               width: `${gridWidthPx}px`,
               gridTemplateColumns: `repeat(${GRID_COLS}, ${cellPx}px)`,
-              gridTemplateRows: `repeat(${rows}, ${cellPx}px)`,
-              gridAutoRows: `${cellPx}px`,
+              gridTemplateRows: `repeat(${rows}, ${cellH}px)`,
+              gridAutoRows: `${cellH}px`,
             }}
           >
             {page.items.map(item => {
@@ -272,7 +274,7 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
                   }}
                   onPointerDown={(e) => onItemPointerDown(e, item, pageIndex)}
                 >
-                  <div className={`w-full h-full overflow-hidden ${item.kind === 'app' ? 'flex items-center justify-center' : 'p-[3px]'}`}>
+                  <div className={`w-full h-full overflow-visible ${item.kind === 'app' ? 'flex items-center justify-center' : ''}`}>
                     {content}
                   </div>
 
@@ -462,16 +464,16 @@ const Launcher: React.FC = () => {
 
   // 格子边长只按宽度算，不管高度——所有页用同一个 cellPx，处处正方形。
   // 行数按页不同（rowsForScreen：首页矮、其它页高），但格子本身大小不变，
-  // 不会出现「切页时格子形状变了」。总网格高度 = 行数 × cellPx + 行距，超出可纵向滚动。
-  // 间距照原项目的约定：横 gap-x-2(8px) / 竖 gap-y-6(24px) 不对称，竖向留够呼吸感，
-  const [cellPx, setCellPx] = useState(84);
+  // 格子边长只按宽度算，处处正方形。
+  // 间距横 gap-x-2(8px) / 竖向 12px，网格紧凑精致，手机屏幕一屏完整放下。
+  const [cellPx, setCellPx] = useState(78);
   useLayoutEffect(() => {
     const measure = () => {
       const raw = scrollContainerRef.current?.clientWidth || 380;
       const w = Math.min(raw, 27 * 16); // 27rem 上限（宽屏收窄居中）
       const inner = w - PAGE_PAD_X * 2 - GRID_COL_GAP * (GRID_COLS - 1);
-      // 下限 80：AppIcon md 尺寸自然高度(图标56+间距+文字标签) ≈ 77px，格子比这矮标签会被裁掉
-      const size = Math.max(80, Math.floor(inner / GRID_COLS));
+      // 下限 72，上限 82：自适应填满横向宽度，两侧间距对称饱满，避免小卡片被挤得过小
+      const size = Math.max(72, Math.min(82, Math.floor(inner / GRID_COLS)));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
@@ -789,12 +791,14 @@ const Launcher: React.FC = () => {
   const cellFromPoint = (pageIndex: number, clientX: number, clientY: number, w: number, h: number) => {
     const el = pageGridRefs.current[pageIndex];
     if (!el) return null;
-    const rows = rowsForScreen(pageIndex, pagesRef.current[pageIndex]);
-    const rowGap = rows >= 7 ? 14 : GRID_ROW_GAP;
+    const page = pagesRef.current[pageIndex];
+    const rows = rowsForScreen(pageIndex, page);
+    const isWindmill = page?.layout === 'windmill' || pageIndex === 2;
+    const rowGap = isWindmill ? 20 : GRID_ROW_GAP;
+    const cellH = isWindmill ? 84 : cellPx;
     const r = el.getBoundingClientRect();
-    // 格子固定正方形边长；横竖间距不对称（照原项目 gap-x-2/gap-y-6），步距分开算
     let col = Math.floor((clientX - r.left) / (cellPx + GRID_COL_GAP));
-    let row = Math.floor((clientY - r.top) / (cellPx + rowGap));
+    let row = Math.floor((clientY - r.top) / (cellH + rowGap));
     col = Math.max(0, Math.min(GRID_COLS - w, col));
     row = Math.max(0, Math.min(rows - h, row));
     return { x: col, y: row };
@@ -1099,16 +1103,8 @@ const Launcher: React.FC = () => {
     trackEvent('桌面添加条目', { kind: spec.kind });
   }, [replacePage, commitPages]);
 
-  const [addPageModalOpen, setAddPageModalOpen] = useState(false);
-
-  const handleOpenAddPage = useCallback(() => {
-    setAddPageModalOpen(true);
-  }, []);
-  const handleAddPage = handleOpenAddPage;
-
-  const handleSelectPageLayout = useCallback((layout: 'windmill' | 'standard') => {
-    setAddPageModalOpen(false);
-    const newPage = emptyPage(undefined, layout);
+  const handleAddPage = useCallback(() => {
+    const newPage = emptyPage();
     const next = [...pagesRef.current, newPage];
     commitPages(next);
     const newIndex = next.length - 1;
@@ -1328,7 +1324,7 @@ const Launcher: React.FC = () => {
         style={{
           overscrollBehaviorX: 'contain',
           overscrollBehaviorY: 'none',
-          touchAction: layoutEditing ? 'none' : 'pan-x',
+          touchAction: layoutEditing ? 'none' : 'pan-x pan-y',
           contain: 'layout',
           WebkitOverflowScrolling: 'touch',
         }}
@@ -1394,7 +1390,7 @@ const Launcher: React.FC = () => {
               </button>
             )}
             <button
-              onClick={handleOpenAddPage}
+              onClick={handleAddPage}
               className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
             >
               <Plus size={12} weight="bold" />新页面
@@ -1442,14 +1438,6 @@ const Launcher: React.FC = () => {
         currentSrc={imagePicker?.src}
         onSave={(src) => { if (imagePicker) setItemConfigSrc(imagePicker.pageIndex, imagePicker.itemId, src); }}
         onClose={() => setImagePicker(null)}
-        acnh={acnh}
-        paper={paper}
-      />
-
-      <DesktopAddPageModal
-        isOpen={addPageModalOpen}
-        onClose={() => setAddPageModalOpen(false)}
-        onSelectLayout={handleSelectPageLayout}
         acnh={acnh}
         paper={paper}
       />

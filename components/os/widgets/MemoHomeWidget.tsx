@@ -83,17 +83,17 @@ export const MemoHomeWidget: React.FC<MemoHomeWidgetProps> = ({
         }}
         className={`w-full h-full rounded-[1.75rem] p-4 flex flex-col justify-between cursor-pointer transition-transform active:scale-[0.98] ${
           acnh
-            ? 'shadow-sm'
+            ? ''
             : paper
-            ? 'bg-[#f4efe4] border border-[#5b4833]/15 shadow-sm text-[#3c3226]'
-            : 'bg-white/20 backdrop-blur-xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.16),inset_0_1px_0_rgba(255,255,255,0.08)] text-white'
+            ? 'bg-[#f4efe4] border border-[#5b4833]/15 text-[#3c3226]'
+            : 'bg-white/20 backdrop-blur-xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.08)] text-white'
         }`}
         style={
           paper
             ? {
                 background: 'rgba(224,221,215,0.40)',
                 border: '1px solid rgba(91,72,51,0.10)',
-                boxShadow: '0 5px 16px rgba(91,72,51,0.06)',
+                boxShadow: '0 5px 16px rgba(91,72,51,0.055)',
                 color: contentColor,
               }
             : acCard || { color: contentColor }

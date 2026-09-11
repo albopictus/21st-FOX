@@ -86,7 +86,7 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
         ` : `
         bg-white/40 rounded-[1.125rem]
         border border-white/35
-        shadow-[0_3px_10px_rgba(0,0,0,0.12)]
+        shadow-[0_4px_12px_rgba(0,0,0,0.16)]
         group-hover:bg-white/50 group-hover:border-white/50
       `}`}
         style={!preserveCustomOutline && isPaperDesktop ? {
