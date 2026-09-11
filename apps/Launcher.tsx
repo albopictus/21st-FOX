@@ -668,7 +668,7 @@ const Launcher: React.FC = () => {
             }}
             onPointerDown={(e) => onItemPointerDown(e, item, pageIndex)}
           >
-            <div className="w-full h-full overflow-hidden">{content}</div>
+            <div className={`w-full h-full overflow-hidden ${item.kind === 'app' ? 'flex items-center justify-center' : ''}`}>{content}</div>
 
             {layoutEditing && (
               item.locked ? (
