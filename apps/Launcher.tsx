@@ -84,7 +84,8 @@ const Launcher: React.FC = () => {
       const raw = scrollContainerRef.current?.clientWidth || 380;
       const w = Math.min(raw, 27 * 16); // 27rem 上限（宽屏收窄居中）
       const inner = w - PAGE_PAD_X * 2 - GRID_COL_GAP * (GRID_COLS - 1);
-      const size = Math.max(64, Math.floor(inner / GRID_COLS));
+      // 下限 80：AppIcon md 尺寸自然高度(图标56+间距+文字标签) ≈ 77px，格子比这矮标签会被裁掉
+      const size = Math.max(80, Math.floor(inner / GRID_COLS));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
@@ -103,13 +104,20 @@ const Launcher: React.FC = () => {
     [devDebugVisible],
   );
 
-  const migratedPages = useMemo(
-    () => migrateLegacyLauncher(theme, validAppIds),
+  const migratedPages = useMemo(() => {
+    // 防御性兜底：旧数据里任何意外形状都不该把整个桌面渲染树带崩（白屏 / 打不开）。
+    // 崩了就退回一页空桌面——好歹能进桌面，不至于完全打不开；「恢复默认桌面布局」
+    // （外观页）能进一步接上全部已装 App。
+    try {
+      return migrateLegacyLauncher(theme, validAppIds);
+    } catch (e) {
+      console.error('[Launcher] migrateLegacyLauncher 崩了，退回空桌面：', e);
+      return [emptyPage(), emptyPage()];
+    }
     // 依赖旧字段：迁移只在没有 launcherPages 时才真正跑，有了就直接透传
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [theme.launcherPages, theme.launcherAppOrder, theme.launcherMinusOneApps,
-     theme.launcherMinusOneWidgets, theme.launcherCustomPages, theme.launcherWidgets, validAppIds],
-  );
+  }, [theme.launcherPages, theme.launcherAppOrder, theme.launcherMinusOneApps,
+     theme.launcherMinusOneWidgets, theme.launcherCustomPages, theme.launcherWidgets, validAppIds]);
 
   const [pages, setPages] = useState<DesktopPage[]>(migratedPages);
   const pagesRef = useRef(pages);
