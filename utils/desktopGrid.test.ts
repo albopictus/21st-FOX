@@ -1,10 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { DesktopPage, OSTheme, PlacedItem } from '../types';
 import {
-    GRID_COLS, GRID_ROWS,
+    GRID_COLS, GRID_ROWS, HOME_PAGE_ROWS, rowsForScreen,
     rectsOverlap, withinGrid, canPlace, findFreeRect,
     emptyPage, addItem, removeItem, moveItem, resizeItem, toggleLock,
-    flowItems, addPage, removePage,
+    flowItems, addPage, removePage, enforceHomeRowCap,
     migrateLegacyLauncher, collectPlacedAppIds,
 } from './desktopGrid';
 
@@ -187,5 +187,41 @@ describe('desktopGrid · migrateLegacyLauncher', () => {
         }
         // 40 个 app 一个不丢
         expect(collectPlacedAppIds(pages).size).toBe(40);
+    });
+
+    it('主屏（Screen 1）只有 HOME_PAGE_ROWS 行，不会塞满 GRID_ROWS', () => {
+        const theme: Partial<OSTheme> = {
+            launcherAppOrder: Array.from({ length: 20 }, (_, i) => `a${i}`),
+        };
+        const validAll = new Set(theme.launcherAppOrder);
+        const pages = migrateLegacyLauncher(theme as OSTheme, validAll);
+        for (const it of pages[1].items) {
+            expect(it.y + it.h).toBeLessThanOrEqual(HOME_PAGE_ROWS);
+        }
+        expect(rowsForScreen(1)).toBe(HOME_PAGE_ROWS);
+        expect(rowsForScreen(0)).toBe(GRID_ROWS);
+        expect(rowsForScreen(2)).toBe(GRID_ROWS);
+    });
+});
+
+describe('desktopGrid · enforceHomeRowCap', () => {
+    it('主屏行数变矮后，越界条目搬到后面的页而不是被裁掉', () => {
+        const home: DesktopPage = {
+            id: 'home', items: [
+                mk({ id: 'ok', x: 0, y: 0, w: 1, h: 1 }),
+                mk({ id: 'over', x: 0, y: HOME_PAGE_ROWS, w: 1, h: 1 }), // 越界：y 已经在矮行数之外
+            ],
+        };
+        const pages: DesktopPage[] = [emptyPage('m1'), home, emptyPage('p2')];
+        const out = enforceHomeRowCap(pages);
+        expect(out[1].items.map(i => i.id)).toEqual(['ok']);
+        // 搬走的条目会重新分配 id（落点变了），按 kind 数量核对没有丢
+        expect(out[2].items.filter(i => i.kind === 'app')).toHaveLength(1);
+    });
+
+    it('没有越界条目时原样返回', () => {
+        const home: DesktopPage = { id: 'home', items: [mk({ id: 'ok', x: 0, y: 0, w: 1, h: 1 })] };
+        const pages: DesktopPage[] = [emptyPage('m1'), home];
+        expect(enforceHomeRowCap(pages)).toBe(pages);
     });
 });

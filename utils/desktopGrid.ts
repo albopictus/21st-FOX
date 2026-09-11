@@ -18,6 +18,17 @@ import type {
 export const GRID_COLS = 4;
 export const GRID_ROWS = 8;
 
+/**
+ * 主屏（Screen 1）表头下面的网格只有这么高：时钟+角色卡占了大半屏，硬塞 GRID_ROWS
+ * 行会把每行压得很扁（组件截断、圆角看着像被切掉）。所以主屏单独给一个更小的行数，
+ * 行高和其它页保持一致（不挤压）。
+ */
+export const HOME_PAGE_ROWS = 2;
+
+/** 某个 Screen 的网格行数。screenIndex：0=负一屏，1=主屏，2+=普通页。 */
+export const rowsForScreen = (screenIndex: number): number =>
+    screenIndex === 1 ? HOME_PAGE_ROWS : GRID_ROWS;
+
 /** 每种条目的默认尺寸（格数）。app 恒为 1×1。 */
 export const DEFAULT_ITEM_SIZE: Record<GridItemKind, { w: number; h: number }> = {
     app: { w: 1, h: 1 },
@@ -191,21 +202,23 @@ export const flowItems = (
     startPages: DesktopPage[],
     specs: NewItemSpec[],
     cols: number = GRID_COLS,
-    rows: number = GRID_ROWS,
+    /** 每页行数：固定数字，或按「这一页在返回数组里的下标」给出行数的函数（主屏那页更矮）。 */
+    rowsFor: number | ((pageArrayIndex: number) => number) = GRID_ROWS,
 ): DesktopPage[] => {
+    const rowsAt = (idx: number) => typeof rowsFor === 'function' ? rowsFor(idx) : rowsFor;
     const pages = startPages.length ? startPages.map(p => ({ ...p, items: [...p.items] })) : [emptyPage()];
     let pi = 0;
     for (const spec of specs) {
         // 从当前页往后找第一个放得下的页
         let placed = false;
         while (pi < pages.length) {
-            const res = addItem(pages[pi], spec, cols, rows);
+            const res = addItem(pages[pi], spec, cols, rowsAt(pi));
             if (res) { pages[pi] = res.page; placed = true; break; }
             pi++;
         }
         if (!placed) {
             const fresh = emptyPage();
-            const res = addItem(fresh, spec, cols, rows);
+            const res = addItem(fresh, spec, cols, rowsAt(pages.length));
             pages.push(res ? res.page : fresh);
             pi = pages.length - 1;
         }
@@ -230,16 +243,38 @@ export const compactPage = (
     return out;
 };
 
-/** 从每页剔除表头专属条目（clock / charCard），然后压实。给「已迁移过的旧数据」纠偏用。 */
+/**
+ * 从每页剔除表头专属条目（clock / charCard），然后压实。给「已迁移过的旧数据」纠偏用。
+ * pages 下标即 Screen 序号（[0]=负一屏 [1]=主屏…），主屏按它的矮行数压实，避免压出格外的行。
+ */
 export const stripHeaderKinds = (pages: DesktopPage[]): DesktopPage[] => {
     let changed = false;
-    const next = pages.map(p => {
+    const next = pages.map((p, screenIdx) => {
         const kept = p.items.filter(it => !HEADER_ONLY_KINDS.has(it.kind));
         if (kept.length === p.items.length) return p;
         changed = true;
-        return compactPage({ ...p, items: kept });
+        return compactPage({ ...p, items: kept }, GRID_COLS, rowsForScreen(screenIdx));
     });
     return changed ? next : pages;
+};
+
+/**
+ * 主屏(Screen 1)行数变矮（HOME_PAGE_ROWS）后的纠偏：把落在新行数之外的条目挪到后面的页，
+ * 而不是被裁掉看不见。给「已经迁移过、可能还是按旧行数摆的」数据用。
+ */
+export const enforceHomeRowCap = (pages: DesktopPage[]): DesktopPage[] => {
+    if (pages.length < 2) return pages;
+    const home = pages[1];
+    const overflow = home.items.filter(it => it.y + it.h > HOME_PAGE_ROWS || it.x + it.w > GRID_COLS);
+    if (overflow.length === 0) return pages;
+    const kept = home.items.filter(it => !overflow.includes(it));
+    const newHome = { ...home, items: kept };
+    const overflowSpecs: NewItemSpec[] = overflow.map(it => ({
+        kind: it.kind, refId: it.refId, w: it.w, h: it.h, locked: it.locked, title: it.title, config: it.config,
+    }));
+    const rest = pages.slice(2);
+    const flowed = flowItems(rest.length ? rest : [emptyPage()], overflowSpecs, GRID_COLS, GRID_ROWS);
+    return [pages[0], newHome, ...flowed];
 };
 
 /** 删除某页（纯 splice；调用方负责「非空页要不要确认 / 搬移」）。至少保留 1 页。 */
@@ -292,7 +327,9 @@ export const migrateLegacyLauncher = (
     >,
     validAppIds: Set<string>,
 ): DesktopPage[] => {
-    if (theme.launcherPages && theme.launcherPages.length) return stripHeaderKinds(theme.launcherPages);
+    if (theme.launcherPages && theme.launcherPages.length) {
+        return enforceHomeRowCap(stripHeaderKinds(theme.launcherPages));
+    }
 
     // ── Page 0：负一屏 ──
     let page0 = emptyPage();
@@ -334,7 +371,12 @@ export const migrateLegacyLauncher = (
     ] as (NewItemSpec | null)[]).filter((s): s is NewItemSpec => s !== null);
 
     // app 先铺（从 page1 开始，绕开锁定块），再铺自定义页小组件 + 旧条幅图
-    let pages = flowItems([page1, page2], [...appSpecs, ...widgetSpecs, ...legacyImageSpecs]);
+    let pages = flowItems(
+        [page1, page2],
+        [...appSpecs, ...widgetSpecs, ...legacyImageSpecs],
+        GRID_COLS,
+        (idx) => idx === 0 ? HOME_PAGE_ROWS : GRID_ROWS, // page1（下标 0）矮，其余照常
+    );
 
     return [page0, ...pages];
 };

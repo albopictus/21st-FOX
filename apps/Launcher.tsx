@@ -17,7 +17,7 @@ import {
     type WidgetRenderContext,
 } from '../components/os/desktopWidgetRegistry';
 import {
-    GRID_COLS, GRID_ROWS, DEFAULT_LOCKED_KINDS,
+    GRID_COLS, GRID_ROWS, rowsForScreen, DEFAULT_LOCKED_KINDS,
     migrateLegacyLauncher, collectPlacedAppIds,
     emptyPage, addItem, removeItem, moveItem, resizeItem, toggleLock, canPlace,
 } from '../utils/desktopGrid';
@@ -302,11 +302,12 @@ const Launcher: React.FC = () => {
   const cellFromPoint = (pageIndex: number, clientX: number, clientY: number, w: number, h: number) => {
     const el = pageGridRefs.current[pageIndex];
     if (!el) return null;
+    const rows = rowsForScreen(pageIndex);
     const r = el.getBoundingClientRect();
     let col = Math.floor((clientX - r.left) / (r.width / GRID_COLS));
-    let row = Math.floor((clientY - r.top) / (r.height / GRID_ROWS));
+    let row = Math.floor((clientY - r.top) / (r.height / rows));
     col = Math.max(0, Math.min(GRID_COLS - w, col));
-    row = Math.max(0, Math.min(GRID_ROWS - h, row));
+    row = Math.max(0, Math.min(rows - h, row));
     return { x: col, y: row };
   };
 
@@ -384,11 +385,12 @@ const Launcher: React.FC = () => {
 
     if (g.mode === 'resize' && g.item) {
       const meta = WIDGET_META[g.item.kind];
+      const rows = rowsForScreen(g.fromPage!);
       const cell = cellFromPoint(g.fromPage!, e.clientX, e.clientY, 1, 1);
       if (!cell) return;
       let w = Math.max(meta.minW, Math.min(meta.maxW, cell.x - g.item.x + 1, GRID_COLS - g.item.x));
-      let h = Math.max(meta.minH, Math.min(meta.maxH, cell.y - g.item.y + 1, GRID_ROWS - g.item.y));
-      const ok = canPlace(pagesRef.current[g.fromPage!], { x: g.item.x, y: g.item.y, w, h }, g.item.id);
+      let h = Math.max(meta.minH, Math.min(meta.maxH, cell.y - g.item.y + 1, rows - g.item.y));
+      const ok = canPlace(pagesRef.current[g.fromPage!], { x: g.item.x, y: g.item.y, w, h }, g.item.id, GRID_COLS, rows);
       setDragPreview({ pageIndex: g.fromPage!, x: g.item.x, y: g.item.y, w, h, ok });
       return;
     }
@@ -428,7 +430,7 @@ const Launcher: React.FC = () => {
     const cell = cellFromPoint(visPage, e.clientX - (g.grabDX || 0) + 1, e.clientY - (g.grabDY || 0) + 1, item.w, item.h);
     if (!cell) { setDragPreview(null); return; }
     const ignoreId = visPage === g.fromPage ? item.id : undefined;
-    const ok = canPlace(pagesRef.current[visPage], { x: cell.x, y: cell.y, w: item.w, h: item.h }, ignoreId);
+    const ok = canPlace(pagesRef.current[visPage], { x: cell.x, y: cell.y, w: item.w, h: item.h }, ignoreId, GRID_COLS, rowsForScreen(visPage));
     setDragPreview({ pageIndex: visPage, x: cell.x, y: cell.y, w: item.w, h: item.h, ok });
   };
 
@@ -440,21 +442,21 @@ const Launcher: React.FC = () => {
 
     if (g?.active && g.mode === 'resize' && g.item) {
       const p = dragPreview;
-      if (p && p.ok) replacePage(g.fromPage!, resizeItem(pagesRef.current[g.fromPage!], g.item.id, p.w, p.h));
+      if (p && p.ok) replacePage(g.fromPage!, resizeItem(pagesRef.current[g.fromPage!], g.item.id, p.w, p.h, GRID_COLS, rowsForScreen(g.fromPage!)));
     } else if (g?.active && g.mode === 'move' && g.item) {
       if (g.el) g.el.style.opacity = '';
       g.ghost?.remove();
       const p = dragPreview;
       if (p && p.ok) {
         if (p.pageIndex === g.fromPage) {
-          replacePage(g.fromPage!, moveItem(pagesRef.current[g.fromPage!], g.item.id, p.x, p.y));
+          replacePage(g.fromPage!, moveItem(pagesRef.current[g.fromPage!], g.item.id, p.x, p.y, GRID_COLS, rowsForScreen(g.fromPage!)));
         } else {
           const src = removeItem(pagesRef.current[g.fromPage!], g.item.id);
           const placed = addItem(pagesRef.current[p.pageIndex], {
             kind: g.item.kind, refId: g.item.refId, w: g.item.w, h: g.item.h,
             locked: g.item.locked, title: g.item.title, config: g.item.config,
             x: p.x, y: p.y,
-          });
+          }, GRID_COLS, rowsForScreen(p.pageIndex));
           const next = pagesRef.current.map((pg, i) =>
             i === g.fromPage ? src : i === p.pageIndex ? (placed?.page ?? pg) : pg);
           commitPages(next);
@@ -487,7 +489,7 @@ const Launcher: React.FC = () => {
     const cur = activePageIndexRef.current;
     const size = defaultSizeFor(spec.kind);
     const locked = DEFAULT_LOCKED_KINDS.has(spec.kind);
-    const placed = addItem(pagesRef.current[cur], { ...spec, w: size.w, h: size.h, locked });
+    const placed = addItem(pagesRef.current[cur], { ...spec, w: size.w, h: size.h, locked }, GRID_COLS, rowsForScreen(cur));
     if (placed) {
       replacePage(cur, placed.page);
     } else {
@@ -580,7 +582,7 @@ const Launcher: React.FC = () => {
       style={{
         maxWidth: GRID_MAX_W,
         gridTemplateColumns: `repeat(${GRID_COLS}, 1fr)`,
-        gridTemplateRows: `repeat(${GRID_ROWS}, 1fr)`,
+        gridTemplateRows: `repeat(${rowsForScreen(pageIndex)}, 1fr)`,
         gridAutoRows: '1fr',
       }}
     >
