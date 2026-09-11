@@ -4,7 +4,7 @@ import {
     GRID_COLS, GRID_ROWS, HOME_PAGE_ROWS, rowsForScreen,
     rectsOverlap, withinGrid, canPlace, findFreeRect,
     emptyPage, addItem, removeItem, moveItem, resizeItem, toggleLock,
-    flowItems, addPage, removePage, enforceHomeRowCap,
+    flowItems, addPage, removePage, enforceHomeRowCap, repairOverlaps,
     migrateLegacyLauncher, collectPlacedAppIds,
 } from './desktopGrid';
 
@@ -23,7 +23,7 @@ describe('desktopGrid · 几何', () => {
     it('withinGrid 边界', () => {
         expect(withinGrid({ x: 0, y: 0, w: 4, h: 6 })).toBe(true);
         expect(withinGrid({ x: 3, y: 0, w: 2, h: 1 })).toBe(false); // 右边越界
-        expect(withinGrid({ x: 0, y: 7, w: 1, h: 2 })).toBe(false); // 底部越界（GRID_ROWS=8）
+        expect(withinGrid({ x: 0, y: 5, w: 1, h: 2 })).toBe(false); // 底部越界（GRID_ROWS=6）
         expect(withinGrid({ x: -1, y: 0, w: 1, h: 1 })).toBe(false);
         expect(withinGrid({ x: 0, y: 0, w: 0, h: 1 })).toBe(false);
     });
@@ -38,7 +38,7 @@ describe('desktopGrid · 几何', () => {
     it('findFreeRect 行优先', () => {
         const p = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 2 })]);
         expect(findFreeRect(p, 1, 1)).toEqual({ x: 0, y: 2 });
-        const full = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 8 })]);
+        const full = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 6 })]);
         expect(findFreeRect(full, 1, 1)).toBeNull();
     });
 });
@@ -53,7 +53,7 @@ describe('desktopGrid · 单页操作（不可变）', () => {
         const r2 = addItem(r1.page, { kind: 'app', refId: 'chat' })!;
         expect(r2.item).toMatchObject({ kind: 'app', refId: 'chat', x: 0, y: 3, w: 1, h: 1 });
 
-        const filled = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 8 })]);
+        const filled = page([mk({ id: 'a', x: 0, y: 0, w: 4, h: 6 })]);
         expect(addItem(filled, { kind: 'app', refId: 'x' })).toBeNull();
     });
 
@@ -95,10 +95,10 @@ describe('desktopGrid · 跨页', () => {
         const start = page([mk({ id: 'lock', kind: 'schedule', x: 0, y: 0, w: 4, h: 2, locked: true })]);
         const specs = Array.from({ length: 30 }, (_, i) => ({ kind: 'app' as const, refId: `app${i}` }));
         const pages = flowItems([start], specs);
-        // 第一页锁定块占了 rows 0-1，剩 6 行 = 24 格
-        expect(pages[0].items.filter(i => i.kind === 'app')).toHaveLength(24);
+        // 第一页锁定块占了 rows 0-1，剩 4 行 = 16 格（GRID_ROWS=6）
+        expect(pages[0].items.filter(i => i.kind === 'app')).toHaveLength(16);
         expect(pages.length).toBe(2);
-        expect(pages[1].items.filter(i => i.kind === 'app')).toHaveLength(6);
+        expect(pages[1].items.filter(i => i.kind === 'app')).toHaveLength(14);
         // 锁定块没被动
         expect(pages[0].items.find(i => i.id === 'lock')).toMatchObject({ x: 0, y: 0, locked: true });
     });
@@ -223,6 +223,65 @@ describe('desktopGrid · enforceHomeRowCap', () => {
         const home: DesktopPage = { id: 'home', items: [mk({ id: 'ok', x: 0, y: 0, w: 1, h: 1 })] };
         const pages: DesktopPage[] = [emptyPage('m1'), home];
         expect(enforceHomeRowCap(pages)).toBe(pages);
+    });
+});
+
+describe('desktopGrid · repairOverlaps', () => {
+    it('没有重叠 / 越界时原样返回（引用不变）', () => {
+        const pages: DesktopPage[] = [
+            emptyPage('m1'),
+            page([mk({ id: 'a', x: 0, y: 0, w: 1, h: 1 })]),
+        ];
+        expect(repairOverlaps(pages)).toBe(pages);
+    });
+
+    it('修复同页内两个条目重叠：后面的条目被挪到空位', () => {
+        const dirty: DesktopPage[] = [
+            emptyPage('m1'),
+            page([
+                mk({ id: 'a', x: 0, y: 0, w: 2, h: 2 }),
+                mk({ id: 'b', x: 1, y: 1, w: 2, h: 2 }), // 与 a 重叠
+            ]),
+        ];
+        const out = repairOverlaps(dirty);
+        const [a, b] = [out[1].items.find(i => i.id === 'a')!, out[1].items.find(i => i.id === 'b')!];
+        expect(a).toMatchObject({ x: 0, y: 0 }); // 先来的不动
+        expect(rectsOverlap(a, b)).toBe(false); // 后来的挪开了
+        expect(withinGrid(b, GRID_COLS, rowsForScreen(1))).toBe(true);
+    });
+
+    it('修复越界条目：搬回网格内且不与其他条目重叠', () => {
+        const dirty: DesktopPage[] = [
+            page([
+                mk({ id: 'a', x: 0, y: 0, w: 1, h: 1 }),
+                mk({ id: 'over', x: 2, y: GRID_ROWS - 1, w: 2, h: 2 }), // 底部越界
+            ]),
+            emptyPage('m2'),
+        ];
+        const out = repairOverlaps(dirty);
+        const fixed = out[0].items.find(i => i.id === 'over')!;
+        expect(withinGrid(fixed, GRID_COLS, GRID_ROWS)).toBe(true);
+        expect(rectsOverlap(fixed, out[0].items.find(i => i.id === 'a')!)).toBe(false);
+    });
+
+    it('本页放不下时溢出到后续页（沿用 flowItems 逻辑）', () => {
+        // 把一整页塞满，再加一个和已有条目重叠、又放不进本页剩余空间的条目
+        const fullItems = Array.from({ length: GRID_COLS * GRID_ROWS / 1 }, (_, i) =>
+            mk({ id: `f${i}`, x: i % GRID_COLS, y: Math.floor(i / GRID_COLS), w: 1, h: 1 }));
+        const overflow = mk({ id: 'overflow', x: 0, y: 0, w: 1, h: 1, kind: 'app', refId: 'extra' });
+        // 让 overflow 与已有条目重叠，逼它去找新位置；页面已满，只能流到下一页
+        const dirty: DesktopPage[] = [
+            page([...fullItems, overflow]), // 非主屏（数组下标 0），用满 GRID_ROWS 行
+            emptyPage('m2'),
+        ];
+        const out = repairOverlaps(dirty);
+        // overflow 条目被挪去了别的页（本页放不下），且没有丢失、没有和任何条目重叠
+        const placedOverflow = out.find(p => p.items.some(i => i.refId === 'extra'));
+        expect(placedOverflow).toBeDefined();
+        const ov = placedOverflow!.items.find(i => i.refId === 'extra')!;
+        expect(placedOverflow!.items.every(i => i === ov || !rectsOverlap(i, ov))).toBe(true);
+        // 满页那一页仍然只有原来的条目，overflow 没有原地重叠摆放
+        expect(out[0].items.filter(i => i.refId === 'extra')).toHaveLength(0);
     });
 });
 

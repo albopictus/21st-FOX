@@ -16,7 +16,7 @@ import type {
 } from '../types';
 
 export const GRID_COLS = 4;
-export const GRID_ROWS = 8;
+export const GRID_ROWS = 6;
 
 /**
  * 主屏（Screen 1）表头下面的网格只有这么高：时钟+角色卡占了大半屏，硬塞 GRID_ROWS
@@ -277,6 +277,44 @@ export const enforceHomeRowCap = (pages: DesktopPage[]): DesktopPage[] => {
     return [pages[0], newHome, ...flowed];
 };
 
+/**
+ * 通用防重叠 / 越界纠偏：给「已经迁移过的旧数据」用。跨几版迁移逻辑改动，
+ * 历史数据里可能留着真正重叠的坐标（同一块地方站着两个条目）或者超出该页
+ * 行数的坐标——不是拖拽残影，是数据本身就摆错了，画面上就是"半透明卡片和
+ * 图标叠在一起"。
+ *
+ * 只动真正有问题的条目：按原顺序走一遍，不越界且不跟前面「已确认没问题」
+ * 的条目重叠就保留原位；一旦越界或重叠，找该页第一个空位挪过去；实在没空位
+ * 的（页面早就该重排了）丢进溢出队列，顺流铺到后面的页。没问题的数据完全
+ * 不挪动，不会无意义打乱用户摆好的布局。
+ */
+export const repairOverlaps = (pages: DesktopPage[]): DesktopPage[] => {
+    let anyChanged = false;
+    const overflowSpecs: NewItemSpec[] = [];
+    const repaired = pages.map((page, screenIdx) => {
+        const rows = rowsForScreen(screenIdx);
+        const kept: PlacedItem[] = [];
+        for (const it of page.items) {
+            const ok = withinGrid(it, GRID_COLS, rows) && !kept.some(k => rectsOverlap(k, it));
+            if (ok) { kept.push(it); continue; }
+            anyChanged = true;
+            const pos = findFreeRect({ id: page.id, items: kept }, it.w, it.h, GRID_COLS, rows);
+            if (pos) {
+                kept.push({ ...it, x: pos.x, y: pos.y });
+            } else {
+                overflowSpecs.push({
+                    kind: it.kind, refId: it.refId, w: it.w, h: it.h,
+                    locked: it.locked, title: it.title, config: it.config,
+                });
+            }
+        }
+        return { ...page, items: kept };
+    });
+    if (!anyChanged) return pages;
+    if (overflowSpecs.length === 0) return repaired;
+    return flowItems(repaired, overflowSpecs, GRID_COLS, (idx) => idx === 1 ? HOME_PAGE_ROWS : GRID_ROWS);
+};
+
 /** 删除某页（纯 splice；调用方负责「非空页要不要确认 / 搬移」）。至少保留 1 页。 */
 export const removePage = (pages: DesktopPage[], index: number): DesktopPage[] => {
     if (index < 0 || index >= pages.length || pages.length <= 1) return pages;
@@ -328,7 +366,7 @@ export const migrateLegacyLauncher = (
     validAppIds: Set<string>,
 ): DesktopPage[] => {
     if (theme.launcherPages && theme.launcherPages.length) {
-        return enforceHomeRowCap(stripHeaderKinds(theme.launcherPages));
+        return repairOverlaps(enforceHomeRowCap(stripHeaderKinds(theme.launcherPages)));
     }
 
     // ── Page 0：负一屏 ──

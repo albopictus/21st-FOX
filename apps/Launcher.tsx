@@ -675,7 +675,7 @@ const Launcher: React.FC = () => {
                 <button
                   data-grid-action="lock"
                   onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
-                  className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-slate-700 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
+                  className="absolute top-1 left-1 w-7 h-7 rounded-full bg-slate-700 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
                   title="已锁定 · 点击解锁"
                 >
                   <Lock size={13} weight="fill" />
@@ -685,7 +685,7 @@ const Launcher: React.FC = () => {
                   <button
                     data-grid-action="delete"
                     onClick={(e) => { e.stopPropagation(); handleDeleteItem(pageIndex, item.id); }}
-                    className="absolute -top-2 -left-2 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30 hover:bg-red-600"
+                    className="absolute top-1 left-1 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30 hover:bg-red-600"
                     title="移除"
                   >
                     <Minus size={13} weight="bold" />
@@ -694,7 +694,7 @@ const Launcher: React.FC = () => {
                     <button
                       data-grid-action="lock"
                       onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
-                      className="absolute -top-2 -right-2 w-7 h-7 rounded-full bg-slate-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
+                      className="absolute top-1 right-1 w-7 h-7 rounded-full bg-slate-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
                       title="锁定"
                     >
                       <LockOpen size={13} weight="fill" />
@@ -704,7 +704,7 @@ const Launcher: React.FC = () => {
                     <button
                       data-grid-action="resize"
                       onPointerDown={(e) => onResizePointerDown(e, item, pageIndex)}
-                      className="absolute -bottom-2 -right-2 w-7 h-7 rounded-full bg-white/90 text-slate-700 flex items-center justify-center shadow-md active:scale-90 z-30 cursor-nwse-resize"
+                      className="absolute bottom-1 right-1 w-7 h-7 rounded-full bg-white/90 text-slate-700 flex items-center justify-center shadow-md active:scale-90 z-30 cursor-nwse-resize"
                       title="拖动改大小"
                     >
                       <ArrowsOutSimple size={13} weight="bold" />
@@ -771,42 +771,6 @@ const Launcher: React.FC = () => {
         </div>
       )}
 
-      {/* 编辑态：当前页控件（起始页 / 增删页），常驻可见 */}
-      {layoutEditing && (() => {
-        const curPage = pages[activePageIndex];
-        if (!curPage) return null;
-        const isStart = theme.launcherStartPageId
-          ? theme.launcherStartPageId === curPage.id
-          : activePageIndex === 1;
-        return (
-          <div className="absolute top-[calc(var(--safe-top)+3.1rem)] left-0 right-0 z-50 flex items-center justify-center gap-2">
-            <button
-              onClick={() => handleSetStartPage(curPage.id)}
-              className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border ${
-                isStart ? 'bg-amber-400 text-slate-900 border-amber-300' : 'bg-white/70 text-slate-800 border-white/50'
-              }`}
-              title={isStart ? '当前起始页 · 再点取消' : '把「第 ' + (activePageIndex + 1) + ' 页」设为开机起始页'}
-            >
-              <House size={12} weight={isStart ? 'fill' : 'regular'} />
-              {isStart ? '起始页 ✓' : '设为起始页'}
-            </button>
-            {curPage.items.length === 0 && pages.length > 1 && (
-              <button
-                onClick={() => handleRemovePage(activePageIndex)}
-                className="px-3 py-1 rounded-full text-[11px] font-bold bg-red-500/85 text-white flex items-center gap-1 shadow-lg active:scale-95"
-              >
-                <X size={12} weight="bold" />移除空页
-              </button>
-            )}
-            <button
-              onClick={handleAddPage}
-              className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
-            >
-              <Plus size={12} weight="bold" />新页面
-            </button>
-          </div>
-        );
-      })()}
 
       {!acnh && (
         <div className="absolute inset-0 pointer-events-none">
@@ -894,6 +858,43 @@ const Launcher: React.FC = () => {
           </div>
         ))}
       </div>
+
+      {/* 编辑态：当前页控件（起始页 / 增删页），放在固定栏与网格之间，方便单手点击 */}
+      {layoutEditing && (() => {
+        const curPage = pages[activePageIndex];
+        if (!curPage) return null;
+        const isStart = theme.launcherStartPageId
+          ? theme.launcherStartPageId === curPage.id
+          : activePageIndex === 1;
+        return (
+          <div className="relative z-30 flex items-center justify-center gap-2 pb-2">
+            <button
+              onClick={() => handleSetStartPage(curPage.id)}
+              className={`px-3 py-1 rounded-full text-[11px] font-bold flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border ${
+                isStart ? 'bg-amber-400 text-slate-900 border-amber-300' : 'bg-white/70 text-slate-800 border-white/50'
+              }`}
+              title={isStart ? '当前起始页 · 再点取消' : '把「第 ' + (activePageIndex + 1) + ' 页」设为开机起始页'}
+            >
+              <House size={12} weight={isStart ? 'fill' : 'regular'} />
+              {isStart ? '起始页 ✓' : '设为起始页'}
+            </button>
+            {curPage.items.length === 0 && pages.length > 1 && (
+              <button
+                onClick={() => handleRemovePage(activePageIndex)}
+                className="px-3 py-1 rounded-full text-[11px] font-bold bg-red-500/85 text-white flex items-center gap-1 shadow-lg active:scale-95"
+              >
+                <X size={12} weight="bold" />移除空页
+              </button>
+            )}
+            <button
+              onClick={handleAddPage}
+              className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
+            >
+              <Plus size={12} weight="bold" />新页面
+            </button>
+          </div>
+        );
+      })()}
 
       {/* Dock */}
       <div className="mt-auto flex justify-center w-full px-4 relative z-30" style={{ paddingBottom: launcherBottomInset }}>
