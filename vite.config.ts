@@ -84,6 +84,7 @@ export default defineConfig({
     drop: ['debugger'],
   },
   server: {
+    allowedHosts: true,
     proxy: {
       '/api/minimax/t2a': {
         target: 'https://api.minimaxi.com',
