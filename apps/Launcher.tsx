@@ -9,6 +9,8 @@ import { ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWid
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
 import { DesktopGalleryModal } from '../components/os/DesktopGalleryModal';
+import { DesktopAddPageModal } from '../components/os/DesktopAddPageModal';
+import { QuadAppPickerModal } from '../components/os/QuadAppPickerModal';
 import { ImagePickerModal } from '../components/os/ImagePickerModal';
 import { DesktopClockWidget } from '../components/os/widgets/DesktopClockWidget';
 import { CharacterCardWidget } from '../components/os/widgets/CharacterCardWidget';
@@ -304,7 +306,17 @@ const Launcher: React.FC = () => {
     scrollStartLeft?: number;
   }>(null);
   const [dragPreview, setDragPreview] = useState<null | {
-    pageIndex: number; x: number; y: number; w: number; h: number; ok: boolean;
+    pageIndex: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    ok: boolean;
+    dropToQuad?: {
+      quadId: string;
+      pageIndex: number;
+      slotIndex: number;
+    };
   }>(null);
 
   const clearPress = () => { if (pressTimer.current) clearTimeout(pressTimer.current); pressTimer.current = null; };
@@ -356,11 +368,12 @@ const Launcher: React.FC = () => {
   const cellFromPoint = (pageIndex: number, clientX: number, clientY: number, w: number, h: number) => {
     const el = pageGridRefs.current[pageIndex];
     if (!el) return null;
-    const rows = rowsForScreen(pageIndex);
+    const rows = rowsForScreen(pageIndex, pagesRef.current[pageIndex]);
+    const rowGap = rows >= 7 ? 14 : GRID_ROW_GAP;
     const r = el.getBoundingClientRect();
     // 格子固定正方形边长；横竖间距不对称（照原项目 gap-x-2/gap-y-6），步距分开算
     let col = Math.floor((clientX - r.left) / (cellPx + GRID_COL_GAP));
-    let row = Math.floor((clientY - r.top) / (cellPx + GRID_ROW_GAP));
+    let row = Math.floor((clientY - r.top) / (cellPx + rowGap));
     col = Math.max(0, Math.min(GRID_COLS - w, col));
     row = Math.max(0, Math.min(rows - h, row));
     return { x: col, y: row };
@@ -446,7 +459,7 @@ const Launcher: React.FC = () => {
 
     if (g.mode === 'resize' && g.item) {
       const meta = WIDGET_META[g.item.kind];
-      const rows = rowsForScreen(g.fromPage!);
+      const rows = rowsForScreen(g.fromPage!, pagesRef.current[g.fromPage!]);
       const cell = cellFromPoint(g.fromPage!, e.clientX, e.clientY, 1, 1);
       if (!cell) return;
       let w = Math.max(meta.minW, Math.min(meta.maxW, cell.x - g.item.x + 1, GRID_COLS - g.item.x));
@@ -490,8 +503,57 @@ const Launcher: React.FC = () => {
     const item = g.item!;
     const cell = cellFromPoint(visPage, e.clientX - (g.grabDX || 0) + 1, e.clientY - (g.grabDY || 0) + 1, item.w, item.h);
     if (!cell) { setDragPreview(null); return; }
+
+    // 拖拽 1×1 App 时，检测是否悬停在某个「四宫格风车组件」上方：直接吸附进四宫格
+    if (item.kind === 'app' && item.refId) {
+      const pCell = cellFromPoint(visPage, e.clientX, e.clientY, 1, 1);
+      const hitCell = pCell || cell;
+      if (hitCell) {
+        const quad = pagesRef.current[visPage]?.items.find(it =>
+          it.kind === 'quad_apps' &&
+          hitCell.x >= it.x && hitCell.x < it.x + it.w &&
+          hitCell.y >= it.y && hitCell.y < it.y + it.h
+        );
+        if (quad) {
+          const quadApps: (string | null)[] = Array.isArray(quad.config?.apps)
+            ? [0, 1, 2, 3].map(i => quad.config.apps[i] ?? null)
+            : [null, null, null, null];
+
+          const alreadyInQuad = quadApps.includes(item.refId);
+          if (!alreadyInQuad) {
+            const slotX = hitCell.x - quad.x;
+            const slotY = hitCell.y - quad.y;
+            const hoveredSlot = Math.max(0, Math.min(3, slotY * 2 + slotX));
+
+            let targetSlot = hoveredSlot;
+            if (quadApps[hoveredSlot]) {
+              const emptyIdx = [0, 1, 2, 3].find(idx => !quadApps[idx]);
+              targetSlot = emptyIdx !== undefined ? emptyIdx : -1;
+            }
+
+            if (targetSlot >= 0) {
+              setDragPreview({
+                pageIndex: visPage,
+                x: quad.x,
+                y: quad.y,
+                w: quad.w,
+                h: quad.h,
+                ok: true,
+                dropToQuad: {
+                  quadId: quad.id,
+                  pageIndex: visPage,
+                  slotIndex: targetSlot,
+                },
+              });
+              return;
+            }
+          }
+        }
+      }
+    }
+
     const ignoreId = visPage === g.fromPage ? item.id : undefined;
-    const ok = canPlace(pagesRef.current[visPage], { x: cell.x, y: cell.y, w: item.w, h: item.h }, ignoreId, GRID_COLS, rowsForScreen(visPage));
+    const ok = canPlace(pagesRef.current[visPage], { x: cell.x, y: cell.y, w: item.w, h: item.h }, ignoreId, GRID_COLS, rowsForScreen(visPage, pagesRef.current[visPage]));
     setDragPreview({ pageIndex: visPage, x: cell.x, y: cell.y, w: item.w, h: item.h, ok });
   };
 
@@ -506,21 +568,52 @@ const Launcher: React.FC = () => {
 
     if (g?.active && g.mode === 'resize' && g.item) {
       const p = dragPreview;
-      if (p && p.ok) replacePage(g.fromPage!, resizeItem(pagesRef.current[g.fromPage!], g.item.id, p.w, p.h, GRID_COLS, rowsForScreen(g.fromPage!)));
+      if (p && p.ok) replacePage(g.fromPage!, resizeItem(pagesRef.current[g.fromPage!], g.item.id, p.w, p.h, GRID_COLS, rowsForScreen(g.fromPage!, pagesRef.current[g.fromPage!])));
     } else if (g?.active && g.mode === 'move' && g.item) {
       if (g.el) g.el.style.opacity = '';
       g.ghost?.remove();
       const p = dragPreview;
       if (p && p.ok) {
-        if (p.pageIndex === g.fromPage) {
-          replacePage(g.fromPage!, moveItem(pagesRef.current[g.fromPage!], g.item.id, p.x, p.y, GRID_COLS, rowsForScreen(g.fromPage!)));
+        if (p.dropToQuad && g.item.kind === 'app' && g.item.refId) {
+          const { quadId, pageIndex: targetPi, slotIndex } = p.dropToQuad;
+          const appRefId = g.item.refId;
+
+          // 1. 从原页面移除被拖入的 1×1 App
+          const srcPageWithoutApp = removeItem(pagesRef.current[g.fromPage!], g.item.id);
+
+          // 2. 将应用放入目标四宫格对应槽位
+          const nextPages = pagesRef.current.map((pg, pi) => {
+            let pageToUpdate = pi === g.fromPage ? srcPageWithoutApp : pg;
+            if (pi === targetPi) {
+              pageToUpdate = {
+                ...pageToUpdate,
+                items: pageToUpdate.items.map(it => {
+                  if (it.id !== quadId) return it;
+                  const curApps: (string | null)[] = Array.isArray(it.config?.apps)
+                    ? [0, 1, 2, 3].map(i => it.config.apps[i] ?? null)
+                    : [null, null, null, null];
+                  curApps[slotIndex] = appRefId;
+                  return {
+                    ...it,
+                    config: { ...(it.config || {}), apps: curApps }
+                  };
+                })
+              };
+            }
+            return pageToUpdate;
+          });
+
+          commitPages(nextPages);
+          trackEvent('桌面拖拽收纳应用入四宫格');
+        } else if (p.pageIndex === g.fromPage) {
+          replacePage(g.fromPage!, moveItem(pagesRef.current[g.fromPage!], g.item.id, p.x, p.y, GRID_COLS, rowsForScreen(g.fromPage!, pagesRef.current[g.fromPage!])));
         } else {
           const src = removeItem(pagesRef.current[g.fromPage!], g.item.id);
           const placed = addItem(pagesRef.current[p.pageIndex], {
             kind: g.item.kind, refId: g.item.refId, w: g.item.w, h: g.item.h,
             locked: g.item.locked, title: g.item.title, config: g.item.config,
             x: p.x, y: p.y,
-          }, GRID_COLS, rowsForScreen(p.pageIndex));
+          }, GRID_COLS, rowsForScreen(p.pageIndex, pagesRef.current[p.pageIndex]));
           const next = pagesRef.current.map((pg, i) =>
             i === g.fromPage ? src : i === p.pageIndex ? (placed?.page ?? pg) : pg);
           commitPages(next);
@@ -553,21 +646,38 @@ const Launcher: React.FC = () => {
     const cur = activePageIndexRef.current;
     const size = defaultSizeFor(spec.kind);
     const locked = DEFAULT_LOCKED_KINDS.has(spec.kind);
-    const placed = addItem(pagesRef.current[cur], { ...spec, w: size.w, h: size.h, locked }, GRID_COLS, rowsForScreen(cur));
+    const placed = addItem(pagesRef.current[cur], { ...spec, w: size.w, h: size.h, locked }, GRID_COLS, rowsForScreen(cur, pagesRef.current[cur]));
     if (placed) {
       replacePage(cur, placed.page);
     } else {
       // 当前页放不下 → 在它后面插一张新页
       const np = emptyPage();
-      const res = addItem(np, { ...spec, w: size.w, h: size.h, locked });
+      const res = addItem(np, { ...spec, w: size.w, h: size.h, locked }, GRID_COLS, rowsForScreen(cur + 1, np));
       const next = [...pagesRef.current.slice(0, cur + 1), res ? res.page : np, ...pagesRef.current.slice(cur + 1)];
       commitPages(next);
     }
     trackEvent('桌面添加条目', { kind: spec.kind });
   }, [replacePage, commitPages]);
 
-  const handleAddPage = useCallback(() => {
-    commitPages([...pagesRef.current, emptyPage()]);
+  const [addPageModalOpen, setAddPageModalOpen] = useState(false);
+
+  const handleOpenAddPage = useCallback(() => {
+    setAddPageModalOpen(true);
+  }, []);
+
+  const handleSelectPageLayout = useCallback((layout: 'windmill' | 'standard') => {
+    setAddPageModalOpen(false);
+    const newPage = emptyPage(undefined, layout);
+    const next = [...pagesRef.current, newPage];
+    commitPages(next);
+    const newIndex = next.length - 1;
+    setActivePageIndex(newIndex);
+    activePageIndexRef.current = newIndex;
+    _lastPageIndex = newIndex;
+    const el = scrollContainerRef.current;
+    if (el) {
+      el.scrollTo({ left: el.clientWidth * newIndex, behavior: 'smooth' });
+    }
   }, [commitPages]);
 
   const handleRemovePage = useCallback((pageIndex: number) => {
@@ -596,6 +706,68 @@ const Launcher: React.FC = () => {
     setImagePicker({ pageIndex: pi, itemId: item.id, src: item.config?.src });
   }, []);
 
+  // 四宫格组件管理：点击打开管理抽屉，直观查看 4 个槽位并增删替换
+  const [quadManagerTarget, setQuadManagerTarget] = useState<{
+    pageIndex: number;
+    itemId: string;
+    slotIndex?: number;
+  } | null>(null);
+
+  const handleOpenQuadManager = useCallback((item: PlacedItem, slotIndex?: number) => {
+    const pi = pagesRef.current.findIndex(p => p.items.some(i => i.id === item.id));
+    if (pi < 0) return;
+    setQuadManagerTarget({ pageIndex: pi, itemId: item.id, slotIndex });
+  }, []);
+
+  const handleRemoveQuadApp = useCallback((pageIndex: number, itemId: string, slotIndex: number) => {
+    const page = pagesRef.current[pageIndex];
+    if (!page) return;
+    const targetItem = page.items.find(i => i.id === itemId);
+    if (!targetItem) return;
+    const currentApps: (string | null)[] = Array.isArray(targetItem.config?.apps)
+      ? [0, 1, 2, 3].map(i => targetItem.config.apps[i] ?? null)
+      : [null, null, null, null];
+    currentApps[slotIndex] = null;
+    replacePage(pageIndex, {
+      ...page,
+      items: page.items.map(it => it.id === itemId ? {
+        ...it,
+        config: { ...(it.config || {}), apps: currentApps }
+      } : it)
+    });
+    trackEvent('四宫格移除应用');
+  }, [replacePage]);
+
+  const handleSelectQuadApp = useCallback((pageIndex: number, itemId: string, slotIndex: number, appId: string) => {
+    // 1. 如果该 appId 已经在其它页面的普通 1×1 app 条目中，则将其从原位置移除（收纳进四宫格）
+    let currentPages = pagesRef.current.map(p => ({
+      ...p,
+      items: p.items.filter(it => !(it.kind === 'app' && it.refId === appId))
+    }));
+
+    // 2. 将 appId 放入目标 quad_apps 的 slotIndex
+    const targetPage = currentPages[pageIndex];
+    if (!targetPage) return;
+    const targetItem = targetPage.items.find(i => i.id === itemId);
+    if (!targetItem) return;
+
+    const currentApps: (string | null)[] = Array.isArray(targetItem.config?.apps)
+      ? [0, 1, 2, 3].map(i => targetItem.config.apps[i] ?? null)
+      : [null, null, null, null];
+    currentApps[slotIndex] = appId;
+
+    currentPages = currentPages.map((p, i) => i === pageIndex ? {
+      ...p,
+      items: p.items.map(it => it.id === itemId ? {
+        ...it,
+        config: { ...(it.config || {}), apps: currentApps }
+      } : it)
+    } : p);
+
+    commitPages(currentPages);
+    trackEvent('四宫格添加应用');
+  }, [commitPages]);
+
   // ───────── 主题派生 ─────────
   const contentColor = theme.contentColor || '#ffffff';
   const acnh = theme.skin === 'animalcrossing';
@@ -613,6 +785,7 @@ const Launcher: React.FC = () => {
     scheduleData, scheduleChar,
     onOpenSchedule: () => { setScheduleViewerOpen(true); trackEvent('打开角色日程面板'); },
     onEditImage: openImagePicker,
+    onOpenQuadManager: handleOpenQuadManager,
   };
 
   const dockAppsConfig = useMemo(() => {
@@ -639,20 +812,23 @@ const Launcher: React.FC = () => {
 
   // 一页的自由网格：固定边长的正方形格子，4 列 × rowsForScreen(pageIndex) 行。
   // 格子大小处处一样（不随页高变），总高度随行数变化，超出纵向滚动。
-  const renderPageGrid = (page: DesktopPage, pageIndex: number) => (
-    <div
-      ref={el => { pageGridRefs.current[pageIndex] = el; }}
-      className="relative grid mx-auto"
-      style={{
-        columnGap: `${GRID_COL_GAP}px`,
-        rowGap: `${GRID_ROW_GAP}px`,
-        width: `${gridWidthPx}px`,
-        gridTemplateColumns: `repeat(${GRID_COLS}, ${cellPx}px)`,
-        gridTemplateRows: `repeat(${rowsForScreen(pageIndex)}, ${cellPx}px)`,
-        gridAutoRows: `${cellPx}px`,
-      }}
-    >
-      {page.items.map(item => {
+  const renderPageGrid = (page: DesktopPage, pageIndex: number) => {
+    const rows = rowsForScreen(pageIndex, page);
+    const rowGap = rows >= 7 ? 14 : GRID_ROW_GAP;
+    return (
+      <div
+        ref={el => { pageGridRefs.current[pageIndex] = el; }}
+        className="relative grid mx-auto"
+        style={{
+          columnGap: `${GRID_COL_GAP}px`,
+          rowGap: `${rowGap}px`,
+          width: `${gridWidthPx}px`,
+          gridTemplateColumns: `repeat(${GRID_COLS}, ${cellPx}px)`,
+          gridTemplateRows: `repeat(${rows}, ${cellPx}px)`,
+          gridAutoRows: `${cellPx}px`,
+        }}
+      >
+        {page.items.map(item => {
         const content = renderGridItemContent(item, widgetCtx);
         if (content == null) return null;
         const draggable = layoutEditing && !item.locked;
@@ -688,19 +864,19 @@ const Launcher: React.FC = () => {
                   <button
                     data-grid-action="delete"
                     onClick={(e) => { e.stopPropagation(); handleDeleteItem(pageIndex, item.id); }}
-                    className="absolute top-1 left-1 w-7 h-7 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30 hover:bg-red-600"
+                    className="absolute top-1 right-1 z-30 w-6 h-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-md active:scale-90 hover:bg-red-600 transition cursor-pointer before:absolute before:-inset-2 before:content-['']"
                     title="移除"
                   >
-                    <Minus size={13} weight="bold" />
+                    <X size={11} weight="bold" />
                   </button>
                   {WIDGET_META[item.kind].defaultLocked && (
                     <button
                       data-grid-action="lock"
                       onClick={(e) => { e.stopPropagation(); handleToggleLock(pageIndex, item.id); }}
-                      className="absolute top-1 right-1 w-7 h-7 rounded-full bg-slate-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30"
+                      className="absolute top-1 left-1 w-6 h-6 rounded-full bg-slate-500 text-white flex items-center justify-center shadow-md active:scale-90 z-30 before:absolute before:-inset-2 before:content-['']"
                       title="锁定"
                     >
-                      <LockOpen size={13} weight="fill" />
+                      <LockOpen size={11} weight="fill" />
                     </button>
                   )}
                   {canResize(item.kind) && (
@@ -721,19 +897,38 @@ const Launcher: React.FC = () => {
       })}
 
       {dragPreview && dragPreview.pageIndex === pageIndex && (
-        <div
-          className="pointer-events-none rounded-2xl border-2 border-dashed z-20"
-          style={{
-            gridColumn: `${dragPreview.x + 1} / span ${dragPreview.w}`,
-            gridRow: `${dragPreview.y + 1} / span ${dragPreview.h}`,
-            borderColor: dragPreview.ok ? 'rgba(255,255,255,0.7)' : 'rgba(239,68,68,0.8)',
-            background: dragPreview.ok ? 'rgba(255,255,255,0.12)' : 'rgba(239,68,68,0.12)',
-          }}
-        />
+        dragPreview.dropToQuad ? (
+          <div
+            className="pointer-events-none rounded-3xl border-2 border-dashed z-20 transition-all duration-150 flex items-center justify-center animate-pulse"
+            style={{
+              gridColumn: `${dragPreview.x + 1} / span ${dragPreview.w}`,
+              gridRow: `${dragPreview.y + 1} / span ${dragPreview.h}`,
+              borderColor: 'rgba(45, 212, 191, 0.95)',
+              background: 'rgba(45, 212, 191, 0.16)',
+              boxShadow: '0 0 24px rgba(45, 212, 191, 0.35)',
+            }}
+          >
+            <div className="px-3 py-1 rounded-full bg-teal-500 text-white text-[11px] font-bold shadow-lg tracking-wider flex items-center gap-1">
+              <Plus size={12} weight="bold" />
+              <span>放入四宫格</span>
+            </div>
+          </div>
+        ) : (
+          <div
+            className="pointer-events-none rounded-2xl border-2 border-dashed z-20"
+            style={{
+              gridColumn: `${dragPreview.x + 1} / span ${dragPreview.w}`,
+              gridRow: `${dragPreview.y + 1} / span ${dragPreview.h}`,
+              borderColor: dragPreview.ok ? 'rgba(255,255,255,0.7)' : 'rgba(239,68,68,0.8)',
+              background: dragPreview.ok ? 'rgba(255,255,255,0.12)' : 'rgba(239,68,68,0.12)',
+            }}
+          />
+        )
       )}
 
     </div>
   );
+};
 
   return (
     <div
@@ -817,12 +1012,17 @@ const Launcher: React.FC = () => {
           WebkitOverflowScrolling: 'touch',
         }}
       >
-        {pages.map((page, pageIndex) => (
-          <div
-            key={page.id}
-            className="w-full flex-shrink-0 snap-center snap-always h-full px-6 pt-12 pb-8 flex flex-col"
-            style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
-          >
+        {pages.map((page, pageIndex) => {
+          const isCompactAppPage = rowsForScreen(pageIndex, page) >= 7;
+          const pagePadClass =
+            pageIndex === 1 ? 'pt-12 pb-8' :
+            isCompactAppPage ? 'pt-[calc(var(--safe-top)+1.85rem)] pb-6' : 'pt-10 pb-8';
+          return (
+            <div
+              key={page.id}
+              className={`w-full flex-shrink-0 snap-center snap-always h-full px-6 flex flex-col ${pagePadClass}`}
+              style={{ contentVisibility: 'auto', contain: 'layout paint', transform: 'translateZ(0)' }}
+            >
             {pageIndex === 1 ? (
               <>
                 {/* 主屏表头：时钟 + 角色卡，原生流式、贴顶、不可删。宽度与下方网格对齐居中 */}
@@ -843,7 +1043,8 @@ const Launcher: React.FC = () => {
               <div className="flex-1 min-h-0 overflow-y-auto no-scrollbar" style={{ overscrollBehaviorY: 'contain' }}>{renderPageGrid(page, pageIndex)}</div>
             )}
           </div>
-        ))}
+        );
+      })}
       </div>
 
       {/* 页码点 */}
@@ -890,7 +1091,7 @@ const Launcher: React.FC = () => {
               </button>
             )}
             <button
-              onClick={handleAddPage}
+              onClick={handleOpenAddPage}
               className="px-3 py-1 rounded-full text-[11px] font-bold bg-white/70 text-slate-800 flex items-center gap-1 shadow-lg active:scale-95 backdrop-blur-xl border border-white/50"
             >
               <Plus size={12} weight="bold" />新页面
@@ -950,6 +1151,33 @@ const Launcher: React.FC = () => {
         acnh={acnh}
         paper={paper}
       />
+
+      <DesktopAddPageModal
+        isOpen={addPageModalOpen}
+        onClose={() => setAddPageModalOpen(false)}
+        onSelectLayout={handleSelectPageLayout}
+        acnh={acnh}
+        paper={paper}
+      />
+
+      {quadManagerTarget && (() => {
+        const page = pages[quadManagerTarget.pageIndex];
+        const item = page?.items.find(i => i.id === quadManagerTarget.itemId);
+        if (!item) return null;
+        return (
+          <QuadAppPickerModal
+            isOpen={true}
+            onClose={() => setQuadManagerTarget(null)}
+            onSelectApp={(appId, slotIdx) => handleSelectQuadApp(quadManagerTarget.pageIndex, item.id, slotIdx, appId)}
+            onRemoveApp={(slotIdx) => handleRemoveQuadApp(quadManagerTarget.pageIndex, item.id, slotIdx)}
+            slotIndex={quadManagerTarget.slotIndex}
+            placedAppIds={placedAppIds}
+            currentQuadAppIds={item.config?.apps}
+            acnh={acnh}
+            paper={paper}
+          />
+        );
+      })()}
     </div>
   );
 };

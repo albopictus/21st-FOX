@@ -24,10 +24,17 @@ export const GRID_ROWS = 6;
  * 行高和其它页保持一致（不挤压）。
  */
 export const HOME_PAGE_ROWS = 2;
+export const WINDMILL_PAGE_ROWS = 6;
+export const APP_PAGE_ROWS = 7;
 
-/** 某个 Screen 的网格行数。screenIndex：0=负一屏，1=主屏，2+=普通页。 */
-export const rowsForScreen = (screenIndex: number): number =>
-    screenIndex === 1 ? HOME_PAGE_ROWS : GRID_ROWS;
+/** 某个 Screen 的网格行数。screenIndex：0=负一屏(6)，1=主屏(2)，2=风车页(6)，3+=普通应用页(7)；若 page 指定了 layout 则优先以 layout 为准。 */
+export const rowsForScreen = (screenIndex: number, page?: DesktopPage): number => {
+    if (screenIndex === 1) return HOME_PAGE_ROWS;
+    if (page?.layout === 'windmill') return WINDMILL_PAGE_ROWS;
+    if (page?.layout === 'standard') return APP_PAGE_ROWS;
+    if (screenIndex === 0 || screenIndex === 2) return WINDMILL_PAGE_ROWS;
+    return APP_PAGE_ROWS;
+};
 
 /** 每种条目的默认尺寸（格数）。app 恒为 1×1。 */
 export const DEFAULT_ITEM_SIZE: Record<GridItemKind, { w: number; h: number }> = {
@@ -40,6 +47,7 @@ export const DEFAULT_ITEM_SIZE: Record<GridItemKind, { w: number; h: number }> =
     calendar: { w: 4, h: 3 },
     anniversary: { w: 4, h: 2 },
     memo: { w: 2, h: 2 },
+    quad_apps: { w: 2, h: 2 },
 };
 
 /** 默认锁定（不可拖 / 改大小 / 删，除非在编辑态解锁）的条目。 */
@@ -108,7 +116,14 @@ export const findFreeRect = (
 
 // ───────────────────────── 单页操作 ─────────────────────────
 
-export const emptyPage = (id: string = makePageId()): DesktopPage => ({ id, items: [] });
+export const emptyPage = (
+    id: string = makePageId(),
+    layout?: 'windmill' | 'standard',
+): DesktopPage => ({
+    id,
+    items: [],
+    ...(layout ? { layout } : {}),
+});
 
 export interface NewItemSpec {
     kind: GridItemKind;
@@ -202,23 +217,23 @@ export const flowItems = (
     startPages: DesktopPage[],
     specs: NewItemSpec[],
     cols: number = GRID_COLS,
-    /** 每页行数：固定数字，或按「这一页在返回数组里的下标」给出行数的函数（主屏那页更矮）。 */
-    rowsFor: number | ((pageArrayIndex: number) => number) = GRID_ROWS,
+    /** 每页行数：固定数字，或按「这一页在返回数组里的下标」和页面对象给出行数的函数（主屏那页更矮）。 */
+    rowsFor: number | ((pageArrayIndex: number, page?: DesktopPage) => number) = GRID_ROWS,
 ): DesktopPage[] => {
-    const rowsAt = (idx: number) => typeof rowsFor === 'function' ? rowsFor(idx) : rowsFor;
+    const rowsAt = (idx: number, page?: DesktopPage) => typeof rowsFor === 'function' ? rowsFor(idx, page) : rowsFor;
     const pages = startPages.length ? startPages.map(p => ({ ...p, items: [...p.items] })) : [emptyPage()];
     let pi = 0;
     for (const spec of specs) {
         // 从当前页往后找第一个放得下的页
         let placed = false;
         while (pi < pages.length) {
-            const res = addItem(pages[pi], spec, cols, rowsAt(pi));
+            const res = addItem(pages[pi], spec, cols, rowsAt(pi, pages[pi]));
             if (res) { pages[pi] = res.page; placed = true; break; }
             pi++;
         }
         if (!placed) {
-            const fresh = emptyPage();
-            const res = addItem(fresh, spec, cols, rowsAt(pages.length));
+            const fresh = emptyPage(makePageId(), 'standard');
+            const res = addItem(fresh, spec, cols, rowsAt(pages.length, fresh));
             pages.push(res ? res.page : fresh);
             pi = pages.length - 1;
         }
@@ -226,7 +241,8 @@ export const flowItems = (
     return pages;
 };
 
-export const addPage = (pages: DesktopPage[]): DesktopPage[] => [...pages, emptyPage()];
+export const addPage = (pages: DesktopPage[], layout?: 'windmill' | 'standard'): DesktopPage[] =>
+    [...pages, emptyPage(makePageId(), layout)];
 
 /** 按阅读顺序（先 y 后 x）把条目重新贴到左上角，去掉空洞。锁定项也一起重排。 */
 export const compactPage = (
@@ -253,7 +269,7 @@ export const stripHeaderKinds = (pages: DesktopPage[]): DesktopPage[] => {
         const kept = p.items.filter(it => !HEADER_ONLY_KINDS.has(it.kind));
         if (kept.length === p.items.length) return p;
         changed = true;
-        return compactPage({ ...p, items: kept }, GRID_COLS, rowsForScreen(screenIdx));
+        return compactPage({ ...p, items: kept }, GRID_COLS, rowsForScreen(screenIdx, p));
     });
     return changed ? next : pages;
 };
@@ -273,7 +289,7 @@ export const enforceHomeRowCap = (pages: DesktopPage[]): DesktopPage[] => {
         kind: it.kind, refId: it.refId, w: it.w, h: it.h, locked: it.locked, title: it.title, config: it.config,
     }));
     const rest = pages.slice(2);
-    const flowed = flowItems(rest.length ? rest : [emptyPage()], overflowSpecs, GRID_COLS, GRID_ROWS);
+    const flowed = flowItems(rest.length ? rest : [emptyPage()], overflowSpecs, GRID_COLS, (idx, pg) => rowsForScreen(idx + 2, pg));
     return [pages[0], newHome, ...flowed];
 };
 
@@ -292,13 +308,13 @@ export const repairOverlaps = (pages: DesktopPage[]): DesktopPage[] => {
     let anyChanged = false;
     const overflowSpecs: NewItemSpec[] = [];
     const repaired = pages.map((page, screenIdx) => {
-        const rows = rowsForScreen(screenIdx);
+        const rows = rowsForScreen(screenIdx, page);
         const kept: PlacedItem[] = [];
         for (const it of page.items) {
             const ok = withinGrid(it, GRID_COLS, rows) && !kept.some(k => rectsOverlap(k, it));
             if (ok) { kept.push(it); continue; }
             anyChanged = true;
-            const pos = findFreeRect({ id: page.id, items: kept }, it.w, it.h, GRID_COLS, rows);
+            const pos = findFreeRect({ id: page.id, items: kept, layout: page.layout }, it.w, it.h, GRID_COLS, rows);
             if (pos) {
                 kept.push({ ...it, x: pos.x, y: pos.y });
             } else {
@@ -312,7 +328,7 @@ export const repairOverlaps = (pages: DesktopPage[]): DesktopPage[] => {
     });
     if (!anyChanged) return pages;
     if (overflowSpecs.length === 0) return repaired;
-    return flowItems(repaired, overflowSpecs, GRID_COLS, (idx) => idx === 1 ? HOME_PAGE_ROWS : GRID_ROWS);
+    return flowItems(repaired, overflowSpecs, GRID_COLS, (idx, pg) => rowsForScreen(idx, pg));
 };
 
 /** 删除某页（纯 splice；调用方负责「非空页要不要确认 / 搬移」）。至少保留 1 页。 */
@@ -323,7 +339,7 @@ export const removePage = (pages: DesktopPage[], index: number): DesktopPage[] =
 
 // ───────────────────────── 迁移 ─────────────────────────
 
-/** 旧 DesktopWidgetInstance.kind → 新 GridItemKind（quad_apps 无实现，丢弃）。 */
+/** 旧 DesktopWidgetInstance.kind → 新 GridItemKind。 */
 const LEGACY_WIDGET_KIND: Partial<Record<string, GridItemKind>> = {
     music: 'music', image: 'image', calendar: 'calendar', anniversary: 'anniversary', memo: 'memo',
 };
@@ -351,8 +367,8 @@ const dedupe = (ids: (string | undefined | null)[], valid: Set<string>): string[
  * 页序：
  *   [0] 负一屏  = launcherMinusOneApps（+ 遗留的 launcherMinusOneWidgets）
  *   [1] 主屏    = 部分 app（时钟 / 角色卡是 Launcher 单独渲染的表头，不是条目）
- *   [2] 原风车页 = schedule（锁定）+ music + image + 部分 app
- *   [3+] 剩余 app + 自定义页小组件，按需开页
+ *   [2] 原风车页 = schedule（锁定）+ music + 四宫格A + 四宫格B + image
+ *   [3+] 剩余 app + 自定义页小组件，按需开页（每页 7 行）
  *
  * 已经有 launcherPages 就只做纠偏：剔掉早期版本误塞进去的 clock / charCard 条目。
  *
@@ -383,25 +399,52 @@ export const migrateLegacyLauncher = (
     }
 
     // ── Page 1：主屏（时钟 + 角色卡是表头，不在这里；app 从顶格铺起）──
-    const page1 = emptyPage();
+    let page1 = emptyPage();
 
-    // ── Page 2：原风车页（锁定的日程 + 音乐 + 相框）──
-    let page2 = emptyPage();
-    page2 = (addItem(page2, { kind: 'schedule', locked: true, x: 0, y: 0 }) || { page: page2 }).page;
-    page2 = (addItem(page2, { kind: 'music', x: 0, y: 2 }) || { page: page2 }).page;
-    page2 = (addItem(page2, {
-        kind: 'image', x: 2, y: 2,
-        ...(theme.launcherWidgets?.dsq ? { config: { src: theme.launcherWidgets.dsq } } : {}),
-    }) || { page: page2 }).page;
+    // ── Page 2：原风车页（锁定的日程 + 音乐 + 四宫格A + 四宫格B + 相框）──
+    let page2 = emptyPage(makePageId(), 'windmill');
+    page2 = (addItem(page2, { kind: 'schedule', locked: true, x: 0, y: 0, w: 4, h: 2 }) || { page: page2 }).page;
+    page2 = (addItem(page2, { kind: 'music', x: 0, y: 2, w: 2, h: 2 }) || { page: page2 }).page;
 
-    // ── 待铺的流：主桌面 app + 自定义页小组件 + 旧的 tl/tr/wide 条幅图 ──
-    // launcherAppOrder 为空（全新安装 / 「一键还原外观」清空整个 theme 之后）时，
-    // 不能铺出一个没有任何 App 的空桌面——退回「全部已装 App」。
     const appSourceIds = theme.launcherAppOrder && theme.launcherAppOrder.length
         ? theme.launcherAppOrder
         : Array.from(validAppIds);
-    const appSpecs: NewItemSpec[] = dedupe(appSourceIds, validAppIds)
-        .map(id => ({ kind: 'app' as GridItemKind, refId: id }));
+    const dedupedAppIds = dedupe(appSourceIds, validAppIds);
+
+    // Page 1 铺前 8 个 App
+    const page1Apps = dedupedAppIds.slice(0, 8);
+    for (const id of page1Apps) {
+        const res = addItem(page1, { kind: 'app', refId: id });
+        if (res) page1 = res.page;
+    }
+
+    // Page 2 铺接下来 8 个 App（四宫格 A 4个，四宫格 B 4个）
+    const quadAApps = dedupedAppIds.slice(8, 12);
+    const quadBApps = dedupedAppIds.slice(12, 16);
+
+    if (quadAApps.length > 0) {
+        page2 = (addItem(page2, {
+            kind: 'quad_apps', x: 2, y: 2, w: 2, h: 2,
+            config: { apps: quadAApps }
+        }) || { page: page2 }).page;
+    }
+
+    if (quadBApps.length > 0) {
+        page2 = (addItem(page2, {
+            kind: 'quad_apps', x: 0, y: 4, w: 2, h: 2,
+            config: { apps: quadBApps }
+        }) || { page: page2 }).page;
+    }
+
+    page2 = (addItem(page2, {
+        kind: 'image', x: 2, y: 4, w: 2, h: 2,
+        ...(theme.launcherWidgets?.dsq ? { config: { src: theme.launcherWidgets.dsq } } : {}),
+    }) || { page: page2 }).page;
+
+    // 剩余 app 顺流铺进 Page 3+（每页 7 行，即 APP_PAGE_ROWS）
+    const remainingAppIds = dedupedAppIds.slice(16);
+    const appSpecs: NewItemSpec[] = remainingAppIds.map(id => ({ kind: 'app' as GridItemKind, refId: id }));
+
     const widgetSpecs: NewItemSpec[] = (theme.launcherCustomPages || [])
         .flatMap(p => p.widgets || [])
         .map(legacyWidgetSpec)
@@ -413,12 +456,11 @@ export const migrateLegacyLauncher = (
         lw.wide ? { kind: 'image', w: 4, h: 2, config: { src: lw.wide } } : null,
     ] as (NewItemSpec | null)[]).filter((s): s is NewItemSpec => s !== null);
 
-    // app 先铺（从 page1 开始，绕开锁定块），再铺自定义页小组件 + 旧条幅图
     let pages = flowItems(
         [page1, page2],
         [...appSpecs, ...widgetSpecs, ...legacyImageSpecs],
         GRID_COLS,
-        (idx) => idx === 0 ? HOME_PAGE_ROWS : GRID_ROWS, // page1（下标 0）矮，其余照常
+        (idx) => idx === 0 ? HOME_PAGE_ROWS : idx === 1 ? WINDMILL_PAGE_ROWS : APP_PAGE_ROWS,
     );
 
     return [page0, ...pages];
@@ -427,6 +469,13 @@ export const migrateLegacyLauncher = (
 /** 网格上所有页里出现过的 AppID（用于算「哪些 app 还没上桌 / 已隐藏」）。 */
 export const collectPlacedAppIds = (pages: DesktopPage[]): Set<string> => {
     const s = new Set<string>();
-    for (const p of pages) for (const it of p.items) if (it.kind === 'app' && it.refId) s.add(it.refId);
+    for (const p of pages) {
+        for (const it of p.items) {
+            if (it.kind === 'app' && it.refId) s.add(it.refId);
+            if (it.kind === 'quad_apps' && Array.isArray(it.config?.apps)) {
+                for (const id of it.config.apps) if (id) s.add(id);
+            }
+        }
+    }
     return s;
 };
