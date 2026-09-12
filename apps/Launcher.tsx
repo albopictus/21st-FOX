@@ -26,6 +26,7 @@ import {
 import { Plus, Minus, X, Lock, LockOpen, ArrowsOutSimple, House, CaretLeft, CaretRight } from '@phosphor-icons/react';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
+import { useIsDesktopMode } from '../hooks/useDeviceMode';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { trackEvent } from '../utils/analytics';
 
@@ -436,29 +437,55 @@ interface PageIndicatorsProps {
   activePageIndex: number;
   contentColor: string;
   bottomInset: string;
+  onJumpToPage?: (index: number) => void;
 }
 
+// 移动端保持原本纤细无交互的点状条；电脑模式（见 useIsDesktopMode）静默升级成
+// 悬浮毛玻璃胶囊，放大点位与点击热区，点击任意点平滑跳页。见
+// desktop-adaptation-plan.md 模块 2。
 const PageIndicators: React.FC<PageIndicatorsProps> = React.memo(({
   totalPages,
   activePageIndex,
   contentColor,
   bottomInset,
-}) => (
-  <div
-    className="absolute left-0 w-full flex justify-center gap-1 pointer-events-none z-20"
-    style={{ bottom: `calc(${bottomInset} + 5.5rem)` }}
-    aria-hidden="true"
-  >
-    {Array.from({ length: totalPages }).map((_, i) => (
-      <div key={i} className="flex h-1.5 w-4 shrink-0 items-center justify-center">
-        <div
-          className={`h-1.5 rounded-full transform-gpu transition-[width,opacity] duration-300 ${activePageIndex === i ? 'w-4 opacity-100' : 'w-1.5 opacity-40'}`}
-          style={{ backgroundColor: contentColor }}
-        />
+  onJumpToPage,
+}) => {
+  const isDesktop = useIsDesktopMode();
+
+  return (
+    <div
+      className={`absolute left-0 w-full flex justify-center z-20 ${isDesktop ? 'pointer-events-none' : 'gap-1 pointer-events-none'}`}
+      style={{ bottom: `calc(${bottomInset} + 5.5rem)` }}
+      aria-hidden={!isDesktop}
+    >
+      <div
+        className={isDesktop
+          ? 'flex items-center gap-0.5 rounded-full border border-white/20 bg-black/10 px-3.5 py-1.5 shadow-sm backdrop-blur-md pointer-events-auto dark:bg-white/10'
+          : 'flex items-center gap-1'}
+      >
+        {Array.from({ length: totalPages }).map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            tabIndex={isDesktop ? 0 : -1}
+            aria-label={isDesktop ? `跳转到第 ${i + 1} 页` : undefined}
+            onClick={isDesktop ? (e) => { e.stopPropagation(); onJumpToPage?.(i); } : undefined}
+            className={`group flex shrink-0 items-center justify-center ${isDesktop ? 'h-6 w-6 cursor-pointer' : 'h-1.5 w-4'}`}
+          >
+            <span
+              className={`rounded-full transform-gpu transition-[width,opacity,transform] duration-300 ${
+                isDesktop
+                  ? `h-2.5 group-hover:scale-125 ${activePageIndex === i ? 'w-7 opacity-100' : 'w-2.5 opacity-50 group-hover:opacity-80'}`
+                  : `h-1.5 ${activePageIndex === i ? 'w-4 opacity-100' : 'w-1.5 opacity-40'}`
+              }`}
+              style={{ backgroundColor: contentColor }}
+            />
+          </button>
+        ))}
       </div>
-    ))}
-  </div>
-));
+    </div>
+  );
+});
 
 interface LauncherDockProps {
   dockApps: typeof INSTALLED_APPS;
@@ -967,6 +994,21 @@ const Launcher: React.FC = () => {
     };
     displacements?: Map<string, { x: number; y: number }>;
   }>(null);
+
+  // 电脑模式：点击分页胶囊直接跳页。复用「边缘拖拽自动翻页」同一套 programmaticScrollTargetRef
+  // 标记（见上面 handleScroll 里的读取逻辑），避免平滑滚动过程中 handleScroll 读到的中间
+  // scrollLeft 插值把 activePageIndex 冲乱，和现有拖拽状态机走同一条路，不另起一套判断。
+  const jumpToPage = useCallback((index: number) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const target = Math.max(0, Math.min(pagesRef.current.length - 1, index));
+    if (target === activePageIndexRef.current) return;
+    programmaticScrollTargetRef.current = target;
+    activePageIndexRef.current = target;
+    setActivePageIndex(target);
+    _lastPageIndex = target;
+    el.scrollTo({ left: target * el.clientWidth, behavior: 'smooth' });
+  }, []);
 
   // 长按预警：按到临界值前一小段时间，先让被按住的图标轻微下沉变暗，
   // 给用户一个「再按住就要进编辑态了」的信号，可以主动松手取消——
@@ -2003,6 +2045,7 @@ const Launcher: React.FC = () => {
         activePageIndex={activePageIndex}
         contentColor={contentColor}
         bottomInset={launcherBottomInset}
+        onJumpToPage={jumpToPage}
       />
 
       {/* 编辑态：当前页控件（起始页 / 增删页），放在固定栏与网格之间，方便单手点击 */}
