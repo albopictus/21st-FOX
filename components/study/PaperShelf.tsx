@@ -629,76 +629,80 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                 ) : (
                     /* 检索结果展示区 */
                     <div className="space-y-3 pb-20">
-                        {/* 检索范围与 OA 过滤 */}
-                        <div className="flex items-center justify-between px-1 text-xs text-slate-500">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[11px] text-slate-400 font-medium">范围:</span>
+                        {/* 检索过滤面板：自适应卡片容器，手机端支持横向滑动防换行挤占空间 */}
+                        <div className="bg-slate-50/80 p-2.5 rounded-2xl border border-slate-200/70 space-y-2">
+                            {/* 检索范围与 OA 过滤 */}
+                            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                                <span className="text-[11px] text-slate-400 font-medium shrink-0">范围:</span>
                                 <button
                                     onClick={() => {
                                         setOaFilter('all');
                                         if (searchKeyword) handleSearch(searchKeyword, { oa: 'all' });
                                     }}
-                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 ${
+                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 shrink-0 ${
                                         oaFilter === 'all'
                                             ? 'bg-slate-800 text-white shadow-2xs'
                                             : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
                                     }`}
                                 >
-                                    全部国际文献 (含Nature/Cell等)
+                                    <span>全部文献</span>
+                                    <span className="text-[10px] font-normal opacity-75 ml-1 hidden sm:inline">(含Nature/Cell等)</span>
                                 </button>
                                 <button
                                     onClick={() => {
                                         setOaFilter('oa');
                                         if (searchKeyword) handleSearch(searchKeyword, { oa: 'oa' });
                                     }}
-                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 ${
+                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 shrink-0 ${
                                         oaFilter === 'oa'
                                             ? 'bg-emerald-700 text-white shadow-2xs'
                                             : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
                                     }`}
                                 >
-                                    仅限开放获取 (OA 全文)
+                                    <span>仅限开放获取</span>
+                                    <span className="text-[10px] font-normal opacity-85 ml-1 hidden sm:inline">(OA 全文)</span>
                                 </button>
                             </div>
-                        </div>
 
-                        {/* 发表年份 + 排除会议摘要：跟上面「范围」独立叠加，不是互斥的三选一 */}
-                        <div className="flex items-center justify-between px-1 text-xs text-slate-500 flex-wrap gap-y-1.5">
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-[11px] text-slate-400 font-medium">年份:</span>
-                                {([0, 1, 3, 5] as const).map(yb => (
-                                    <button
-                                        key={yb}
-                                        onClick={() => {
-                                            setYearsBack(yb);
-                                            if (searchKeyword) handleSearch(searchKeyword, { yearsBack: yb });
-                                        }}
-                                        className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 ${
-                                            yearsBack === yb
-                                                ? 'bg-slate-800 text-white shadow-2xs'
-                                                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-                                        }`}
-                                    >
-                                        {yb === 0 ? '不限' : `近${yb}年`}
-                                    </button>
-                                ))}
+                            {/* 发表年份 + 排除会议摘要：独立叠加，手机端紧凑自适应排版 */}
+                            <div className="flex items-center justify-between gap-2 overflow-x-auto no-scrollbar py-0.5">
+                                <div className="flex items-center gap-1.5 shrink-0">
+                                    <span className="text-[11px] text-slate-400 font-medium shrink-0">年份:</span>
+                                    {([0, 1, 3, 5] as const).map(yb => (
+                                        <button
+                                            key={yb}
+                                            onClick={() => {
+                                                setYearsBack(yb);
+                                                if (searchKeyword) handleSearch(searchKeyword, { yearsBack: yb });
+                                            }}
+                                            className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-full text-xs font-semibold transition active:scale-95 shrink-0 ${
+                                                yearsBack === yb
+                                                    ? 'bg-slate-800 text-white shadow-2xs'
+                                                    : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                                            }`}
+                                        >
+                                            {yb === 0 ? '不限' : `近${yb}年`}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        const next = !excludeAbstractOnly;
+                                        setExcludeAbstractOnly(next);
+                                        if (searchKeyword) handleSearch(searchKeyword, { excludeAbstractOnly: next });
+                                    }}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 flex items-center gap-1 shrink-0 ${
+                                        excludeAbstractOnly
+                                            ? 'bg-emerald-700 text-white shadow-2xs'
+                                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                                    }`}
+                                    title="排除只有会议摘要、没有正文的条目"
+                                >
+                                    {excludeAbstractOnly && <Check size={11} weight="bold" />}
+                                    <span>排除会议摘要</span>
+                                    <span className="hidden sm:inline">/快讯</span>
+                                </button>
                             </div>
-                            <button
-                                onClick={() => {
-                                    const next = !excludeAbstractOnly;
-                                    setExcludeAbstractOnly(next);
-                                    if (searchKeyword) handleSearch(searchKeyword, { excludeAbstractOnly: next });
-                                }}
-                                className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 flex items-center gap-1 ${
-                                    excludeAbstractOnly
-                                        ? 'bg-emerald-700 text-white shadow-2xs'
-                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
-                                }`}
-                                title="排除只有会议摘要、没有正文的条目"
-                            >
-                                {excludeAbstractOnly && <Check size={11} weight="bold" />}
-                                <span>排除会议摘要/快讯</span>
-                            </button>
                         </div>
 
                         {searchResults.length === 0 ? (

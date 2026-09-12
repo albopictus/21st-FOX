@@ -19,11 +19,22 @@ const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, m
 async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
     let lastError: unknown;
     for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        if (init?.signal?.aborted) {
+            throw (init.signal as any).reason || new Error('Request aborted');
+        }
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        const externalSignal = init?.signal;
+        const onExternalAbort = externalSignal ? () => controller.abort((externalSignal as any).reason) : undefined;
+        if (externalSignal && onExternalAbort) {
+            externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+        }
         try {
             const res = await fetch(url, { ...init, signal: controller.signal });
             clearTimeout(timer);
+            if (externalSignal && onExternalAbort) {
+                externalSignal.removeEventListener('abort', onExternalAbort);
+            }
             // 5xx / 429 是接口那边的瞬时抖动，值得重试；其余状态码（含 4xx）原样交回调用方判断。
             if ((res.status >= 500 || res.status === 429) && attempt < MAX_RETRIES) {
                 lastError = new Error(`HTTP ${res.status}`);
@@ -33,6 +44,12 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
             return res;
         } catch (e) {
             clearTimeout(timer);
+            if (externalSignal && onExternalAbort) {
+                externalSignal.removeEventListener('abort', onExternalAbort);
+            }
+            if (externalSignal?.aborted) {
+                throw (externalSignal as any).reason || e;
+            }
             lastError = e;
             if (attempt < MAX_RETRIES) {
                 await sleep(RETRY_DELAYS_MS[attempt]);
