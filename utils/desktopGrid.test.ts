@@ -5,7 +5,7 @@ import {
     rectsOverlap, withinGrid, canPlace, findFreeRect,
     emptyPage, addItem, removeItem, moveItem, resizeItem, toggleLock,
     flowItems, addPage, removePage, enforceHomeRowCap, repairOverlaps,
-    migrateLegacyLauncher, collectPlacedAppIds, tryDisplace, applyDisplacements,
+    migrateLegacyLauncher, collectPlacedAppIds,
 } from './desktopGrid';
 
 const mk = (over: Partial<PlacedItem>): PlacedItem => ({
@@ -360,92 +360,3 @@ describe('desktopGrid · migrateLegacyLauncher 空 launcherAppOrder 兜底', () 
         expect(placed.has('settings')).toBe(true);
     });
 });
-
-describe('desktopGrid · tryDisplace 挤开机制', () => {
-    it('目标区域为空，无需挤开任何条目', () => {
-        const p = page([mk({ id: 'a', x: 0, y: 0, w: 1, h: 1 })]);
-        const res = tryDisplace(p, { x: 1, y: 0, w: 1, h: 1 });
-        expect(res).not.toBeNull();
-        expect(res!.ok).toBe(true);
-        expect(res!.displacedItems.size).toBe(0);
-    });
-
-    it('单个 1×1 App 被挤开到最近的相邻空格', () => {
-        const p = page([
-            mk({ id: 'a', x: 1, y: 0, w: 1, h: 1 }), // 目标位置已被 a 占据
-        ]);
-        // 尝试把新条目放在 (1, 0)
-        const res = tryDisplace(p, { x: 1, y: 0, w: 1, h: 1 });
-        expect(res).not.toBeNull();
-        expect(res!.ok).toBe(true);
-        expect(res!.displacedItems.has('a')).toBe(true);
-        const newPos = res!.displacedItems.get('a')!;
-        // 新位置必须合法、在网格内，且不与 (1, 0) 重叠
-        expect(withinGrid({ ...newPos, w: 1, h: 1 })).toBe(true);
-        expect(rectsOverlap({ ...newPos, w: 1, h: 1 }, { x: 1, y: 0, w: 1, h: 1 })).toBe(false);
-    });
-
-    it('同页拖拽时，被撞条目可以互换（swap）到拖拽项腾出的原位置', () => {
-        const p = page([
-            mk({ id: 'dragging', x: 0, y: 0, w: 1, h: 1 }),
-            mk({ id: 'target', x: 1, y: 0, w: 1, h: 1 }),
-            mk({ id: 'c', x: 2, y: 0, w: 1, h: 1 }),
-        ]);
-        // dragging 从 (0,0) 移到 (1,0)，ignoreId = 'dragging'
-        const res = tryDisplace(p, { x: 1, y: 0, w: 1, h: 1 }, 'dragging');
-        expect(res).not.toBeNull();
-        expect(res!.ok).toBe(true);
-        // target 离 (0,0) 最近（距离 1），应该正好交换到 (0,0)！
-        expect(res!.displacedItems.get('target')).toEqual({ x: 0, y: 0 });
-    });
-
-    it('非相邻同页拖拽重叠时，被撞条目直接与拖拽项进行互换（swap）', () => {
-        const p = page([
-            mk({ id: 'dragging', x: 0, y: 3, w: 1, h: 1 }),
-            mk({ id: 'target', x: 1, y: 0, w: 1, h: 1 }),
-            mk({ id: 'emptyNeighbor', x: 2, y: 0, w: 1, h: 1 }),
-        ]);
-        // dragging 从远处的 (0,3) 拖拽覆盖到 (1,0)
-        const res = tryDisplace(p, { x: 1, y: 0, w: 1, h: 1 }, 'dragging');
-        expect(res).not.toBeNull();
-        expect(res!.ok).toBe(true);
-        // target 应该与 dragging 进行 1:1 互换，挪到 (0,3)
-        expect(res!.displacedItems.get('target')).toEqual({ x: 0, y: 3 });
-    });
-
-    it('撞到锁定条目（locked: true）时无法挤开，返回 null', () => {
-        const p = page([
-            mk({ id: 'lockedSchedule', x: 0, y: 0, w: 4, h: 2, locked: true }),
-        ]);
-        const res = tryDisplace(p, { x: 1, y: 1, w: 1, h: 1 });
-        expect(res).toBeNull();
-    });
-
-    it('页面已满无空位时无法挤开，返回 null', () => {
-        // 填满所有格子
-        const items = Array.from({ length: GRID_COLS * GRID_ROWS }, (_, i) =>
-            mk({ id: `item-${i}`, x: i % GRID_COLS, y: Math.floor(i / GRID_COLS), w: 1, h: 1 })
-        );
-        const p = page(items);
-        const res = tryDisplace(p, { x: 0, y: 0, w: 1, h: 1 });
-        expect(res).toBeNull();
-    });
-
-    it('目标区域越界返回 null', () => {
-        const p = page([]);
-        expect(tryDisplace(p, { x: 3, y: 0, w: 2, h: 1 })).toBeNull();
-        expect(tryDisplace(p, { x: -1, y: 0, w: 1, h: 1 })).toBeNull();
-    });
-
-    it('applyDisplacements 正确更新被挤开条目的坐标', () => {
-        const p = page([
-            mk({ id: 'a', x: 1, y: 0, w: 1, h: 1 }),
-            mk({ id: 'b', x: 2, y: 0, w: 1, h: 1 }),
-        ]);
-        const disp = new Map([['a', { x: 0, y: 1 }]]);
-        const next = applyDisplacements(p, disp);
-        expect(next.items.find(i => i.id === 'a')).toMatchObject({ x: 0, y: 1 });
-        expect(next.items.find(i => i.id === 'b')).toMatchObject({ x: 2, y: 0 });
-    });
-});
-

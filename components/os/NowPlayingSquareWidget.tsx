@@ -4,7 +4,7 @@
  * — 填满父容器（由父的 aspect-square 约束成方形）。
  */
 import React, { useRef } from 'react';
-import { Play, Pause, SkipBack, SkipForward, Disc, Sun, Moon } from '@phosphor-icons/react';
+import { Play, Pause, SkipBack, SkipForward, Disc } from '@phosphor-icons/react';
 import { isPaperWallpaper, useOS } from '../../context/OSContext';
 import { useMusic } from '../../context/MusicContext';
 import { AppID } from '../../types';
@@ -18,19 +18,8 @@ const formatTime = (sec: number) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-interface NowPlayingSquareWidgetProps {
-  contentColor: string;
-  openApp?: (id: string) => void;
-  editing?: boolean;
-}
-
-const NowPlayingSquareWidget: React.FC<NowPlayingSquareWidgetProps> = ({
-  contentColor,
-  openApp: openAppProp,
-  editing = false,
-}) => {
-  const { openApp: osOpenApp, theme, updateTheme, addToast } = useOS();
-  const effectiveOpenApp = openAppProp ?? osOpenApp;
+const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentColor }) => {
+  const { openApp, theme, updateTheme, addToast } = useOS();
   const { current, playing, progress, duration, togglePlay, nextSong, prevSong } = useMusic();
   const acnh = theme.skin === 'animalcrossing'; // 动森：奶油卡片 + 薄荷进度
   const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
@@ -73,7 +62,7 @@ const NowPlayingSquareWidget: React.FC<NowPlayingSquareWidgetProps> = ({
   const dotColor = paper ? (!hasSong ? '#a66f52' : '#788369') : (!hasSong ? '#fbbf24' : (playing ? '#4ade80' : '#fbbf24'));
 
   const stopProp = (e: React.MouseEvent) => { e.stopPropagation(); };
-  const handlePlay = (e: React.MouseEvent) => { e.stopPropagation(); if (hasSong) togglePlay(); else if (!editing) effectiveOpenApp(AppID.Music); };
+  const handlePlay = (e: React.MouseEvent) => { e.stopPropagation(); if (hasSong) togglePlay(); else openApp(AppID.Music); };
   const handleNext = (e: React.MouseEvent) => { e.stopPropagation(); if (hasSong) nextSong(); };
   const handlePrev = (e: React.MouseEvent) => { e.stopPropagation(); if (hasSong) prevSong(); };
 
@@ -81,7 +70,7 @@ const NowPlayingSquareWidget: React.FC<NowPlayingSquareWidgetProps> = ({
   if (acnh) {
     return (
       <div
-        onClick={() => { if (!editing) effectiveOpenApp(AppID.Music); }}
+        onClick={() => openApp(AppID.Music)}
         className="relative w-full h-full rounded-[1.75rem] overflow-hidden cursor-pointer animate-fade-in transition-transform active:scale-[0.98] flex flex-col items-center justify-between p-3"
         style={{ background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)', color: '#725d42' }}
       >
@@ -91,7 +80,7 @@ const NowPlayingSquareWidget: React.FC<NowPlayingSquareWidgetProps> = ({
         <div className="absolute top-2 right-2 flex items-center gap-1 z-20" onClick={stopProp}>
           <button
             title={theme.customVinylSticker ? "更换贴纸 (长按恢复)" : "自定义黑胶贴纸"}
-            onClick={() => { if (!editing) stickerInputRef.current?.click(); }}
+            onClick={() => stickerInputRef.current?.click()}
             onContextMenu={handleClearSticker}
             className={`w-5 h-5 rounded-full flex items-center justify-center shadow-xs text-[10px] transition ${theme.customVinylSticker ? 'bg-[#19c8b9] text-white' : 'bg-white/70 hover:bg-white text-[#725d42]'}`}
           >
@@ -200,7 +189,7 @@ const NowPlayingSquareWidget: React.FC<NowPlayingSquareWidgetProps> = ({
 
   return (
     <div
-      onClick={() => { if (!editing) effectiveOpenApp(AppID.Music); }}
+      onClick={() => openApp(AppID.Music)}
       className="relative w-full h-full rounded-[1.75rem] overflow-hidden cursor-pointer animate-fade-in group transition-transform active:scale-[0.98] flex flex-col justify-between"
       style={{
         background: palette.cardBg,
@@ -214,28 +203,11 @@ const NowPlayingSquareWidget: React.FC<NowPlayingSquareWidgetProps> = ({
 
       {/* 顶部快捷操作 */}
       <div className="absolute top-2 right-2 flex items-center gap-1 z-20" onClick={stopProp}>
-        {!paper && (
-          <button
-            data-action="widget-action"
-            title={light ? "切换为深色系" : "切换为浅色系"}
-            onClick={() => {
-              updateTheme({ nowPlayingWidgetLight: !light });
-            }}
-            className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] transition active:scale-90 cursor-pointer ${
-              light ? 'bg-black/10 hover:bg-black/20 text-slate-700' : 'bg-white/20 hover:bg-white/40 text-white'
-            }`}
-          >
-            {light ? <Moon size={11} weight="fill" /> : <Sun size={11} weight="fill" />}
-          </button>
-        )}
         <button
-          data-action="widget-action"
           title={theme.customVinylSticker ? "更换贴纸 (右键恢复)" : "自定义黑胶贴纸"}
-          onClick={() => { if (!editing) stickerInputRef.current?.click(); }}
+          onClick={() => stickerInputRef.current?.click()}
           onContextMenu={handleClearSticker}
-          className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] transition cursor-pointer ${
-            theme.customVinylSticker ? 'bg-purple-500 text-white' : light ? 'bg-black/10 hover:bg-black/20 text-slate-700' : 'bg-white/20 hover:bg-white/40 text-white'
-          }`}
+          className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] transition ${theme.customVinylSticker ? 'bg-purple-500 text-white' : 'bg-white/20 hover:bg-white/40'}`}
         >
           <Disc size={11} />
         </button>
