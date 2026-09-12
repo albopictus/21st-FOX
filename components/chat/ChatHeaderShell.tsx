@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { CaretLeft, Lightning, Stop } from '@phosphor-icons/react';
 import { CharacterBuff, CharacterProfile } from '../../types';
 import TokenImg from '../os/TokenImg';
+import { useIsDesktopMode } from '../../hooks/useDeviceMode';
 
 /** header 实际只用到这些字段——放宽类型让群聊传合成对象（群名/群头像）复用本组件 */
 type HeaderCharacter = Pick<CharacterProfile, 'id' | 'name' | 'avatar'> & { activeBuffs?: CharacterBuff[] };
@@ -96,6 +97,7 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
     chromeStyle = 'soft',
     acnh = false,
 }) => {
+    const isDesktop = useIsDesktopMode();
     const buffs: CharacterBuff[] = hideBuffs ? [] : (activeCharacter.activeBuffs || []);
     const [openBuff, setOpenBuff] = useState<CharacterBuff | null>(null);
     const [isBuffListExpanded, setIsBuffListExpanded] = useState(false);
@@ -411,6 +413,8 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                     <rect x="122" y="41" width="3" height="5" /><path d="M114 42 L134 42 L124 30Z" /><path d="M117 35 L131 35 L124 24Z" />
                 </svg>
             )}
+            {/* 电脑宽屏下居中黄金阅读列（max-w-2xl），与下方聊天流与输入框对齐 */}
+            <div className={`w-full flex items-center ${isDesktop ? 'max-w-2xl mx-auto px-4' : ''}`}>
             {selectionMode ? (
                 <div className="flex items-center justify-between w-full">
                     <button onClick={onCancelSelection} className={`text-sm font-bold px-2 py-1 ${secondaryTextClass}`}>取消</button>
@@ -462,56 +466,61 @@ const ChatHeaderShell: React.FC<ChatHeaderShellProps> = ({
                     </button>}
                 </div>
             )}
+            </div>
 
             {isBuffListExpanded && hiddenBuffCount > 0 && (
-                <div ref={buffPanelRef} className="absolute top-full left-4 right-4 mt-1 bg-white rounded-xl shadow-lg border border-slate-200 p-3 z-40">
-                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">全部状态</div>
-                    <div className="max-h-36 overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                        <div className="flex flex-wrap gap-1.5">
-                            {buffs.map((buff) => (
-                                <button
-                                    key={`panel-${buff.id}`}
-                                    onClick={(e) => { e.stopPropagation(); toggleBuff(buff); }}
-                                    onTouchStart={(e) => { e.stopPropagation(); handleLongPressStart(buff); }}
-                                    onTouchEnd={handleLongPressEnd}
-                                    onTouchCancel={handleLongPressEnd}
-                                    onMouseDown={(e) => { if (e.button === 0) handleLongPressStart(buff); }}
-                                    onMouseUp={handleLongPressEnd}
-                                    onMouseLeave={handleLongPressEnd}
-                                    className="text-[10px] px-2 py-1 rounded-lg font-bold border cursor-pointer transition-colors select-none"
-                                    style={buffChipStyle(buff)}
-                                >
-                                    {buff.emoji ? `${buff.emoji} ` : ''}
-                                    {buff.label}
-                                </button>
-                            ))}
+                <div ref={buffPanelRef} className={`absolute top-full ${isDesktop ? 'left-1/2 -translate-x-1/2 w-full max-w-2xl px-4' : 'left-4 right-4'} mt-1 z-40`}>
+                    <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-3">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">全部状态</div>
+                        <div className="max-h-36 overflow-y-auto pr-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                            <div className="flex flex-wrap gap-1.5">
+                                {buffs.map((buff) => (
+                                    <button
+                                        key={`panel-${buff.id}`}
+                                        onClick={(e) => { e.stopPropagation(); toggleBuff(buff); }}
+                                        onTouchStart={(e) => { e.stopPropagation(); handleLongPressStart(buff); }}
+                                        onTouchEnd={handleLongPressEnd}
+                                        onTouchCancel={handleLongPressEnd}
+                                        onMouseDown={(e) => { if (e.button === 0) handleLongPressStart(buff); }}
+                                        onMouseUp={handleLongPressEnd}
+                                        onMouseLeave={handleLongPressEnd}
+                                        className="text-[10px] px-2 py-1 rounded-lg font-bold border cursor-pointer transition-colors select-none"
+                                        style={buffChipStyle(buff)}
+                                    >
+                                        {buff.emoji ? `${buff.emoji} ` : ''}
+                                        {buff.label}
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     </div>
                 </div>
             )}
 
             {openBuff && (
-                <div ref={cardRef} className="absolute top-full left-4 right-4 mt-1 bg-white rounded-xl shadow-lg border border-slate-200 p-3 z-50">
-                    <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                            <span className="text-sm font-bold" style={{ color: openBuff.color || '#db2777' }}>
-                                {openBuff.emoji ? `${openBuff.emoji} ` : ''}
-                                {openBuff.label}
-                            </span>
-                            <div className="text-xs font-bold tracking-wide" style={{ color: openBuff.color || '#db2777' }}>
-                                {intensityDots(openBuff.intensity)}{' '}
-                                {normalizeIntensity(openBuff.intensity) === 1 ? '轻微' : normalizeIntensity(openBuff.intensity) === 2 ? '中等' : '强烈'}
+                <div ref={cardRef} className={`absolute top-full ${isDesktop ? 'left-1/2 -translate-x-1/2 w-full max-w-2xl px-4' : 'left-4 right-4'} mt-1 z-50`}>
+                    <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-3">
+                        <div className="flex items-center justify-between mb-1">
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-bold" style={{ color: openBuff.color || '#db2777' }}>
+                                    {openBuff.emoji ? `${openBuff.emoji} ` : ''}
+                                    {openBuff.label}
+                                </span>
+                                <div className="text-xs font-bold tracking-wide" style={{ color: openBuff.color || '#db2777' }}>
+                                    {intensityDots(openBuff.intensity)}{' '}
+                                    {normalizeIntensity(openBuff.intensity) === 1 ? '轻微' : normalizeIntensity(openBuff.intensity) === 2 ? '中等' : '强烈'}
+                                </div>
                             </div>
+                            <button onClick={() => setOpenBuff(null)} className="text-slate-300 hover:text-slate-500 text-lg leading-none px-1">
+                                {'\u00d7'}
+                            </button>
                         </div>
-                        <button onClick={() => setOpenBuff(null)} className="text-slate-300 hover:text-slate-500 text-lg leading-none px-1">
-                            {'\u00d7'}
-                        </button>
+                        {openBuff.description ? (
+                            <p className="text-sm text-slate-600 leading-relaxed">{openBuff.description}</p>
+                        ) : (
+                            <p className="text-xs text-slate-400 italic">暂无详情</p>
+                        )}
                     </div>
-                    {openBuff.description ? (
-                        <p className="text-sm text-slate-600 leading-relaxed">{openBuff.description}</p>
-                    ) : (
-                        <p className="text-xs text-slate-400 italic">暂无详情</p>
-                    )}
                 </div>
             )}
 

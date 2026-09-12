@@ -4,6 +4,7 @@ import { APP_VERSION, BUILD_LABEL, BUILD_TIME_LABEL } from '../../utils/buildInf
 import { isDevDebugAvailable, subscribeDevDebugAvailability, unlockDevDebug } from '../../utils/devDebug';
 import { trackEvent } from '../../utils/analytics';
 import AndroidUpdateControl from './AndroidUpdateControl';
+import PwaInstallControl from './PwaInstallControl';
 
 /**
  * Settings 底部的版本信息脚注。
@@ -113,6 +114,7 @@ const VersionInfo: React.FC = () => {
                 </div>
             )}
             <AndroidUpdateControl />
+            <PwaInstallControl />
         </div>
     );
 };

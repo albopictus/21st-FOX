@@ -26,6 +26,7 @@ import {
 import { Plus, Minus, X, Lock, LockOpen, ArrowsOutSimple, House, CaretLeft, CaretRight } from '@phosphor-icons/react';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
+import { useIsDesktopMode } from '../hooks/useDeviceMode';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { trackEvent } from '../utils/analytics';
 
@@ -39,6 +40,11 @@ const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'))
 const PAGE_PAD_X = 24; // px-6
 const GRID_COL_GAP = 8;  // gap-x-2
 const GRID_ROW_GAP = 12; // 紧凑行距(12px)，对齐手机视口高度，防纵向撑满滚动
+// 格子边长绝对下限：AppIcon 的图标本体是写死的 56px（w-[3.5rem]，不跟着 cellPx
+// 缩放），加间距和文字标签，72px 是能完整放下不被裁切的最小值。低于这个数字，
+// 图标会被自己所在的格子裁切边界切掉一块，比"这一行/这一页放不下、干净整行
+// 隐藏"严重得多——所以这不是"越小越省空间"的调优旋钮，是渲染正确性的硬下限。
+const MIN_CELL_PX = 72;
 
 // 所有页面统一用这份公式算格子高度：横向 gap(GRID_COL_GAP) 和纵向 gap(GRID_ROW_GAP)
 // 不相等，如果格子高度直接照抄 cellPx，跨 2 格拼出来的组件（四宫格、相框、音乐组件……）
@@ -436,29 +442,55 @@ interface PageIndicatorsProps {
   activePageIndex: number;
   contentColor: string;
   bottomInset: string;
+  onJumpToPage?: (index: number) => void;
 }
 
+// 移动端保持原本纤细无交互的点状条；电脑模式（见 useIsDesktopMode）静默升级成
+// 悬浮毛玻璃胶囊，放大点位与点击热区，点击任意点平滑跳页。见
+// desktop-adaptation-plan.md 模块 2。
 const PageIndicators: React.FC<PageIndicatorsProps> = React.memo(({
   totalPages,
   activePageIndex,
   contentColor,
   bottomInset,
-}) => (
-  <div
-    className="absolute left-0 w-full flex justify-center gap-1 pointer-events-none z-20"
-    style={{ bottom: `calc(${bottomInset} + 5.5rem)` }}
-    aria-hidden="true"
-  >
-    {Array.from({ length: totalPages }).map((_, i) => (
-      <div key={i} className="flex h-1.5 w-4 shrink-0 items-center justify-center">
-        <div
-          className={`h-1.5 rounded-full transform-gpu transition-[width,opacity] duration-300 ${activePageIndex === i ? 'w-4 opacity-100' : 'w-1.5 opacity-40'}`}
-          style={{ backgroundColor: contentColor }}
-        />
+  onJumpToPage,
+}) => {
+  const isDesktop = useIsDesktopMode();
+
+  return (
+    <div
+      className={`absolute left-0 w-full flex justify-center z-20 ${isDesktop ? 'pointer-events-none' : 'gap-1 pointer-events-none'}`}
+      style={{ bottom: `calc(${bottomInset} + 5.5rem)` }}
+      aria-hidden={!isDesktop}
+    >
+      <div
+        className={isDesktop
+          ? 'flex items-center gap-0.5 rounded-full border border-white/20 bg-black/10 px-3.5 py-1.5 shadow-sm backdrop-blur-md pointer-events-auto dark:bg-white/10'
+          : 'flex items-center gap-1'}
+      >
+        {Array.from({ length: totalPages }).map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            tabIndex={isDesktop ? 0 : -1}
+            aria-label={isDesktop ? `跳转到第 ${i + 1} 页` : undefined}
+            onClick={isDesktop ? (e) => { e.stopPropagation(); onJumpToPage?.(i); } : undefined}
+            className={`group flex shrink-0 items-center justify-center ${isDesktop ? 'h-6 w-6 cursor-pointer' : 'h-1.5 w-4'}`}
+          >
+            <span
+              className={`rounded-full transform-gpu transition-[width,opacity,transform] duration-300 ${
+                isDesktop
+                  ? `h-2.5 group-hover:scale-125 ${activePageIndex === i ? 'w-7 opacity-100' : 'w-2.5 opacity-50 group-hover:opacity-80'}`
+                  : `h-1.5 ${activePageIndex === i ? 'w-4 opacity-100' : 'w-1.5 opacity-40'}`
+              }`}
+              style={{ backgroundColor: contentColor }}
+            />
+          </button>
+        ))}
       </div>
-    ))}
-  </div>
-));
+    </div>
+  );
+});
 
 interface LauncherDockProps {
   dockApps: typeof INSTALLED_APPS;
@@ -518,6 +550,7 @@ let _lastPageIndex = -1;
 
 const Launcher: React.FC = () => {
   const { openApp, characters, activeCharacterId, theme, updateTheme, lastMsgTimestamp, isDataLoaded, unreadMessages } = useOS();
+  const isDesktop = useIsDesktopMode();
 
   // 小组件数据（本地缓存，避免 context 抖动）
   const [widgetChar, setWidgetChar] = useState<CharacterProfile | null>(null);
@@ -566,16 +599,54 @@ const Launcher: React.FC = () => {
   useLayoutEffect(() => {
     const measure = () => {
       const raw = scrollContainerRef.current?.clientWidth || 380;
-      const w = Math.min(raw, 27 * 16); // 27rem 上限（宽屏收窄居中）
+      // 电脑模式：允许桌面网格明显变宽变大，不再收窄成手机宽度——用户反馈过窄屏两侧
+      // 大片空白不好看。仍然设上限，避免超宽屏下格子被拉得过于夸张；GRID_COLS 依旧
+      // 是 4，不改列数（改列数要连带迁移所有已保存布局的坐标系，风险高得多），只是
+      // 让同样 4 列的格子本身更大。见 desktop-adaptation-plan.md 模块 4-C 的调整记录。
+      const widthCap = isDesktop ? 46 * 16 : 27 * 16; // 手机 27rem(432px)，桌面 46rem(736px)
+      const cellCap = isDesktop ? 108 : 82;
+      const w = Math.min(raw, widthCap);
       const inner = w - PAGE_PAD_X * 2 - GRID_COL_GAP * (GRID_COLS - 1);
-      // 下限 72，上限 82：自适应填满横向宽度，两侧间距对称饱满，避免小卡片被挤得过小
-      const size = Math.max(72, Math.min(82, Math.floor(inner / GRID_COLS)));
+      // MIN_CELL_PX=72 不是随便定的：AppIcon 的图标本体是写死的 56px（w-[3.5rem]，
+      // 不跟着 cellPx 缩放，见 components/os/AppIcon.tsx），加上间距和文字标签，
+      // 72px 是能完整放下一枚图标+标签、不被格子裁切边界切掉的下限——之前手机端
+      // 用了这么多年没出过事，就是因为手机最窄也有 375px 宽，从没让格子低于这个
+      // 数字过。曾经尝试过把这个下限降到 48 来解决"窄窗口横向溢出"，结果 48px
+      // 的格子装不下 56px 的图标，图标被裁切掉一块——这是实测出的真教训：格子可以
+      // 因为放不下而整行整页地干净裁切（page 级 overflow-hidden），但不能小到让
+      // 图标本身在自己的格子里裁切变形，两种"装不下"的后果完全不是一个量级。
+      const widthBasedSize = Math.min(cellCap, Math.max(MIN_CELL_PX, Math.floor(inner / GRID_COLS)));
+
+      // cellPx 一直只按宽度算，从没管过高度——手机上从没出过事，因为手机视口天生
+      // 又窄又高，宽度算出来的格子边长顺手就在纵向也放得下。但桌面窗口可以被浏览器
+      // 缩放（Ctrl+滚轮）压得又宽又矮，宽度那边还有富余、纵向却装不下 6 行格子，
+      // 表现出来就是第二行图标和下面悬浮的分页胶囊、Dock 挤在一起截断/重叠。
+      // 用风车页（6 行 + 最小的 pt-2/pb-4 留白）当最紧张的场景反推一个高度上限：
+      // 分页胶囊是绝对定位悬浮在网格上方 `bottomInset + 5.5rem` 处，这块空间必须
+      // 留出来，不能被格子占掉。
+      const scrollH = scrollContainerRef.current?.clientHeight || 700;
+      const windmillPadding = 8 + 16; // pt-2 + pb-4
+      const indicatorReserve = 20 + 88; // launcherBottomInset(1.25rem) + 5.5rem
+      const availableForGrid = scrollH - windmillPadding - indicatorReserve;
+      const rowGapTotal = GRID_ROW_GAP * (GRID_ROWS - 1);
+      // cellHeightFor(p) 恒等于 p - (GRID_ROW_GAP - GRID_COL_GAP) / 2，这里反解出
+      // 「纵向最多能放下多大的 cellPx」，具体推导见 cellHeightFor 定义。
+      const heightBasedSize = Math.floor((availableForGrid - rowGapTotal) / GRID_ROWS) + (GRID_ROW_GAP - GRID_COL_GAP) / 2;
+
+      const size = Math.max(MIN_CELL_PX, Math.min(widthBasedSize, heightBasedSize));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, []);
+    // 用 ResizeObserver 盯着容器本身，而不是只听 window 的 resize：高度这边真正会
+    // 变的时机不止"用户拖窗口/缩放"——开机锁屏卸载、字体加载完成撑高角色卡这些
+    // 都会让 scrollContainerRef 的实际可用高度在不触发 window resize 的情况下悄悄
+    // 变化。之前只挂 window resize 时试过，量出来的高度是开机早期一次性量到的偏
+    // 大的值，之后从没重新量过，导致第二页往后这种高行数页面照旧被截断——这是
+    // 实测复现过的真问题，不是纸面推理。
+    const ro = new ResizeObserver(measure);
+    if (scrollContainerRef.current) ro.observe(scrollContainerRef.current);
+    return () => ro.disconnect();
+  }, [isDesktop]);
   const gridWidthPx = GRID_COLS * cellPx + (GRID_COLS - 1) * GRID_COL_GAP;
 
   // ───────── 页面数据 ─────────
@@ -967,6 +1038,21 @@ const Launcher: React.FC = () => {
     };
     displacements?: Map<string, { x: number; y: number }>;
   }>(null);
+
+  // 电脑模式：点击分页胶囊直接跳页。复用「边缘拖拽自动翻页」同一套 programmaticScrollTargetRef
+  // 标记（见上面 handleScroll 里的读取逻辑），避免平滑滚动过程中 handleScroll 读到的中间
+  // scrollLeft 插值把 activePageIndex 冲乱，和现有拖拽状态机走同一条路，不另起一套判断。
+  const jumpToPage = useCallback((index: number) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const target = Math.max(0, Math.min(pagesRef.current.length - 1, index));
+    if (target === activePageIndexRef.current) return;
+    programmaticScrollTargetRef.current = target;
+    activePageIndexRef.current = target;
+    setActivePageIndex(target);
+    _lastPageIndex = target;
+    el.scrollTo({ left: target * el.clientWidth, behavior: 'smooth' });
+  }, []);
 
   // 长按预警：按到临界值前一小段时间，先让被按住的图标轻微下沉变暗，
   // 给用户一个「再按住就要进编辑态了」的信号，可以主动松手取消——
@@ -1785,6 +1871,41 @@ const Launcher: React.FC = () => {
     setQuadManagerTarget({ pageIndex: pi, itemId: item.id, slotIndex });
   }, []);
 
+  // 电脑模式：全局方向键翻页（←/→）。见 desktop-adaptation-plan.md 模块 3。
+  // 防冲突范围：
+  // - 焦点在输入框/textarea/select/contenteditable 时不接管，文本光标优先；
+  // - 中文输入法组词中（isComposing）不接管，拼音选字要用方向键翻候选词；
+  // - 按了 Alt/Ctrl/Cmd 等修饰键不接管，避免拦掉浏览器自己的前进后退等系统手势；
+  // - 弹层（组件库/图片选择/四宫格管理/加页菜单/见面全屏）打开时不接管，这些弹层
+  //   自己的方向键交互（如果以后加）优先；
+  // - 元素标了 [data-no-arrow-nav] 视为自行声明"这里方向键归我管"，同样放行。
+  // - 正在拖拽条目（gesture.current 非空）时不接管——拖到边缘自动翻页那套已经在管
+  //   了，这时候按方向键跟正在进行的拖拽手势抢页面会打架。
+  // 编辑态（layoutEditing）本身不再拦截：用户明确要求整理桌面时也能用方向键翻页，
+  // 不用非得把条目拖到屏幕边缘才能翻——只要没在真的拖东西，两套翻页机制不会撞车。
+  useEffect(() => {
+    if (!isDesktop) return;
+    const overlayOpen = galleryOpen || scheduleViewerOpen || !!imagePicker || !!quadManagerTarget || addPageMenu !== null;
+    if (overlayOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (gesture.current?.active) return;
+      const target = e.target;
+      if (target instanceof HTMLElement) {
+        if (target.isContentEditable) return;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
+        if (target.closest('[data-no-arrow-nav]')) return;
+      }
+      e.preventDefault();
+      jumpToPage(activePageIndexRef.current + (e.key === 'ArrowLeft' ? -1 : 1));
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isDesktop, galleryOpen, scheduleViewerOpen, imagePicker, quadManagerTarget, addPageMenu, jumpToPage]);
+
   const handleRemoveQuadApp = useCallback((pageIndex: number, itemId: string, slotIndex: number) => {
     const page = pagesRef.current[pageIndex];
     if (!page) return;
@@ -2003,6 +2124,7 @@ const Launcher: React.FC = () => {
         activePageIndex={activePageIndex}
         contentColor={contentColor}
         bottomInset={launcherBottomInset}
+        onJumpToPage={jumpToPage}
       />
 
       {/* 编辑态：当前页控件（起始页 / 增删页），放在固定栏与网格之间，方便单手点击 */}

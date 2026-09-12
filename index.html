@@ -231,6 +231,49 @@
       .vr-reader-scroll::-webkit-scrollbar-thumb:hover {
         background: rgba(140,140,140,0.55);
       }
+      /* 桌面端专属药丸胶囊滑条（ui-writing-rules.md: 磨砂微透、圆角胶囊、移动端零回归）：
+         - 移动端（无 .is-desktop 时）：与 .no-scrollbar 表现完全一致，彻底隐藏原生滚条，保持触控沉浸感；
+         - 桌面端（挂载 .is-desktop 时）：激活 10px 药丸圆角滑块，支持鼠标抓取快速拖拽；
+         - 颜色跟随全局色彩设计（--primary-hue, --primary-sat）：
+           动态联动系统外观主题色，在浅色、暗色及壁纸下呈现优雅的半透明磨砂质感；
+         - 交互反馈：常态 0.45 磨砂微透，鼠标悬停加深至 0.75，抓取拖动高亮至 0.95，滑轨悬停时浮现微透导向槽。 */
+      .desktop-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+      .desktop-scrollbar {
+        -ms-overflow-style: none;
+        scrollbar-width: none;
+      }
+      html.is-desktop .desktop-scrollbar {
+        -ms-overflow-style: auto;
+        scrollbar-width: thin;
+        scrollbar-color: hsla(var(--primary-hue, 245), var(--primary-sat, 25%), 52%, 0.45) transparent;
+      }
+      html.is-desktop .desktop-scrollbar::-webkit-scrollbar {
+        display: block;
+        width: 10px;
+        height: 10px;
+      }
+      html.is-desktop .desktop-scrollbar::-webkit-scrollbar-track {
+        background: transparent;
+        border-radius: 9999px;
+      }
+      html.is-desktop .desktop-scrollbar::-webkit-scrollbar-track:hover {
+        background: hsla(var(--primary-hue, 245), var(--primary-sat, 25%), 50%, 0.08);
+      }
+      html.is-desktop .desktop-scrollbar::-webkit-scrollbar-thumb {
+        background: hsla(var(--primary-hue, 245), var(--primary-sat, 25%), 52%, 0.45);
+        border-radius: 9999px;
+        border: 1px solid transparent;
+        background-clip: padding-box;
+        transition: background-color 0.2s ease;
+      }
+      html.is-desktop .desktop-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: hsla(var(--primary-hue, 245), var(--primary-sat, 25%), 46%, 0.75);
+      }
+      html.is-desktop .desktop-scrollbar::-webkit-scrollbar-thumb:active {
+        background: hsla(var(--primary-hue, 245), var(--primary-sat, 25%), 40%, 0.95);
+      }
       input:focus, textarea:focus, select:focus {
         outline: none;
       }

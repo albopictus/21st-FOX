@@ -13,6 +13,7 @@ import { AcnhActionTile } from '../os/acnhIcons';
 import { isIOSStandaloneWebApp } from '../../utils/iosStandalone';
 import { trackEvent } from '../../utils/analytics';
 import { findEmojiSuggestions } from '../../utils/emojiSuggestions';
+import { useIsDesktopMode } from '../../hooks/useDeviceMode';
 
 const EMOJI_PAGE_SIZE = 40;
 
@@ -105,6 +106,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     chromeStyle = 'soft',
     acnh = false,
 }) => {
+    const isDesktop = useIsDesktopMode();
     const chatImageInputRef = useRef<HTMLInputElement>(null);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const sendButtonRef = useRef<HTMLButtonElement>(null);
@@ -174,7 +176,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
     const handleKeyDown = (e: React.KeyboardEvent) => {
         // 候选词确认不能当发送；229 兼容部分输入法在确认时漏报 isComposing。
         if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-        if (e.key === 'Escape' && canEndEditing) {
+        if (e.key === 'Escape') {
             textareaRef.current?.blur();
         }
         if (enterToSend && e.key === 'Enter' && !e.shiftKey) {
@@ -477,108 +479,113 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
             {suggestedEmojis.length > 0 && (
                 <div ref={suggestionsRef} role="region" aria-label="表情包联想"
                     className={`sully-emoji-suggestions border-b px-4 pb-2 pt-2 ${isDiscordStyle ? 'border-white/10 bg-slate-900 text-slate-300' : isPixelStyle ? 'border-[#8f674a]/20 text-[#8f674a]' : 'border-slate-100 text-slate-500'}`}>
-                    <div className="flex items-center justify-between gap-2">
-                        <span className="text-[10px]">表情联想 · 点击发送</span>
-                        <button type="button" aria-label="收起表情联想" onClick={() => setDismissedSuggestionInput(input)}
-                            className="-mr-2 flex h-8 w-8 items-center justify-center rounded-full text-base hover:bg-slate-400/10">×</button>
-                    </div>
-                    <div className="flex gap-2 overflow-x-auto overscroll-x-contain pb-1">
-                        {suggestedEmojis.map(emoji => (
-                            <button key={emoji.url} type="button" aria-label={`发送表情：${emoji.name}`} title={emoji.name}
-                                onMouseDown={event => event.preventDefault()}
-                                onClick={() => {
-                                    setDismissedSuggestionInput(input);
-                                    onPanelAction('send-emoji', emoji);
-                                    textareaRef.current?.focus({ preventScroll: true });
-                                }}
-                                className="flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl p-1 hover:bg-slate-400/10 active:scale-95 transition-transform motion-reduce:transition-none">
-                                <TokenImg value={emoji.url} alt={emoji.name} decoding="async" className="h-12 w-12 object-contain" />
-                                <span className="w-full truncate text-center text-[10px]">{emoji.name}</span>
-                            </button>
-                        ))}
+                    <div className={isDesktop ? 'max-w-2xl mx-auto' : ''}>
+                        <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px]">表情联想 · 点击发送</span>
+                            <button type="button" aria-label="收起表情联想" onClick={() => setDismissedSuggestionInput(input)}
+                                className="-mr-2 flex h-8 w-8 items-center justify-center rounded-full text-base hover:bg-slate-400/10">×</button>
+                        </div>
+                        <div className="flex gap-2 overflow-x-auto overscroll-x-contain pb-1">
+                            {suggestedEmojis.map(emoji => (
+                                <button key={emoji.url} type="button" aria-label={`发送表情：${emoji.name}`} title={emoji.name}
+                                    onMouseDown={event => event.preventDefault()}
+                                    onClick={() => {
+                                        setDismissedSuggestionInput(input);
+                                        onPanelAction('send-emoji', emoji);
+                                        textareaRef.current?.focus({ preventScroll: true });
+                                    }}
+                                    className="flex w-16 shrink-0 flex-col items-center gap-1 rounded-xl p-1 hover:bg-slate-400/10 active:scale-95 transition-transform motion-reduce:transition-none">
+                                    <TokenImg value={emoji.url} alt={emoji.name} decoding="async" className="h-12 w-12 object-contain" />
+                                    <span className="w-full truncate text-center text-[10px]">{emoji.name}</span>
+                                </button>
+                            ))}
+                        </div>
                     </div>
                 </div>
             )}
             {autoReplySeconds !== null && !selectionMode && (
-                <div className="flex min-h-10 items-center justify-center gap-1 px-4 text-xs text-slate-500">
+                <div className={`flex min-h-10 items-center justify-center gap-1 px-4 text-xs text-slate-500 ${isDesktop ? 'max-w-2xl mx-auto' : ''}`}>
                     <span role="status">即将回复 · {autoReplySeconds} 秒</span>
                     <button type="button" onClick={onCancelAutoReply} className="min-h-11 px-3 font-bold text-primary" aria-label="取消自动回复">取消</button>
                 </div>
             )}
             
-            {selectionMode ? (
-                <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
-                    {onForwardSelected && (
+            {/* 电脑宽屏下居中黄金阅读列（max-w-2xl），与上方聊天流与顶栏对齐 */}
+            <div className={isDesktop ? 'max-w-2xl mx-auto w-full' : 'w-full'}>
+                {selectionMode ? (
+                    <div className={`p-3 flex gap-2 ${isPixelStyle ? 'bg-[#f3e7d6]' : isDiscordStyle ? 'bg-slate-900/60 backdrop-blur-md' : 'bg-white/50 backdrop-blur-md'}`}>
+                        {onForwardSelected && (
+                            <button
+                                onClick={() => { onForwardSelected?.(); trackEvent('转发选中的消息'); }}
+                                disabled={selectedCount === 0}
+                                className={`flex-1 py-3 font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 ${selectedCount === 0 ? 'bg-slate-200 text-slate-400 shadow-none' : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-blue-200'}`}
+                            >
+                                <ShareNetwork className="w-5 h-5" weight="bold" />
+                                转发 ({selectedCount})
+                            </button>
+                        )}
                         <button
-                            onClick={() => { onForwardSelected?.(); trackEvent('转发选中的消息'); }}
-                            disabled={selectedCount === 0}
-                            className={`flex-1 py-3 font-bold rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 ${selectedCount === 0 ? 'bg-slate-200 text-slate-400 shadow-none' : 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white shadow-blue-200'}`}
+                            onClick={() => { onDeleteSelected(); trackEvent('批量删除选中的消息'); }}
+                            className={`${onForwardSelected ? 'flex-1' : 'w-full'} py-3 bg-red-500 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2`}
                         >
-                            <ShareNetwork className="w-5 h-5" weight="bold" />
-                            转发 ({selectedCount})
-                        </button>
-                    )}
-                    <button
-                        onClick={() => { onDeleteSelected(); trackEvent('批量删除选中的消息'); }}
-                        className={`${onForwardSelected ? 'flex-1' : 'w-full'} py-3 bg-red-500 text-white font-bold rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center gap-2`}
-                    >
-                        <Trash className="w-5 h-5" weight="bold" />
-                        删除 ({selectedCount})
-                    </button>
-                </div>
-            ) : (
-                <div className="p-3 px-4 flex gap-3 items-end relative">
-                    <button aria-label="聊天功能" aria-expanded={showPanel === 'actions'} onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className={actionButtonClass}>
-                        <Plus className="w-6 h-6" weight="bold" />
-                    </button>
-                    <div className={`flex-1 min-w-0 flex items-center px-1 transition-all ${useIOSStandaloneInputFix ? 'overflow-visible' : 'overflow-hidden'} ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : isDiscordStyle ? 'focus-within:bg-slate-800 focus-within:border-white/20' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
-                        <textarea 
-                            ref={textareaRef}
-                            rows={1} 
-                            value={input} 
-                            onChange={(e) => setInput(e.target.value)} 
-                            onKeyDown={handleKeyDown} 
-                            onFocus={handleInputFocus}
-                            onBlur={() => setIsInputFocused(false)}
-                            onCompositionStart={() => setIsComposing(true)}
-                            onCompositionEnd={() => setIsComposing(false)}
-                            inputMode="text"
-                            enterKeyHint={enterToSend ? 'send' : 'enter'}
-                            autoCorrect="on"
-                            autoCapitalize="sentences"
-                            className={`flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`} 
-                            placeholder="Message..." 
-                            style={{ height: 'auto' }} 
-                        />
-                        <button onClick={() => setShowPanel(showPanel === 'emojis' ? 'none' : 'emojis')} className={`p-2 shrink-0 ${isDiscordStyle ? 'text-slate-400 hover:text-sky-300' : isPixelStyle ? 'text-[#8f674a] hover:text-[#a16207]' : 'text-slate-400 hover:text-primary'}`}>
-                            <Smiley className="w-6 h-6" weight="regular" />
+                            <Trash className="w-5 h-5" weight="bold" />
+                            删除 ({selectedCount})
                         </button>
                     </div>
-                    <button 
-                        ref={sendButtonRef}
-                        type="button"
-                        onPointerDown={e => {
-                            // 保留点下时的发送模式与光标，避免 blur 先于 click 把这一下变成生成。
-                            if (canEndEditing && isInputFocused && e.button === 0) e.preventDefault();
-                        }}
-                        onClick={isGenerateButton ? onGenerate : onSend}
-                        disabled={primaryButtonDisabled}
-                        aria-label={isGenerateButton ? (isTyping ? '正在生成回复' : '生成回复') : '发送文字'}
-                        title={isGenerateButton ? (isTyping ? '正在生成回复' : '让对方回复已发送的消息') : '发送文字'}
-                        className={`${sendButtonClass} ${primaryButtonDisabled ? 'opacity-45 shadow-none' : ''}`}
-                    >
-                        {sendButtonStyle === 'pill'
-                            ? <span>{isGenerateButton ? (isTyping ? '生成中' : '生成') : '发送'}</span>
-                            : isGenerateButton
-                                ? <Lightning className={`w-5 h-5 ${isTyping ? 'animate-pulse' : ''}`} weight="fill" />
-                                : <PaperPlaneTilt className="w-5 h-5" weight="fill" />}
-                    </button>
+                ) : (
+                    <div className="p-3 px-4 flex gap-3 items-end relative">
+                        <button aria-label="聊天功能" aria-expanded={showPanel === 'actions'} onClick={() => setShowPanel(showPanel === 'actions' ? 'none' : 'actions')} className={actionButtonClass}>
+                            <Plus className="w-6 h-6" weight="bold" />
+                        </button>
+                        <div className={`flex-1 min-w-0 flex items-center px-1 transition-all ${useIOSStandaloneInputFix ? 'overflow-visible' : 'overflow-hidden'} ${inputWrapClass} ${isPixelStyle ? 'focus-within:bg-[#fff7ed]' : isDiscordStyle ? 'focus-within:bg-slate-800 focus-within:border-white/20' : 'border border-transparent focus-within:bg-white focus-within:border-primary/30'}`}>
+                            <textarea 
+                                ref={textareaRef}
+                                rows={1} 
+                                value={input} 
+                                onChange={(e) => setInput(e.target.value)} 
+                                onKeyDown={handleKeyDown} 
+                                onFocus={handleInputFocus}
+                                onBlur={() => setIsInputFocused(false)}
+                                onCompositionStart={() => setIsComposing(true)}
+                                onCompositionEnd={() => setIsComposing(false)}
+                                inputMode="text"
+                                enterKeyHint={enterToSend ? 'send' : 'enter'}
+                                autoCorrect="on"
+                                autoCapitalize="sentences"
+                                className={`flex-1 min-w-0 bg-transparent px-4 py-3 ${useIOSStandaloneInputFix ? 'text-[16px]' : 'text-[15px]'} resize-none max-h-24 no-scrollbar ${isDiscordStyle ? 'text-white placeholder:text-slate-500' : isPixelStyle ? 'text-[#6a4c35] placeholder:text-[#9b8677]' : ''}`} 
+                                placeholder="Message..." 
+                                style={{ height: 'auto' }} 
+                            />
+                            <button onClick={() => setShowPanel(showPanel === 'emojis' ? 'none' : 'emojis')} className={`p-2 shrink-0 ${isDiscordStyle ? 'text-slate-400 hover:text-sky-300' : isPixelStyle ? 'text-[#8f674a] hover:text-[#a16207]' : 'text-slate-400 hover:text-primary'}`}>
+                                <Smiley className="w-6 h-6" weight="regular" />
+                            </button>
+                        </div>
+                        <button 
+                            ref={sendButtonRef}
+                            type="button"
+                            onPointerDown={e => {
+                                // 保留点下时的发送模式与光标，避免 blur 先于 click 把这一下变成生成。
+                                if (canEndEditing && isInputFocused && e.button === 0) e.preventDefault();
+                            }}
+                            onClick={isGenerateButton ? onGenerate : onSend}
+                            disabled={primaryButtonDisabled}
+                            aria-label={isGenerateButton ? (isTyping ? '正在生成回复' : '生成回复') : '发送文字'}
+                            title={isGenerateButton ? (isTyping ? '正在生成回复' : '让对方回复已发送的消息') : '发送文字'}
+                            className={`${sendButtonClass} ${primaryButtonDisabled ? 'opacity-45 shadow-none' : ''}`}
+                        >
+                            {sendButtonStyle === 'pill'
+                                ? <span>{isGenerateButton ? (isTyping ? '生成中' : '生成') : '发送'}</span>
+                                : isGenerateButton
+                                    ? <Lightning className={`w-5 h-5 ${isTyping ? 'animate-pulse' : ''}`} weight="fill" />
+                                    : <PaperPlaneTilt className="w-5 h-5" weight="fill" />}
+                        </button>
 
-                    {emojiSelectionMode && (
-                        <div className={`absolute inset-0 z-10 ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
-                    )}
-                </div>
-            )}
+                        {emojiSelectionMode && (
+                            <div className={`absolute inset-0 z-10 ${isPixelStyle ? 'bg-[#eadfce]/70 backdrop-blur-[2px]' : isDiscordStyle ? 'bg-slate-950/70 backdrop-blur-[2px]' : 'bg-white/60 backdrop-blur-[2px]'}`} />
+                        )}
+                    </div>
+                )}
+            </div>
 
             {/* Panels — always mounted, height transitions for smooth open/close */}
             {!selectionMode && (
@@ -586,6 +593,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                     className={`sully-chat-panel ${panelClass} overflow-hidden relative z-0 flex flex-col will-change-[max-height] transition-[max-height] duration-200 ease-out`}
                     style={{ maxHeight: showPanel !== 'none' ? '18rem' : '0px' }}
                 >
+                    <div className={`w-full h-full flex flex-col overflow-hidden ${isDesktop ? 'max-w-2xl mx-auto' : ''}`}>
                     
                     {/* Emojis Panel with Categories */}
                     {showPanel === 'emojis' && (
@@ -1013,7 +1021,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                         </div>
                      )}
                      {showPanel === 'chars' && (
-                        <div className="p-5 space-y-6 overflow-y-auto no-scrollbar">
+                        <div className="p-5 space-y-6 overflow-y-auto desktop-scrollbar">
                             <div>
                                 <button
                                     type="button"
@@ -1039,7 +1047,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                                         className="w-full mb-2.5 px-3 py-2 rounded-xl bg-white/70 border border-slate-200 text-xs focus:outline-none focus:border-indigo-300"
                                     />
                                 )}
-                                <div className="flex flex-wrap gap-2 px-1 max-h-48 overflow-y-auto no-scrollbar pb-1">
+                                <div className="flex flex-wrap gap-2 px-1 max-h-48 overflow-y-auto desktop-scrollbar pb-1">
                                     {(bubbleSearch.trim() ? [] : Object.values(PRESET_THEMES)).map(t => (
                                         <button key={t.id} onClick={() => onUpdateTheme(t.id)} className={`flex items-center gap-1.5 px-3.5 py-2 rounded-2xl text-xs font-bold border transition-all ${activeThemeId === t.id ? 'bg-primary text-white border-primary shadow-md' : 'bg-white border-slate-200 text-slate-600'}`}>
                                             <span className="flex -space-x-1">
@@ -1119,6 +1127,7 @@ const ChatInputArea: React.FC<ChatInputAreaProps> = ({
                             </div>
                         </div>
                     )}
+                    </div>
                 </div>
             )}
         </div>

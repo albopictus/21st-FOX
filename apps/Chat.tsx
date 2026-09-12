@@ -14,6 +14,8 @@ import { FadersHorizontal } from '@phosphor-icons/react';
 import { generateDailyScheduleForChar, isScheduleFeatureOn } from '../utils/scheduleGenerator';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
+import { useIsDesktopMode } from '../hooks/useDeviceMode';
+import { useArrowScroll } from '../hooks/useArrowScroll';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { generateSlotTheater } from '../utils/theaterGenerator';
 import TheaterPlayer from '../components/schedule/TheaterPlayer';
@@ -142,6 +144,7 @@ const Chat: React.FC = () => {
     const { activeApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
+    const isDesktop = useIsDesktopMode();
 
     // 记忆宫殿高水位（用于清空聊天时的安全检查）
     const getMemoryPalaceHWM = useCallback(async (charId: string): Promise<number> => {
@@ -445,6 +448,26 @@ const Chat: React.FC = () => {
     });
     const triggerAIRef = useRef(triggerAI);
     triggerAIRef.current = triggerAI;
+
+    // 电脑模式：消息流全局方向键（↑/↓/PageUp/PageDown/Home/End）无感平滑滚动。
+    // 防冲突守卫：输入框聚焦/中文组词/修饰键自动放行；遇到弹层/全屏演出等阻断态时自动注销。
+    useArrowScroll(scrollRef, {
+        enabled: isDesktop,
+        blocked: selectionMode
+            || modalType !== 'none'
+            || showGiftModal
+            || theaterSlotIdx !== null
+            || showHistoryCleanup
+            || showEntry
+            || !!memoryPalaceResult
+            || !!lastDigestResult
+            || showActiveMsg2Modal
+            || showThinkingChainModal
+            || fineTuneOpen
+            || collaborationOpen
+            || memoryRepairOpen
+            || favoritesOpen,
+    });
 
     // --- Voice TTS for chat messages ---
     interface VoiceData { url: string; originalText: string; spokenText?: string; lang?: string; favorite?: boolean; }
@@ -3827,7 +3850,7 @@ const Chat: React.FC = () => {
                                  </p>
                              )}
                          </div>
-                         <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2 no-scrollbar">
+                         <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2 desktop-scrollbar">
                              {memoryPalaceResult.memories.map((m, i) => {
                                  const roomMeta: Record<string, { label: string; color: string }> = {
                                      living_room: { label: '客厅', color: '#f59e0b' },
@@ -4128,7 +4151,7 @@ const Chat: React.FC = () => {
                             </div>
 
                             {/* 内容列表 */}
-                            <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-3 no-scrollbar">
+                            <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-3 desktop-scrollbar">
                                 {groups.map(g => (
                                     <div key={g.key}
                                         className="rounded-2xl overflow-hidden"
@@ -4183,7 +4206,9 @@ const Chat: React.FC = () => {
                 );
             })()}
 
-            <div ref={scrollRef} onScroll={handleChatScroll} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+            <div ref={scrollRef} onScroll={handleChatScroll} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 desktop-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+                {/* 电脑宽屏下居中黄金阅读列（max-w-2xl），气泡占比自然受控，两侧透出背景 */}
+                <div className={`w-full flex-1 flex flex-col ${isDesktop ? 'max-w-2xl mx-auto px-4' : ''}`}>
                 {windowedFocusMsgId !== null && (
                     <div className="sticky top-0 z-20 flex justify-center pb-2 pointer-events-none">
                         <button onClick={handleBackToCurrent} className="pointer-events-auto px-4 py-2 bg-primary text-white rounded-full text-xs font-bold shadow-lg active:scale-95 transition-transform flex items-center gap-1.5">
@@ -4446,73 +4471,77 @@ const Chat: React.FC = () => {
                         </div>
                     </div>
                 )}
+                </div>
             </div>
 
             <div className="relative z-40">
-                {mcdActivated && (
-                    <div className="flex items-center justify-between px-4 py-1.5 bg-yellow-50 border-b border-yellow-200 text-xs">
-                        <div className="flex items-center gap-1.5 text-yellow-700 font-bold">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"/>
-                            🍔 麦请求进行中
-                        </div>
-                        <button
-                          onClick={() => handleSendText(MCD_DEACTIVATE_TRIGGER, 'text', { mcdDeactivate: true })}
-                          className="px-2.5 py-0.5 bg-yellow-200/80 text-yellow-800 rounded-full text-[11px] font-bold active:scale-95"
-                        >
-                          结束
-                        </button>
-                    </div>
-                )}
-                {luckinActivated && (
-                    <div className="flex items-center justify-between px-4 py-1.5 bg-[#0B1F3A]/5 border-b border-[#0B1F3A]/15 text-xs">
-                        <div className="flex items-center gap-1.5 text-[#0B1F3A] font-bold">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#C6A15B] animate-pulse"/>
-                            🦌 瑞一杯进行中
-                            {luckinChatRef.current?.cityName && <span className="font-normal text-[#0B1F3A]/60">· {luckinChatRef.current.cityName}</span>}
-                        </div>
-                        <div className="flex items-center gap-1.5">
+                {/* 电脑宽屏下居中黄金阅读列（max-w-2xl），与输入框和消息流对齐 */}
+                <div className={isDesktop ? 'max-w-2xl mx-auto w-full' : 'w-full'}>
+                    {mcdActivated && (
+                        <div className="flex items-center justify-between px-4 py-1.5 bg-yellow-50 border-b border-yellow-200 text-xs">
+                            <div className="flex items-center gap-1.5 text-yellow-700 font-bold">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-500 animate-pulse"/>
+                                🍔 麦请求进行中
+                            </div>
                             <button
-                              onClick={() => setShowLuckinHelp(true)}
-                              title="瑞一杯怎么用"
-                              className="w-5 h-5 flex items-center justify-center bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
-                            >
-                              ?
-                            </button>
-                            <button
-                              onClick={() => setShowLuckinLoc(true)}
-                              className="px-2.5 py-0.5 bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
-                            >
-                              📍 改定位
-                            </button>
-                            <button
-                              onClick={deactivateLuckin}
-                              className="px-2.5 py-0.5 bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
+                              onClick={() => handleSendText(MCD_DEACTIVATE_TRIGGER, 'text', { mcdDeactivate: true })}
+                              className="px-2.5 py-0.5 bg-yellow-200/80 text-yellow-800 rounded-full text-[11px] font-bold active:scale-95"
                             >
                               结束
                             </button>
                         </div>
-                    </div>
-                )}
-                {replyTarget && (
-                    <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
-                        {/* 引用的是图片 / 表情时这里显示占位符，跟落库的快照同一口径 */}
-                        <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{buildReplySnapshotContent(replyTarget)}</span></div>
-                        <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
-                    </div>
-                )}
-
-                {/* 撤回后 5 秒撤销条 */}
-                {retractUndo && (
-                    <div className="px-4 pb-1.5 flex justify-center animate-fade-in">
-                        <div className="flex items-center gap-2 bg-slate-800/90 text-white text-xs font-medium px-3.5 py-2 rounded-full shadow-lg">
-                            <span>已撤回一条消息</span>
-                            <button onClick={undoRetract} className="font-bold text-amber-300 active:scale-95 transition-transform">撤销</button>
+                    )}
+                    {luckinActivated && (
+                        <div className="flex items-center justify-between px-4 py-1.5 bg-[#0B1F3A]/5 border-b border-[#0B1F3A]/15 text-xs">
+                            <div className="flex items-center gap-1.5 text-[#0B1F3A] font-bold">
+                                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#C6A15B] animate-pulse"/>
+                                🦌 瑞一杯进行中
+                                {luckinChatRef.current?.cityName && <span className="font-normal text-[#0B1F3A]/60">· {luckinChatRef.current.cityName}</span>}
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => setShowLuckinHelp(true)}
+                                  title="瑞一杯怎么用"
+                                  className="w-5 h-5 flex items-center justify-center bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
+                                >
+                                  ?
+                                </button>
+                                <button
+                                  onClick={() => setShowLuckinLoc(true)}
+                                  className="px-2.5 py-0.5 bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
+                                >
+                                  📍 改定位
+                                </button>
+                                <button
+                                  onClick={deactivateLuckin}
+                                  className="px-2.5 py-0.5 bg-[#0B1F3A]/10 text-[#0B1F3A] rounded-full text-[11px] font-bold active:scale-95"
+                                >
+                                  结束
+                                </button>
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
+                    {replyTarget && (
+                        <div className="flex items-center justify-between px-4 py-2 bg-slate-50 border-b border-slate-200 text-xs text-slate-500">
+                            {/* 引用的是图片 / 表情时这里显示占位符，跟落库的快照同一口径 */}
+                            <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{buildReplySnapshotContent(replyTarget)}</span></div>
+                            <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
+                        </div>
+                    )}
 
-                {/* 开关写着「已开启」、这一轮却在本地生成时，把原因说给用户听 */}
-                <InstantChatRouteNotice charId={activeCharacterId} />
+                    {/* 撤回后 5 秒撤销条 */}
+                    {retractUndo && (
+                        <div className="px-4 pb-1.5 flex justify-center animate-fade-in">
+                            <div className="flex items-center gap-2 bg-slate-800/90 text-white text-xs font-medium px-3.5 py-2 rounded-full shadow-lg">
+                                <span>已撤回一条消息</span>
+                                <button onClick={undoRetract} className="font-bold text-amber-300 active:scale-95 transition-transform">撤销</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 开关写着「已开启」、这一轮却在本地生成时，把原因说给用户听 */}
+                    <InstantChatRouteNotice charId={activeCharacterId} />
+                </div>
 
                 <ChatInputArea
                     input={input} setInput={handleInputChange}

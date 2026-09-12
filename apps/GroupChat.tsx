@@ -1806,7 +1806,7 @@ ${memberTimeline || '(暂无互动记录)'}
             />
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" ref={scrollRef}>
+            <div className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 desktop-scrollbar" ref={scrollRef}>
                 {collapsedCount > 0 && activeGroup && (
                     <div className="flex justify-center mb-6">
                         <button onClick={async () => {
