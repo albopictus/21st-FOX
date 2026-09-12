@@ -26,6 +26,7 @@ import {
 import { Plus, Minus, X, Lock, LockOpen, ArrowsOutSimple, House, CaretLeft, CaretRight } from '@phosphor-icons/react';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
 import { useLocalDateKey } from '../hooks/useLocalDateKey';
+import { useIsDesktopMode } from '../hooks/useDeviceMode';
 import { resolveCharTimeZone } from '../utils/timezone';
 import { trackEvent } from '../utils/analytics';
 
@@ -436,29 +437,55 @@ interface PageIndicatorsProps {
   activePageIndex: number;
   contentColor: string;
   bottomInset: string;
+  onJumpToPage?: (index: number) => void;
 }
 
+// 移动端保持原本纤细无交互的点状条；电脑模式（见 useIsDesktopMode）静默升级成
+// 悬浮毛玻璃胶囊，放大点位与点击热区，点击任意点平滑跳页。见
+// desktop-adaptation-plan.md 模块 2。
 const PageIndicators: React.FC<PageIndicatorsProps> = React.memo(({
   totalPages,
   activePageIndex,
   contentColor,
   bottomInset,
-}) => (
-  <div
-    className="absolute left-0 w-full flex justify-center gap-1 pointer-events-none z-20"
-    style={{ bottom: `calc(${bottomInset} + 5.5rem)` }}
-    aria-hidden="true"
-  >
-    {Array.from({ length: totalPages }).map((_, i) => (
-      <div key={i} className="flex h-1.5 w-4 shrink-0 items-center justify-center">
-        <div
-          className={`h-1.5 rounded-full transform-gpu transition-[width,opacity] duration-300 ${activePageIndex === i ? 'w-4 opacity-100' : 'w-1.5 opacity-40'}`}
-          style={{ backgroundColor: contentColor }}
-        />
+  onJumpToPage,
+}) => {
+  const isDesktop = useIsDesktopMode();
+
+  return (
+    <div
+      className={`absolute left-0 w-full flex justify-center z-20 ${isDesktop ? 'pointer-events-none' : 'gap-1 pointer-events-none'}`}
+      style={{ bottom: `calc(${bottomInset} + 5.5rem)` }}
+      aria-hidden={!isDesktop}
+    >
+      <div
+        className={isDesktop
+          ? 'flex items-center gap-0.5 rounded-full border border-white/20 bg-black/10 px-3.5 py-1.5 shadow-sm backdrop-blur-md pointer-events-auto dark:bg-white/10'
+          : 'flex items-center gap-1'}
+      >
+        {Array.from({ length: totalPages }).map((_, i) => (
+          <button
+            key={i}
+            type="button"
+            tabIndex={isDesktop ? 0 : -1}
+            aria-label={isDesktop ? `跳转到第 ${i + 1} 页` : undefined}
+            onClick={isDesktop ? (e) => { e.stopPropagation(); onJumpToPage?.(i); } : undefined}
+            className={`group flex shrink-0 items-center justify-center ${isDesktop ? 'h-6 w-6 cursor-pointer' : 'h-1.5 w-4'}`}
+          >
+            <span
+              className={`rounded-full transform-gpu transition-[width,opacity,transform] duration-300 ${
+                isDesktop
+                  ? `h-2.5 group-hover:scale-125 ${activePageIndex === i ? 'w-7 opacity-100' : 'w-2.5 opacity-50 group-hover:opacity-80'}`
+                  : `h-1.5 ${activePageIndex === i ? 'w-4 opacity-100' : 'w-1.5 opacity-40'}`
+              }`}
+              style={{ backgroundColor: contentColor }}
+            />
+          </button>
+        ))}
       </div>
-    ))}
-  </div>
-));
+    </div>
+  );
+});
 
 interface LauncherDockProps {
   dockApps: typeof INSTALLED_APPS;
@@ -518,6 +545,7 @@ let _lastPageIndex = -1;
 
 const Launcher: React.FC = () => {
   const { openApp, characters, activeCharacterId, theme, updateTheme, lastMsgTimestamp, isDataLoaded, unreadMessages } = useOS();
+  const isDesktop = useIsDesktopMode();
 
   // 小组件数据（本地缓存，避免 context 抖动）
   const [widgetChar, setWidgetChar] = useState<CharacterProfile | null>(null);
@@ -566,16 +594,27 @@ const Launcher: React.FC = () => {
   useLayoutEffect(() => {
     const measure = () => {
       const raw = scrollContainerRef.current?.clientWidth || 380;
-      const w = Math.min(raw, 27 * 16); // 27rem 上限（宽屏收窄居中）
+      // 电脑模式：允许桌面网格明显变宽变大，不再收窄成手机宽度——用户反馈过窄屏两侧
+      // 大片空白不好看。仍然设上限，避免超宽屏下格子被拉得过于夸张；GRID_COLS 依旧
+      // 是 4，不改列数（改列数要连带迁移所有已保存布局的坐标系，风险高得多），只是
+      // 让同样 4 列的格子本身更大。见 desktop-adaptation-plan.md 模块 4-C 的调整记录。
+      const widthCap = isDesktop ? 46 * 16 : 27 * 16; // 手机 27rem(432px)，桌面 46rem(736px)
+      const cellCap = isDesktop ? 108 : 82;
+      const w = Math.min(raw, widthCap);
       const inner = w - PAGE_PAD_X * 2 - GRID_COL_GAP * (GRID_COLS - 1);
-      // 下限 72，上限 82：自适应填满横向宽度，两侧间距对称饱满，避免小卡片被挤得过小
-      const size = Math.max(72, Math.min(82, Math.floor(inner / GRID_COLS)));
+      // 72 原本是「尽量不要太小」的下限，是按手机最窄也有 375px 宽这个假设调的——
+      // 4 列 * 72px + 间距刚好卡在 375px 门槛内，手机上从没出过问题。但桌面模式
+      // 解除了宽度门槛后，浏览器窗口可以缩到任意窄，一旦窗口比这个门槛还窄，硬守
+      // 72 下限会让格子比容器实际能放的还宽，内容右侧被截断/点不到，比"格子小一
+      // 点不好看"严重得多。优先级倒过来：容器能放多大就多大，放不下就得收，48 只是
+      // 防止极端情况下格子缩成 0/负数的兜底，不是设计目标尺寸。
+      const size = Math.min(cellCap, Math.max(48, Math.floor(inner / GRID_COLS)));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, []);
+  }, [isDesktop]);
   const gridWidthPx = GRID_COLS * cellPx + (GRID_COLS - 1) * GRID_COL_GAP;
 
   // ───────── 页面数据 ─────────
@@ -967,6 +1006,21 @@ const Launcher: React.FC = () => {
     };
     displacements?: Map<string, { x: number; y: number }>;
   }>(null);
+
+  // 电脑模式：点击分页胶囊直接跳页。复用「边缘拖拽自动翻页」同一套 programmaticScrollTargetRef
+  // 标记（见上面 handleScroll 里的读取逻辑），避免平滑滚动过程中 handleScroll 读到的中间
+  // scrollLeft 插值把 activePageIndex 冲乱，和现有拖拽状态机走同一条路，不另起一套判断。
+  const jumpToPage = useCallback((index: number) => {
+    const el = scrollContainerRef.current;
+    if (!el) return;
+    const target = Math.max(0, Math.min(pagesRef.current.length - 1, index));
+    if (target === activePageIndexRef.current) return;
+    programmaticScrollTargetRef.current = target;
+    activePageIndexRef.current = target;
+    setActivePageIndex(target);
+    _lastPageIndex = target;
+    el.scrollTo({ left: target * el.clientWidth, behavior: 'smooth' });
+  }, []);
 
   // 长按预警：按到临界值前一小段时间，先让被按住的图标轻微下沉变暗，
   // 给用户一个「再按住就要进编辑态了」的信号，可以主动松手取消——
@@ -1785,6 +1839,36 @@ const Launcher: React.FC = () => {
     setQuadManagerTarget({ pageIndex: pi, itemId: item.id, slotIndex });
   }, []);
 
+  // 电脑模式：全局方向键翻页（←/→）。见 desktop-adaptation-plan.md 模块 3。
+  // 防冲突范围：
+  // - 焦点在输入框/textarea/select/contenteditable 时不接管，文本光标优先；
+  // - 中文输入法组词中（isComposing）不接管，拼音选字要用方向键翻候选词；
+  // - 按了 Alt/Ctrl/Cmd 等修饰键不接管，避免拦掉浏览器自己的前进后退等系统手势；
+  // - 编辑态或任何弹层（组件库/图片选择/四宫格管理/加页菜单/见面全屏）打开时不
+  //   接管，这些弹层自己的方向键交互（如果以后加）优先；
+  // - 元素标了 [data-no-arrow-nav] 视为自行声明"这里方向键归我管"，同样放行。
+  useEffect(() => {
+    if (!isDesktop) return;
+    const overlayOpen = layoutEditing || galleryOpen || scheduleViewerOpen || !!imagePicker || !!quadManagerTarget || addPageMenu !== null;
+    if (overlayOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
+      const target = e.target;
+      if (target instanceof HTMLElement) {
+        if (target.isContentEditable) return;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
+        if (target.closest('[data-no-arrow-nav]')) return;
+      }
+      e.preventDefault();
+      jumpToPage(activePageIndexRef.current + (e.key === 'ArrowLeft' ? -1 : 1));
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isDesktop, layoutEditing, galleryOpen, scheduleViewerOpen, imagePicker, quadManagerTarget, addPageMenu, jumpToPage]);
+
   const handleRemoveQuadApp = useCallback((pageIndex: number, itemId: string, slotIndex: number) => {
     const page = pagesRef.current[pageIndex];
     if (!page) return;
@@ -2003,6 +2087,7 @@ const Launcher: React.FC = () => {
         activePageIndex={activePageIndex}
         contentColor={contentColor}
         bottomInset={launcherBottomInset}
+        onJumpToPage={jumpToPage}
       />
 
       {/* 编辑态：当前页控件（起始页 / 增删页），放在固定栏与网格之间，方便单手点击 */}
