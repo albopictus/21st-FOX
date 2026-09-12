@@ -4,7 +4,7 @@
 import {
     CharacterProfile, ChatTheme, Message, UserProfile,
     Task, Anniversary, ScheduleEvent, MemoNote, DiaryEntry, RoomTodo, RoomNote, DailySchedule,
-    GalleryImage, FullBackupData, GroupProfile, SocialPost, StudyCourse, GameSession, Worldbook, NovelBook, Emoji, EmojiCategory,
+    GalleryImage, FullBackupData, GroupProfile, SocialPost, StudyCourse, StudyPaper, GameSession, Worldbook, NovelBook, Emoji, EmojiCategory,
     BankTransaction, SavingsGoal, BankFullState, DollhouseState, XhsStockImage, XhsActivityRecord, XhsOwnedPost, SongSheet, QuizSession, GuidebookSession,
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
@@ -28,9 +28,11 @@ const DB_NAME = 'AetherOS_Data';
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
 // v71：角色小红书伪主页；发帖归属与可删除的自由活动日志分离。
 // v72：共享备忘录 memo_notes，支持长文本、分类与双向编辑。
-const DB_VERSION = 72;
+// v73：学术文献晨读与双语推送（study_papers 表，按 PMC ID / id 存 StudyPaper）。
+const DB_VERSION = 73;
 
 const STORE_CHARACTERS = 'characters';
+const STORE_STUDY_PAPERS = 'study_papers';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
 const STORE_MESSAGES = 'messages';
 const STORE_EMOJIS = 'emojis';
@@ -356,6 +358,7 @@ export const openDB = (): Promise<IDBDatabase> => {
       createStore(STORE_STORY_THEATER_PRESETS, { keyPath: 'id' });
       createStore(STORE_STORY_THEATER_MASKS, { keyPath: 'id' });
       createStore(STORE_MEMO_NOTES, { keyPath: 'id' });
+      createStore(STORE_STUDY_PAPERS, { keyPath: 'id' });
 
       createStore(STORE_HOTNEWS, { keyPath: 'id' });
 
@@ -2280,6 +2283,48 @@ export const DB = {
       const db = await openDB();
       const transaction = db.transaction(STORE_QUIZZES, 'readwrite');
       transaction.objectStore(STORE_QUIZZES).delete(id);
+  },
+
+  // --- Study Papers (Academic Morning Reading) ---
+  getAllPapers: async (): Promise<StudyPaper[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_STUDY_PAPERS)) return [];
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_STUDY_PAPERS, 'readonly');
+          const store = transaction.objectStore(STORE_STUDY_PAPERS);
+          const request = store.getAll();
+          request.onsuccess = () => resolve((request.result || []).sort((a: StudyPaper, b: StudyPaper) => (b.fetchedAt || 0) - (a.fetchedAt || 0)));
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  getPaperById: async (id: string): Promise<StudyPaper | null> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_STUDY_PAPERS)) return null;
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_STUDY_PAPERS, 'readonly');
+          const store = transaction.objectStore(STORE_STUDY_PAPERS);
+          const request = store.get(id);
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  savePaper: async (paper: StudyPaper): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_STUDY_PAPERS, 'readwrite');
+      transaction.objectStore(STORE_STUDY_PAPERS).put(paper);
+  },
+
+  deletePaper: async (id: string): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_STUDY_PAPERS, 'readwrite');
+      transaction.objectStore(STORE_STUDY_PAPERS).delete(id);
+  },
+
+  getLatestPaper: async (): Promise<StudyPaper | null> => {
+      const papers = await DB.getAllPapers();
+      return papers.length > 0 ? papers[0] : null;
   },
 
   getAllGames: async (): Promise<GameSession[]> => {

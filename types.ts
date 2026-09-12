@@ -147,7 +147,8 @@ export type GridItemKind =
   | 'calendar'
   | 'anniversary'
   | 'memo'
-  | 'quad_apps';
+  | 'quad_apps'
+  | 'study_paper';
 
 /** 网格上的一个条目。x/y 是左上角格子坐标（0 起），w/h 是横竖占用格数。 */
 export interface PlacedItem {
@@ -3967,6 +3968,56 @@ export interface QuizSession {
     gradedAt?: number;
 }
 
+// --- STUDY PAPER (ACADEMIC MORNING READING) TYPES ---
+export type PaperBlockType = 'heading' | 'paragraph' | 'figure';
+
+export interface PaperHeadingBlock {
+    id: string;
+    type: 'heading';
+    level: 1 | 2 | 3;
+    text: string;
+    textZh?: string;
+}
+
+export interface PaperParagraphBlock {
+    id: string;
+    type: 'paragraph';
+    text: string;
+    textZh?: string;
+}
+
+export interface PaperFigureBlock {
+    id: string;
+    type: 'figure';
+    label?: string;
+    caption?: string;
+    captionZh?: string;
+    imageUrl: string;
+    thumbUrl?: string;
+    width?: number;
+    height?: number;
+}
+
+export type PaperBlock = PaperHeadingBlock | PaperParagraphBlock | PaperFigureBlock;
+
+export interface StudyPaper {
+    id: string;
+    pmcid: string;
+    doi?: string;
+    title: string;
+    titleZh?: string;
+    journalTitle?: string;
+    pubDate?: string;
+    authorString?: string;
+    keywords?: string[];
+    summary100?: string;
+    blocks: PaperBlock[];
+    fetchedAt: number;
+    translatedAt?: number;
+    readProgress?: number;
+    isFavorite?: boolean;
+}
+
 export type GameTheme = 'fantasy' | 'cyber' | 'horror' | 'modern';
 
 export interface GameActionOption {
@@ -4024,7 +4075,7 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'schedule_card' | 'memo_card' | 'gift';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'schedule_card' | 'memo_card' | 'gift' | 'paper_card';
 
 /**
  * 撤回标记（metadata.retracted）。撤回后 `Message.content` 会被就地改写成「给 AI 看的那句」：

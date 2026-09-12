@@ -73,6 +73,7 @@ export const DEFAULT_ITEM_SIZE: Record<GridItemKind, { w: number; h: number }> =
     anniversary: { w: 4, h: 2 },
     memo: { w: 2, h: 2 },
     quad_apps: { w: 2, h: 2 },
+    study_paper: { w: 2, h: 2 },
 };
 
 /** 默认锁定（不可拖 / 改大小 / 删，除非在编辑态解锁）的条目。 */

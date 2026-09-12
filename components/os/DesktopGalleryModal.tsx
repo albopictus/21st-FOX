@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   Clock, User, CalendarDots, CalendarHeart, MusicNotes, Image as ImageIcon,
-  Note, SquaresFour, AppWindow, X, Plus, SlidersHorizontal, Palette, Sun, Moon,
+  Note, SquaresFour, AppWindow, X, Plus, SlidersHorizontal, Palette, Sun, Moon, Newspaper,
 } from '@phosphor-icons/react';
 import { AppID, type GridItemKind } from '../../types';
 import { INSTALLED_APPS, DOCK_APPS } from '../../constants';
@@ -9,7 +9,7 @@ import AppIcon from './AppIcon';
 import { GALLERY_KINDS, WIDGET_META, defaultSizeFor } from './desktopWidgetRegistry';
 import { useOS } from '../../context/OSContext';
 
-const OPACITY_SUPPORTED_KINDS: Set<GridItemKind> = new Set(['schedule', 'calendar', 'memo', 'quad_apps']);
+const OPACITY_SUPPORTED_KINDS: Set<GridItemKind> = new Set(['schedule', 'calendar', 'memo', 'quad_apps', 'study_paper']);
 
 /**
  * 自由网格桌面 · 「添加组件 / 应用」弹窗。
@@ -48,6 +48,7 @@ const KIND_ICON: Record<GridItemKind, React.ReactNode> = {
   anniversary: <CalendarHeart size={22} weight="fill" />,
   memo: <Note size={22} weight="fill" />,
   quad_apps: <SquaresFour size={22} weight="fill" />,
+  study_paper: <Newspaper size={22} weight="fill" />,
 };
 
 const KIND_TINT: Partial<Record<GridItemKind, string>> = {
@@ -60,6 +61,7 @@ const KIND_TINT: Partial<Record<GridItemKind, string>> = {
   anniversary: 'bg-pink-500/15 text-pink-500',
   memo: 'bg-amber-500/15 text-amber-500',
   quad_apps: 'bg-indigo-500/15 text-indigo-500',
+  study_paper: 'bg-emerald-500/15 text-emerald-500',
 };
 
 export const DesktopGalleryModal: React.FC<DesktopGalleryModalProps> = ({

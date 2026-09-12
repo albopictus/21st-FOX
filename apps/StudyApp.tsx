@@ -2,16 +2,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { StudyCourse, StudyChapter, CharacterProfile, Message, UserProfile, APIConfig, StudyTutorPreset, QuizQuestion, QuizSession, QuizQuestionNote } from '../types';
+import { StudyCourse, StudyChapter, CharacterProfile, Message, UserProfile, APIConfig, StudyTutorPreset, QuizQuestion, QuizSession, QuizQuestionNote, StudyPaper } from '../types';
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import { safeResponseJson, extractJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
-import { Notepad, Check, X, CheckCircle, XCircle, Hand } from '@phosphor-icons/react';
+import { Notepad, Check, X, CheckCircle, XCircle, Hand, Newspaper, Sparkle, ArrowRight } from '@phosphor-icons/react';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
 import { extractPdfText, isPdfFile } from '../utils/pdfText';
+import { PaperShelf } from '../components/study/PaperShelf';
+import { PaperReader } from '../components/study/PaperReader';
 
 type KatexLike = {
     renderToString: (latex: string, options: any) => string;
@@ -306,7 +308,8 @@ const BlackboardRenderer: React.FC<{ text: string, isTyping?: boolean, katexRend
 
 const StudyApp: React.FC = () => {
     const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateCharacter, characterGroups } = useOS();
-    const [mode, setMode] = useState<'bookshelf' | 'classroom' | 'quiz' | 'quiz_review' | 'practice_book'>('bookshelf');
+    const [mode, setMode] = useState<'bookshelf' | 'classroom' | 'quiz' | 'quiz_review' | 'practice_book' | 'paper_shelf' | 'paper_reader'>('bookshelf');
+    const [activePaper, setActivePaper] = useState<StudyPaper | null>(null);
     const [courses, setCourses] = useState<StudyCourse[]>([]);
     const [activeCourse, setActiveCourse] = useState<StudyCourse | null>(null);
     const [selectedChar, setSelectedChar] = useState<CharacterProfile | null>(null);
@@ -409,6 +412,26 @@ const StudyApp: React.FC = () => {
             loadCourses();
         }
     }, [mode]);
+
+    // 监听外部跳转指定的文献 (桌面小组件或聊天卡片拉起)
+    useEffect(() => {
+        const targetPaperId = sessionStorage.getItem('study_target_paper');
+        if (targetPaperId) {
+            sessionStorage.removeItem('study_target_paper');
+            DB.getPaperById(targetPaperId).then(paper => {
+                if (paper) {
+                    setActivePaper(paper);
+                    setMode('paper_reader');
+                }
+            });
+        }
+    }, []);
+
+    const handlePaperAskTutor = (snippet: string, defaultPrompt?: string) => {
+        setUserQuestion(defaultPrompt || `请向我解读以下文献内容：\n"${snippet.slice(0, 300)}"`);
+        setMode('classroom');
+        setClassroomState('q_and_a');
+    };
 
     // Typewriter effect Logic
     useEffect(() => {
@@ -1275,6 +1298,34 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
 
     // --- Render ---
 
+    // PAPER READER VIEW
+    if (mode === 'paper_reader' && activePaper) {
+        return (
+            <PaperReader
+                paper={activePaper}
+                onBack={() => setMode('paper_shelf')}
+                onAskTutor={handlePaperAskTutor}
+                katexRenderer={katexRenderer}
+                apiConfig={effectiveApi}
+                onUpdatePaper={(updated) => setActivePaper(updated)}
+            />
+        );
+    }
+
+    // PAPER SHELF VIEW
+    if (mode === 'paper_shelf') {
+        return (
+            <PaperShelf
+                onSelectPaper={(p) => {
+                    setActivePaper(p);
+                    setMode('paper_reader');
+                }}
+                apiConfig={effectiveApi}
+                onBackToCourses={() => setMode('bookshelf')}
+            />
+        );
+    }
+
     // PRACTICE BOOK VIEW
     if (mode === 'practice_book') {
         return (
@@ -1594,6 +1645,9 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         </button>
                         <span className="font-bold text-slate-800 text-lg tracking-wide">自习室</span>
                         <div className="flex gap-1">
+                            <button onClick={() => { trackEvent('打开文献晨读'); setMode('paper_shelf'); }} className="p-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform" title="文献晨读">
+                                <Newspaper size={20} className="text-slate-500" />
+                            </button>
                             <button onClick={() => { trackEvent('打开练习册'); loadQuizzes(); setMode('practice_book'); }} className="p-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform" title="练习册">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-slate-500"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" /></svg>
                             </button>
@@ -1621,6 +1675,25 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                     <span className="text-[10px] font-bold text-slate-600">{c.name}</span>
                                 </div>
                             ))}
+                        </div>
+                    </div>
+
+                    {/* 文献晨读专区横幅 */}
+                    <div
+                        onClick={() => { trackEvent('打开文献晨读'); setMode('paper_shelf'); }}
+                        className="mb-8 p-4 rounded-2xl bg-gradient-to-r from-emerald-900/90 to-teal-950 text-white cursor-pointer shadow-md active:scale-[0.99] transition hover:shadow-lg flex items-center justify-between"
+                    >
+                        <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold uppercase tracking-wider">
+                                <Sparkle size={14} weight="fill" />
+                                <span>学术文献晨读</span>
+                                <span className="px-1.5 py-0.2 bg-emerald-500/30 text-emerald-200 text-[10px] rounded font-mono">Europe PMC</span>
+                            </div>
+                            <h4 className="text-sm font-bold font-serif">国际开放获取前沿 · JATS XML 双语浸润</h4>
+                            <p className="text-[11px] text-emerald-100/70">轻触段落展开中文对照，双指缩放高清图注与助教答疑</p>
+                        </div>
+                        <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-emerald-300 ml-2 shrink-0">
+                            <ArrowRight size={16} weight="bold" />
                         </div>
                     </div>
 

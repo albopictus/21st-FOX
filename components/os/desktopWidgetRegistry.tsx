@@ -11,6 +11,7 @@ import { DesktopClockWidget } from './widgets/DesktopClockWidget';
 import { CharacterCardWidget } from './widgets/CharacterCardWidget';
 import { DesktopImageWidget } from './widgets/DesktopImageWidget';
 import { QuadAppsWidget } from './widgets/QuadAppsWidget';
+import { StudyPaperWidget } from './widgets/StudyPaperWidget';
 import { DEFAULT_ITEM_SIZE } from '../../utils/desktopGrid';
 
 /**
@@ -82,6 +83,7 @@ export const WIDGET_META: Record<GridItemKind, WidgetMeta> = {
     anniversary:{ minW: 4, minH: 2, maxW: 4, maxH: 3, label: '纪念日与倒计时', desc: '与角色的特殊日子，支持翻页与倒数' },
     memo:       { minW: 2, minH: 2, maxW: 4, maxH: 3, label: '便签',   desc: '置顶与最新想法的小纸条' },
     quad_apps:  { minW: 2, minH: 2, maxW: 2, maxH: 2, label: '四宫格风车组件', desc: '经典四合一应用方块，收纳 4 个 App，支持直接拖入与点开管理' },
+    study_paper:{ minW: 2, minH: 2, maxW: 4, maxH: 3, label: '文献晨读', desc: 'Europe PMC 国际前沿学术文献，速递核心机理与图谱，轻触一键开卷' },
 };
 
 export const defaultSizeFor = (kind: GridItemKind): { w: number; h: number } =>
@@ -206,6 +208,8 @@ export const renderGridItemContent = (
                     opacity={item.config?.opacity ?? ctx.widgetOpacity?.memo ?? 100}
                 />
             );
+        case 'study_paper':
+            return <StudyPaperWidget item={item} ctx={ctx} />;
         default:
             return null;
     }

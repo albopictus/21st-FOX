@@ -23,6 +23,7 @@ import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
 import QixiEventCardView from './QixiEventCard';
+import { PaperCard } from './PaperCard';
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -3383,6 +3384,11 @@ const MessageItem = React.memo(({
                 </div>
             </div>
         );
+        return commonLayout(card);
+    }
+
+    if (m.type === 'paper_card') {
+        const card = <PaperCard message={m} openApp={(id) => openApp?.(id)} />;
         return commonLayout(card);
     }
 
