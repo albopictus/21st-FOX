@@ -608,12 +608,37 @@ const Launcher: React.FC = () => {
       // 72 下限会让格子比容器实际能放的还宽，内容右侧被截断/点不到，比"格子小一
       // 点不好看"严重得多。优先级倒过来：容器能放多大就多大，放不下就得收，48 只是
       // 防止极端情况下格子缩成 0/负数的兜底，不是设计目标尺寸。
-      const size = Math.min(cellCap, Math.max(48, Math.floor(inner / GRID_COLS)));
+      const widthBasedSize = Math.min(cellCap, Math.max(48, Math.floor(inner / GRID_COLS)));
+
+      // cellPx 一直只按宽度算，从没管过高度——手机上从没出过事，因为手机视口天生
+      // 又窄又高，宽度算出来的格子边长顺手就在纵向也放得下。但桌面窗口可以被浏览器
+      // 缩放（Ctrl+滚轮）压得又宽又矮，宽度那边还有富余、纵向却装不下 6 行格子，
+      // 表现出来就是第二行图标和下面悬浮的分页胶囊、Dock 挤在一起截断/重叠。
+      // 用风车页（6 行 + 最小的 pt-2/pb-4 留白）当最紧张的场景反推一个高度上限：
+      // 分页胶囊是绝对定位悬浮在网格上方 `bottomInset + 5.5rem` 处，这块空间必须
+      // 留出来，不能被格子占掉。
+      const scrollH = scrollContainerRef.current?.clientHeight || 700;
+      const windmillPadding = 8 + 16; // pt-2 + pb-4
+      const indicatorReserve = 20 + 88; // launcherBottomInset(1.25rem) + 5.5rem
+      const availableForGrid = scrollH - windmillPadding - indicatorReserve;
+      const rowGapTotal = GRID_ROW_GAP * (GRID_ROWS - 1);
+      // cellHeightFor(p) 恒等于 p - (GRID_ROW_GAP - GRID_COL_GAP) / 2，这里反解出
+      // 「纵向最多能放下多大的 cellPx」，具体推导见 cellHeightFor 定义。
+      const heightBasedSize = Math.floor((availableForGrid - rowGapTotal) / GRID_ROWS) + (GRID_ROW_GAP - GRID_COL_GAP) / 2;
+
+      const size = Math.max(48, Math.min(widthBasedSize, heightBasedSize));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
-    window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
+    // 用 ResizeObserver 盯着容器本身，而不是只听 window 的 resize：高度这边真正会
+    // 变的时机不止"用户拖窗口/缩放"——开机锁屏卸载、字体加载完成撑高角色卡这些
+    // 都会让 scrollContainerRef 的实际可用高度在不触发 window resize 的情况下悄悄
+    // 变化。之前只挂 window resize 时试过，量出来的高度是开机早期一次性量到的偏
+    // 大的值，之后从没重新量过，导致第二页往后这种高行数页面照旧被截断——这是
+    // 实测复现过的真问题，不是纸面推理。
+    const ro = new ResizeObserver(measure);
+    if (scrollContainerRef.current) ro.observe(scrollContainerRef.current);
+    return () => ro.disconnect();
   }, [isDesktop]);
   const gridWidthPx = GRID_COLS * cellPx + (GRID_COLS - 1) * GRID_COL_GAP;
 
