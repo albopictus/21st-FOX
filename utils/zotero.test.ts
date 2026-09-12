@@ -88,11 +88,15 @@ describe('Zotero & Citation Export Suite', () => {
     describe('Config persistence', () => {
         it('saves and retrieves Zotero config', () => {
             saveZoteroConfig({
+                targetType: 'group',
                 userId: '1234567',
+                groupId: '9876543',
                 apiKey: 'test-api-key-xyz'
             });
             const config = getZoteroConfig();
+            expect(config.targetType).toBe('group');
             expect(config.userId).toBe('1234567');
+            expect(config.groupId).toBe('9876543');
             expect(config.apiKey).toBe('test-api-key-xyz');
         });
     });

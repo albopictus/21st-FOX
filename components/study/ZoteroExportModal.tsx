@@ -42,7 +42,9 @@ export const ZoteroExportModal: React.FC<ZoteroExportModalProps> = ({ isOpen, pa
     const [activeTab, setActiveTab] = useState<'sync' | 'export'>('sync');
 
     // Zotero 配置
+    const [targetType, setTargetType] = useState<'user' | 'group'>('user');
     const [userId, setUserId] = useState('');
+    const [groupId, setGroupId] = useState('');
     const [apiKey, setApiKey] = useState('');
     const [collectionKey, setCollectionKey] = useState('');
     const [showApiKey, setShowApiKey] = useState(false);
@@ -64,7 +66,9 @@ export const ZoteroExportModal: React.FC<ZoteroExportModalProps> = ({ isOpen, pa
     useEffect(() => {
         if (isOpen) {
             const cfg = getZoteroConfig();
+            setTargetType(cfg.targetType === 'group' ? 'group' : 'user');
             setUserId(cfg.userId);
+            setGroupId(cfg.groupId || '');
             setApiKey(cfg.apiKey);
             setCollectionKey(cfg.collectionKey || '');
             setTestResult(null);
@@ -76,7 +80,9 @@ export const ZoteroExportModal: React.FC<ZoteroExportModalProps> = ({ isOpen, pa
     if (!isOpen || !paper) return null;
 
     const currentConfig: ZoteroConfig = {
+        targetType,
         userId: userId.trim(),
+        groupId: groupId.trim(),
         apiKey: apiKey.trim(),
         collectionKey: collectionKey.trim() || undefined
     };
@@ -220,30 +226,91 @@ export const ZoteroExportModal: React.FC<ZoteroExportModalProps> = ({ isOpen, pa
 
                             {/* 凭据配置 */}
                             <div className="space-y-3 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/70">
+                                {/* 文库类型选择：个人文库 vs 群组协同文库 */}
                                 <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-                                        <span className="flex items-center gap-1">
-                                            <User size={13} className="text-slate-500" />
-                                            <span>Zotero User ID (用户 ID)</span>
-                                        </span>
-                                        <a
-                                            href="https://www.zotero.org/settings/keys"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="text-[11px] text-red-600 hover:underline flex items-center gap-0.5"
-                                        >
-                                            <span>获取 ID / Key</span>
-                                            <ArrowSquareOut size={11} />
-                                        </a>
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider block">
+                                        同步目标文库类型
                                     </label>
-                                    <input
-                                        type="text"
-                                        value={userId}
-                                        onChange={e => setUserId(e.target.value)}
-                                        placeholder="例如：12345678 (数字 ID)"
-                                        className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
-                                    />
+                                    <div className="grid grid-cols-2 gap-1.5 p-1 bg-slate-200/60 rounded-xl">
+                                        <button
+                                            type="button"
+                                            onClick={() => setTargetType('user')}
+                                            className={`py-1.5 rounded-lg text-xs font-bold transition ${
+                                                targetType === 'user'
+                                                    ? 'bg-white text-slate-800 shadow-2xs'
+                                                    : 'text-slate-500 hover:text-slate-800'
+                                            }`}
+                                        >
+                                            个人文库 (User)
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setTargetType('group')}
+                                            className={`py-1.5 rounded-lg text-xs font-bold transition ${
+                                                targetType === 'group'
+                                                    ? 'bg-white text-red-600 shadow-2xs'
+                                                    : 'text-slate-500 hover:text-slate-800'
+                                            }`}
+                                        >
+                                            群组协同文库 (Group)
+                                        </button>
+                                    </div>
                                 </div>
+
+                                {targetType === 'user' ? (
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                            <span className="flex items-center gap-1">
+                                                <User size={13} className="text-slate-500" />
+                                                <span>Zotero User ID (个人用户 ID)</span>
+                                            </span>
+                                            <a
+                                                href="https://www.zotero.org/settings/keys"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[11px] text-red-600 hover:underline flex items-center gap-0.5"
+                                            >
+                                                <span>获取 ID / Key</span>
+                                                <ArrowSquareOut size={11} />
+                                            </a>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={userId}
+                                            onChange={e => setUserId(e.target.value)}
+                                            placeholder="例如：12345678 (个人数字 ID)"
+                                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
+                                        />
+                                    </div>
+                                ) : (
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                            <span className="flex items-center gap-1">
+                                                <User size={13} className="text-slate-500" />
+                                                <span>Zotero Group ID (目标群组 ID)</span>
+                                            </span>
+                                            <a
+                                                href="https://www.zotero.org/groups"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[11px] text-red-600 hover:underline flex items-center gap-0.5"
+                                            >
+                                                <span>查看我的群组</span>
+                                                <ArrowSquareOut size={11} />
+                                            </a>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={groupId}
+                                            onChange={e => setGroupId(e.target.value)}
+                                            placeholder="例如：5432109 (群组网址中的数字 ID)"
+                                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
+                                        />
+                                        <p className="text-[10px] text-slate-400 leading-tight">
+                                            在 Zotero 网页版进入该群组，URL 中的数字即为 Group ID (例如 zotero.org/groups/5432109/...)。
+                                        </p>
+                                    </div>
+                                )}
 
                                 <div className="space-y-1">
                                     <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
@@ -290,7 +357,7 @@ export const ZoteroExportModal: React.FC<ZoteroExportModalProps> = ({ isOpen, pa
                                     <button
                                         type="button"
                                         onClick={handleTestConnection}
-                                        disabled={isTesting || !userId || !apiKey}
+                                        disabled={isTesting || (targetType === 'user' ? !userId : !groupId) || !apiKey}
                                         className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-xs font-medium text-slate-700 transition flex items-center gap-1.5 disabled:opacity-40 active:scale-95"
                                     >
                                         {isTesting ? <SpinnerGap size={13} className="animate-spin" /> : <ArrowClockwise size={13} />}
@@ -328,7 +395,7 @@ export const ZoteroExportModal: React.FC<ZoteroExportModalProps> = ({ isOpen, pa
                             {/* 一键同步按钮 */}
                             <button
                                 onClick={handleSync}
-                                disabled={isSyncing || !userId || !apiKey}
+                                disabled={isSyncing || (targetType === 'user' ? !userId : !groupId) || !apiKey}
                                 className="w-full py-3 rounded-2xl bg-red-600 hover:bg-red-500 text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm active:scale-95 transition disabled:opacity-50"
                             >
                                 {isSyncing ? (
@@ -339,7 +406,7 @@ export const ZoteroExportModal: React.FC<ZoteroExportModalProps> = ({ isOpen, pa
                                 ) : (
                                     <>
                                         <CloudArrowUp size={16} weight="bold" />
-                                        <span>同步该文献至 Zotero 云端</span>
+                                        <span>{targetType === 'group' ? '同步该文献至 Zotero 群组文库' : '同步该文献至 Zotero 个人文库'}</span>
                                     </>
                                 )}
                             </button>
