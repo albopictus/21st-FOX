@@ -308,7 +308,7 @@ const BlackboardRenderer: React.FC<{ text: string, isTyping?: boolean, katexRend
 };
 
 const StudyApp: React.FC = () => {
-    const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateCharacter, characterGroups } = useOS();
+    const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateCharacter, characterGroups, apiPresets = [] } = useOS();
     const [mode, setMode] = useState<'bookshelf' | 'classroom' | 'quiz' | 'quiz_review' | 'practice_book' | 'paper_shelf' | 'paper_reader'>('bookshelf');
     const [activePaper, setActivePaper] = useState<StudyPaper | null>(null);
     const [courses, setCourses] = useState<StudyCourse[]>([]);
@@ -1857,16 +1857,41 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                 {/* Dedicated API Config */}
                                 <div>
                                     <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">助教专用 API（留空则使用全局设置）</h4>
+                                    {apiPresets.length > 0 && (
+                                        <div className="mb-3">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">
+                                                从系统预设快速载入
+                                            </label>
+                                            <div className="flex gap-1.5 flex-wrap">
+                                                {apiPresets.map(preset => (
+                                                    <button
+                                                        key={preset.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setLocalStudyUrl(preset.config.baseUrl || '');
+                                                            setLocalStudyKey(preset.config.apiKey || '');
+                                                            setLocalStudyModel(preset.config.model || '');
+                                                            addToast(`已载入预设: ${preset.name}`, 'info');
+                                                        }}
+                                                        className="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 border border-slate-200/80 active:scale-95 transition flex items-center gap-1 text-slate-700"
+                                                    >
+                                                        <span>{preset.name}</span>
+                                                        <span className="text-[10px] text-slate-400 font-mono">({preset.config.model || '默认'})</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="space-y-2">
-                                        <input value={localStudyUrl} onChange={e => setLocalStudyUrl(e.target.value)} placeholder="API Base URL" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                        <input value={localStudyKey} onChange={e => setLocalStudyKey(e.target.value)} placeholder="API Key" type="password" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                        <input value={localStudyModel} onChange={e => setLocalStudyModel(e.target.value)} placeholder="模型名称 (e.g. gpt-4o)" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                        <div className="flex gap-2">
-                                            <button onClick={saveStudyApi} className="flex-1 py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs">保存</button>
-                                            <button onClick={clearStudyApi} className="py-2.5 px-4 bg-slate-200 text-slate-500 font-bold rounded-xl text-xs">清除</button>
+                                        <input value={localStudyUrl} onChange={e => setLocalStudyUrl(e.target.value)} placeholder="API Base URL" className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60" />
+                                        <input value={localStudyKey} onChange={e => setLocalStudyKey(e.target.value)} placeholder="API Key" type="password" className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60" />
+                                        <input value={localStudyModel} onChange={e => setLocalStudyModel(e.target.value)} placeholder="模型名称 (e.g. gpt-4o)" className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60" />
+                                        <div className="flex gap-2 pt-1">
+                                            <button onClick={saveStudyApi} className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs shadow-sm active:scale-95 transition">保存配置</button>
+                                            <button onClick={clearStudyApi} className="py-2.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-full text-xs active:scale-95 transition">清除</button>
                                         </div>
                                         {(studyApi.baseUrl || studyApi.model) && (
-                                            <div className="text-[10px] text-emerald-600 bg-emerald-50 rounded-lg p-2">
+                                            <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-xl p-2.5">
                                                 当前使用专用 API: {studyApi.model || effectiveApi.model}
                                             </div>
                                         )}
@@ -1879,7 +1904,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                     {tutorPresets.length > 0 && (
                                         <div className="space-y-2 mb-3">
                                             {tutorPresets.map(p => (
-                                                <div key={p.id} className="bg-slate-50 rounded-xl p-3 flex items-start gap-2">
+                                                <div key={p.id} className="bg-slate-50 rounded-2xl p-3 flex items-start gap-2 border border-slate-100">
                                                     <div className="flex-1 min-w-0">
                                                         <div className="text-sm font-bold text-slate-700">{p.name}</div>
                                                         <div className="text-xs text-slate-400 truncate">{p.prompt}</div>
@@ -1894,10 +1919,10 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                             ))}
                                         </div>
                                     )}
-                                    <div className="space-y-2 bg-slate-100 rounded-xl p-3">
-                                        <input value={presetName} onChange={e => setPresetName(e.target.value)} placeholder="预设名称（如：数学辅导）" className="w-full bg-white rounded-lg p-2.5 text-sm focus:outline-emerald-500" />
-                                        <textarea value={presetPrompt} onChange={e => setPresetPrompt(e.target.value)} placeholder="提示词内容（如：请用中文讲解，多用简单的比喻...）" className="w-full bg-white rounded-lg p-2.5 text-sm focus:outline-emerald-500 resize-none h-24" />
-                                        <button onClick={handleSavePreset} disabled={!presetName.trim() || !presetPrompt.trim()} className="w-full py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs disabled:opacity-40">
+                                    <div className="space-y-2 bg-slate-100/70 rounded-2xl p-3 border border-slate-200/50">
+                                        <input value={presetName} onChange={e => setPresetName(e.target.value)} placeholder="预设名称（如：数学辅导）" className="w-full bg-white rounded-xl p-2.5 text-sm focus:outline-emerald-500 border border-slate-200/60" />
+                                        <textarea value={presetPrompt} onChange={e => setPresetPrompt(e.target.value)} placeholder="提示词内容（如：请用中文讲解，多用简单的比喻...）" className="w-full bg-white rounded-xl p-2.5 text-sm focus:outline-emerald-500 resize-none h-24 border border-slate-200/60" />
+                                        <button onClick={handleSavePreset} disabled={!presetName.trim() || !presetPrompt.trim()} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs disabled:opacity-40 shadow-sm active:scale-95 transition">
                                             {editingPreset ? '更新预设' : '添加预设'}
                                         </button>
                                         {editingPreset && (
@@ -1914,41 +1939,66 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                         <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">文献翻译专用 API</h4>
                                         <span className="text-[10px] text-slate-400">留空则继承自习室/全局</span>
                                     </div>
+                                    {apiPresets.length > 0 && (
+                                        <div className="mb-3">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">
+                                                从系统预设快速载入
+                                            </label>
+                                            <div className="flex gap-1.5 flex-wrap">
+                                                {apiPresets.map(preset => (
+                                                    <button
+                                                        key={preset.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setLocalPaperUrl(preset.config.baseUrl || '');
+                                                            setLocalPaperKey(preset.config.apiKey || '');
+                                                            setLocalPaperModel(preset.config.model || '');
+                                                            addToast(`已载入预设: ${preset.name}`, 'info');
+                                                        }}
+                                                        className="px-3 py-1 rounded-full text-xs font-medium bg-slate-100 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200 border border-slate-200/80 active:scale-95 transition flex items-center gap-1 text-slate-700"
+                                                    >
+                                                        <span>{preset.name}</span>
+                                                        <span className="text-[10px] text-slate-400 font-mono">({preset.config.model || '默认'})</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
                                     <div className="space-y-2">
                                         <input
                                             value={localPaperUrl}
                                             onChange={e => setLocalPaperUrl(e.target.value)}
                                             placeholder="API Base URL (留空继承)"
-                                            className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
                                         />
                                         <input
                                             value={localPaperKey}
                                             onChange={e => setLocalPaperKey(e.target.value)}
                                             placeholder="API Key (留空继承)"
                                             type="password"
-                                            className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
                                         />
                                         <input
                                             value={localPaperModel}
                                             onChange={e => setLocalPaperModel(e.target.value)}
                                             placeholder="模型名称 (如 deepseek-chat, gpt-4o)"
-                                            className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
                                         />
-                                        <div className="flex gap-2">
+                                        <div className="flex gap-2 pt-1">
                                             <button
                                                 onClick={savePaperApi}
-                                                className="flex-1 py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-sm hover:bg-emerald-600 active:scale-95 transition"
+                                                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs shadow-sm active:scale-95 transition"
                                             >
                                                 保存翻译 API
                                             </button>
                                             <button
                                                 onClick={clearPaperApi}
-                                                className="py-2.5 px-4 bg-slate-200 text-slate-500 font-bold rounded-xl text-xs hover:bg-slate-300 active:scale-95 transition"
+                                                className="py-2.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-full text-xs active:scale-95 transition"
                                             >
                                                 恢复继承
                                             </button>
                                         </div>
-                                        <div className="text-[10px] text-emerald-600 bg-emerald-50 rounded-lg p-2 flex items-center justify-between">
+                                        <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-xl p-2.5 flex items-center justify-between">
                                             <span>
                                                 {paperApi.baseUrl || paperApi.model ? '已启用独立文献翻译 API' : '当前使用继承配置'}
                                             </span>
@@ -1978,12 +2028,12 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                             value={paperPrompt}
                                             onChange={e => setPaperPrompt(e.target.value)}
                                             placeholder="输入文献翻译学术系统提示词..."
-                                            className="w-full bg-slate-100 rounded-xl p-3 text-xs focus:outline-emerald-500 resize-none h-44 font-mono leading-relaxed"
+                                            className="w-full bg-slate-100/80 rounded-2xl p-3 text-xs focus:outline-emerald-500 resize-none h-44 font-mono leading-relaxed border border-slate-200/60 focus:bg-white"
                                         />
                                         <button
                                             onClick={handleSavePaperPrompt}
                                             disabled={!paperPrompt.trim()}
-                                            className="w-full py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs disabled:opacity-40 shadow-sm hover:bg-emerald-600 active:scale-95 transition"
+                                            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs disabled:opacity-40 shadow-sm active:scale-95 transition"
                                         >
                                             保存翻译提示词
                                         </button>

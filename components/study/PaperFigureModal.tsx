@@ -106,12 +106,12 @@ export const PaperFigureModal: React.FC<PaperFigureModalProps> = ({ figure, onCl
     return (
         <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-xl flex flex-col justify-between select-none overflow-hidden animate-fade-in">
             {/* 顶栏操作区 */}
-            <div className="flex items-center justify-between px-4 py-3 z-10 bg-gradient-to-b from-black/80 to-transparent">
+            <div className="flex items-center justify-between px-4 sm:px-6 py-3 z-10 bg-gradient-to-b from-black/80 to-transparent" style={{ paddingTop: 'calc(var(--safe-top) + 8px)' }}>
                 <div className="flex items-center gap-2">
-                    <span className="text-emerald-400 font-bold font-mono text-sm px-2.5 py-1 rounded bg-emerald-950/80 border border-emerald-500/30">
+                    <span className="text-emerald-300 font-bold font-mono text-xs px-3 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/30">
                         {figure.label || '插图原图'}
                     </span>
-                    <span className="text-xs text-white/50 font-mono">
+                    <span className="text-xs text-white/60 font-mono">
                         {Math.round(scale * 100)}%
                     </span>
                 </div>
@@ -119,38 +119,38 @@ export const PaperFigureModal: React.FC<PaperFigureModalProps> = ({ figure, onCl
                 <div className="flex items-center gap-2">
                     <button
                         onClick={() => setScale(s => Math.min(4, s + 0.3))}
-                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white/80 flex items-center justify-center transition"
+                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white/90 flex items-center justify-center transition border border-white/10"
                         title="放大"
                     >
                         <MagnifyingGlassPlus size={16} />
                     </button>
                     <button
                         onClick={() => setScale(s => Math.max(0.8, s - 0.3))}
-                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white/80 flex items-center justify-center transition"
+                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white/90 flex items-center justify-center transition border border-white/10"
                         title="缩小"
                     >
                         <MagnifyingGlassMinus size={16} />
                     </button>
                     <button
                         onClick={resetZoom}
-                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white/80 flex items-center justify-center transition"
+                        className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 text-white/90 flex items-center justify-center transition border border-white/10"
                         title="重置"
                     >
                         <ArrowCounterClockwise size={16} />
                     </button>
                     <button
                         onClick={onClose}
-                        className="w-9 h-9 rounded-full bg-red-500/20 hover:bg-red-500/40 active:scale-95 text-red-300 flex items-center justify-center transition ml-2 border border-red-500/30"
+                        className="w-8 h-8 rounded-full bg-rose-500/20 hover:bg-rose-500/40 active:scale-95 text-rose-300 flex items-center justify-center transition ml-1 border border-rose-500/30"
                         title="关闭"
                     >
-                        <X size={18} weight="bold" />
+                        <X size={16} weight="bold" />
                     </button>
                 </div>
             </div>
 
             {/* 中间高清图展示区 */}
             <div
-                className="flex-1 flex items-center justify-center overflow-hidden relative cursor-grab active:cursor-grabbing"
+                className="flex-1 flex items-center justify-center overflow-hidden relative cursor-grab active:cursor-grabbing p-4"
                 onWheel={handleWheel}
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
@@ -163,7 +163,7 @@ export const PaperFigureModal: React.FC<PaperFigureModalProps> = ({ figure, onCl
                 <img
                     src={figure.imageUrl}
                     alt={figure.label || 'Figure'}
-                    className="max-w-[95%] max-h-[85%] object-contain transition-transform duration-75 ease-out shadow-2xl rounded"
+                    className="max-w-[95%] max-h-[85%] object-contain transition-transform duration-75 ease-out shadow-2xl rounded-xl"
                     style={{
                         transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,
                         transformOrigin: 'center center'
@@ -174,21 +174,21 @@ export const PaperFigureModal: React.FC<PaperFigureModalProps> = ({ figure, onCl
 
             {/* 底部可折叠图注浮层 */}
             {(figure.caption || figure.captionZh) && (
-                <div className="z-10 bg-black/85 backdrop-blur-md border-t border-white/10 transition-all duration-300">
+                <div className="z-10 bg-[#141a22]/95 backdrop-blur-xl border-t border-white/10 rounded-t-3xl shadow-2xl transition-all duration-300 overflow-hidden">
                     <button
                         onClick={() => setCaptionOpen(!captionOpen)}
-                        className="w-full py-2 px-4 flex items-center justify-between text-xs text-white/70 hover:text-white bg-white/5"
+                        className="w-full py-2.5 px-5 flex items-center justify-between text-xs text-white/70 hover:text-white bg-white/[0.03] active:bg-white/[0.06] transition"
                     >
                         <span className="font-medium text-emerald-300 flex items-center gap-1.5">
-                            图注与中英对照释义
+                            图注与学术译注
                         </span>
                         {captionOpen ? <CaretDown size={14} /> : <CaretUp size={14} />}
                     </button>
 
                     {captionOpen && (
-                        <div className="p-4 max-h-52 overflow-y-auto space-y-2.5 text-xs leading-relaxed text-white/90">
+                        <div className="p-4 sm:p-5 max-h-56 overflow-y-auto space-y-2.5 text-xs leading-relaxed text-white/90 no-scrollbar pb-safe">
                             {figure.captionZh && (
-                                <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-500/20 text-emerald-100 font-sans">
+                                <div className="p-3.5 rounded-2xl bg-emerald-950/40 border border-emerald-500/20 text-emerald-100 font-sans">
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400 block mb-1">
                                         中文学术译注
                                     </span>
@@ -196,7 +196,7 @@ export const PaperFigureModal: React.FC<PaperFigureModalProps> = ({ figure, onCl
                                 </div>
                             )}
                             {figure.caption && (
-                                <div className="p-2.5 rounded-lg bg-white/5 text-white/80 font-serif">
+                                <div className="p-3.5 rounded-2xl bg-white/5 border border-white/10 text-slate-300 font-serif">
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/40 block mb-1">
                                         Original Caption
                                     </span>

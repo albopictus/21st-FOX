@@ -136,215 +136,222 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     };
 
     return (
-        <div className="flex flex-col h-full w-full bg-[#0d131a] text-slate-100 select-none overflow-hidden font-sans">
-            {/* 顶栏 */}
-            <div className="flex-none px-4 pt-4 pb-3 bg-[#141d27]/90 backdrop-blur-md border-b border-white/10">
-                <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-                            <Newspaper size={18} weight="bold" />
-                        </div>
-                        <div>
-                            <h2 className="text-base font-bold text-slate-100 flex items-center gap-1.5 font-serif">
-                                <span>文献晨读</span>
-                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-mono">
+        <div className="flex flex-col h-full w-full bg-[#fdfbf7] text-slate-800 select-none overflow-hidden font-sans">
+            {/* 顶栏：自习室统一毛玻璃顶栏与安全区 */}
+            <div className="bg-[#fdfbf7]/90 backdrop-blur-md border-b border-[#e5e5e5] shrink-0 sticky top-0 z-20" style={{ paddingTop: 'var(--safe-top)' }}>
+                <div className="flex items-center px-4 sm:px-6 py-2.5">
+                    <div className="flex justify-between items-center w-full">
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={onBackToCourses}
+                                className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform"
+                                title="返回课程"
+                            >
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-slate-600">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                                </svg>
+                            </button>
+                            <div className="flex items-center gap-2">
+                                <span className="font-bold text-slate-800 text-lg tracking-wide">文献晨读</span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono font-bold tracking-tight">
                                     Europe PMC
                                 </span>
-                            </h2>
-                            <p className="text-[11px] text-slate-400">
-                                国际前沿 JATS XML 全文抓取与双语浸润阅读
-                            </p>
+                            </div>
                         </div>
-                    </div>
 
-                    <div className="flex items-center gap-2">
                         <button
                             onClick={onBackToCourses}
-                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-xs text-slate-300 border border-white/10 active:scale-95 transition"
+                            className="px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200/80 text-xs font-medium text-slate-600 active:scale-95 transition-all"
                         >
                             返回课程
                         </button>
                     </div>
                 </div>
 
-                {/* 搜索框 */}
-                <div className="relative flex items-center">
-                    <input
-                        type="text"
-                        value={searchKeyword}
-                        onChange={e => setSearchKeyword(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                        placeholder="搜索学科或前沿（例：CRISPR, microglia, optogenetics）"
-                        className="w-full bg-[#0d131a] border border-white/15 focus:border-emerald-500/60 rounded-xl py-2 pl-9 pr-20 text-xs text-white placeholder-slate-500 outline-none transition"
-                    />
-                    <MagnifyingGlass size={15} className="absolute left-3 text-slate-500" />
-                    <button
-                        onClick={() => handleSearch()}
-                        disabled={isSearching}
-                        className="absolute right-1.5 px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-medium transition active:scale-95 flex items-center gap-1"
-                    >
-                        {isSearching ? <SpinnerGap size={12} className="animate-spin" /> : <span>检索</span>}
-                    </button>
-                </div>
-
-                {/* 快捷标签胶囊 */}
-                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-2.5 pb-1">
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                        <span className="text-[10px] text-slate-500 font-medium">快捷标签：</span>
+                {/* 搜索栏与快捷标签区 */}
+                <div className="px-4 sm:px-6 pb-3 space-y-2.5">
+                    {/* 搜索框：符合 ui-writing-rules 带图标的胶囊输入框 */}
+                    <div className="relative flex items-center">
+                        <input
+                            type="text"
+                            value={searchKeyword}
+                            onChange={e => setSearchKeyword(e.target.value)}
+                            onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                            placeholder="检索学科或前沿文献（例：CRISPR, microglia, optogenetics）"
+                            className="w-full bg-white border border-slate-200/90 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 rounded-2xl py-2.5 pl-10 pr-24 text-xs text-slate-800 placeholder-slate-400 outline-none transition shadow-xs"
+                        />
+                        <MagnifyingGlass size={16} className="absolute left-3.5 text-slate-400 pointer-events-none" />
                         <button
-                            onClick={() => setIsManagingTags(!isManagingTags)}
-                            className={`text-[10px] px-1.5 py-0.5 rounded transition ${
-                                isManagingTags
-                                    ? 'bg-amber-500/20 text-amber-300 font-bold'
-                                    : 'text-slate-400 hover:text-slate-200'
-                            }`}
-                            title={isManagingTags ? "完成管理" : "管理快捷标签"}
+                            onClick={() => handleSearch()}
+                            disabled={isSearching}
+                            className="absolute right-1.5 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition active:scale-95 shadow-xs flex items-center gap-1 disabled:opacity-50"
                         >
-                            {isManagingTags ? '完成' : '编辑'}
+                            {isSearching ? <SpinnerGap size={13} className="animate-spin" /> : <span>检索</span>}
                         </button>
-                        {isManagingTags && (
+                    </div>
+
+                    {/* 快捷标签胶囊 */}
+                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5 pb-1">
+                        <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[11px] text-slate-400 font-medium">标签：</span>
                             <button
-                                onClick={handleResetTags}
-                                className="text-[9px] text-slate-500 hover:text-slate-400 underline ml-0.5"
-                                title="恢复默认标签"
+                                onClick={() => setIsManagingTags(!isManagingTags)}
+                                className={`text-[11px] px-2 py-0.5 rounded-full font-medium transition active:scale-95 ${
+                                    isManagingTags
+                                        ? 'bg-amber-100 text-amber-800 font-bold'
+                                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
+                                }`}
+                                title={isManagingTags ? "完成管理" : "管理快捷标签"}
                             >
-                                重置
+                                {isManagingTags ? '完成' : '编辑'}
+                            </button>
+                            {isManagingTags && (
+                                <button
+                                    onClick={handleResetTags}
+                                    className="text-[10px] text-slate-400 hover:text-slate-600 underline ml-0.5"
+                                    title="恢复默认标签"
+                                >
+                                    重置
+                                </button>
+                            )}
+                        </div>
+
+                        {tags.map(kw => (
+                            <div
+                                key={kw}
+                                onClick={() => {
+                                    if (!isManagingTags) {
+                                        setSearchKeyword(kw);
+                                        handleSearch(kw);
+                                    }
+                                }}
+                                className={`px-3 py-1 rounded-full text-xs transition-all shrink-0 flex items-center gap-1.5 border shadow-2xs ${
+                                    isManagingTags
+                                        ? 'bg-amber-50 border-amber-300/80 text-amber-900 cursor-default'
+                                        : 'bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-600 hover:text-emerald-800 border-slate-200/80 cursor-pointer active:scale-95'
+                                }`}
+                            >
+                                <span>{kw}</span>
+                                {isManagingTags && (
+                                    <button
+                                        onClick={(e) => handleDeleteTag(e, kw)}
+                                        className="w-3.5 h-3.5 rounded-full hover:bg-rose-100 text-slate-400 hover:text-rose-600 flex items-center justify-center transition -mr-1"
+                                        title={`删除标签 "${kw}"`}
+                                    >
+                                        <X size={10} weight="bold" />
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+
+                        {/* 添加新标签 */}
+                        {isAddingTag ? (
+                            <div className="flex items-center gap-1 shrink-0 bg-white border border-emerald-400 rounded-full px-2.5 py-0.5 shadow-2xs">
+                                <input
+                                    type="text"
+                                    autoFocus
+                                    value={newTagText}
+                                    onChange={e => setNewTagText(e.target.value)}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter') handleAddTag();
+                                        if (e.key === 'Escape') {
+                                            setIsAddingTag(false);
+                                            setNewTagText('');
+                                        }
+                                    }}
+                                    placeholder="新标签..."
+                                    className="bg-transparent text-xs text-slate-800 outline-none w-16 placeholder-slate-400"
+                                />
+                                <button
+                                    onClick={handleAddTag}
+                                    className="text-emerald-600 hover:text-emerald-700 p-0.5 active:scale-90"
+                                    title="确认添加"
+                                >
+                                    <Check size={12} weight="bold" />
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsAddingTag(false);
+                                        setNewTagText('');
+                                    }}
+                                    className="text-slate-400 hover:text-slate-600 p-0.5 active:scale-90"
+                                    title="取消"
+                                >
+                                    <X size={12} />
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                onClick={() => setIsAddingTag(true)}
+                                className="px-2.5 py-1 rounded-full bg-white hover:bg-emerald-50 text-xs text-slate-500 hover:text-emerald-700 transition shrink-0 border border-dashed border-slate-300 hover:border-emerald-400 flex items-center gap-1 shadow-2xs active:scale-95"
+                                title="添加新标签"
+                            >
+                                <Plus size={11} weight="bold" />
+                                <span>添加</span>
                             </button>
                         )}
                     </div>
 
-                    {tags.map(kw => (
-                        <div
-                            key={kw}
-                            onClick={() => {
-                                if (!isManagingTags) {
-                                    setSearchKeyword(kw);
-                                    handleSearch(kw);
-                                }
-                            }}
-                            className={`px-2 py-0.5 rounded-full text-[10px] transition flex-shrink-0 flex items-center gap-1 border ${
-                                isManagingTags
-                                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-200 cursor-default'
-                                    : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-emerald-300 border-white/5 cursor-pointer'
+                    {/* 视图 Tab 切换：符合自习室分栏设计 */}
+                    <div className="flex bg-slate-200/70 p-1 rounded-2xl gap-1">
+                        <button
+                            onClick={() => setActiveTab('my_papers')}
+                            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                activeTab === 'my_papers'
+                                    ? 'bg-white text-slate-800 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-800'
                             }`}
                         >
-                            <span>{kw}</span>
-                            {isManagingTags && (
-                                <button
-                                    onClick={(e) => handleDeleteTag(e, kw)}
-                                    className="w-3.5 h-3.5 rounded-full hover:bg-rose-500/40 text-slate-400 hover:text-rose-300 flex items-center justify-center transition -mr-0.5"
-                                    title={`删除标签 "${kw}"`}
-                                >
-                                    <X size={10} weight="bold" />
-                                </button>
-                            )}
-                        </div>
-                    ))}
-
-                    {/* 添加新标签 */}
-                    {isAddingTag ? (
-                        <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 border border-emerald-500/40 rounded-full px-2 py-0.5">
-                            <input
-                                type="text"
-                                autoFocus
-                                value={newTagText}
-                                onChange={e => setNewTagText(e.target.value)}
-                                onKeyDown={e => {
-                                    if (e.key === 'Enter') handleAddTag();
-                                    if (e.key === 'Escape') {
-                                        setIsAddingTag(false);
-                                        setNewTagText('');
-                                    }
-                                }}
-                                placeholder="新标签..."
-                                className="bg-transparent text-[10px] text-white outline-none w-16 placeholder-slate-500"
-                            />
-                            <button
-                                onClick={handleAddTag}
-                                className="text-emerald-400 hover:text-emerald-300 p-0.5"
-                                title="确认添加"
-                            >
-                                <Check size={12} weight="bold" />
-                            </button>
-                            <button
-                                onClick={() => {
-                                    setIsAddingTag(false);
-                                    setNewTagText('');
-                                }}
-                                className="text-slate-400 hover:text-slate-200 p-0.5"
-                                title="取消"
-                            >
-                                <X size={12} />
-                            </button>
-                        </div>
-                    ) : (
-                        <button
-                            onClick={() => setIsAddingTag(true)}
-                            className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-emerald-500/20 text-[10px] text-slate-400 hover:text-emerald-300 transition flex-shrink-0 border border-dashed border-white/20 hover:border-emerald-500/40 flex items-center gap-0.5"
-                            title="添加新标签"
-                        >
-                            <Plus size={10} weight="bold" />
-                            <span>添加</span>
+                            已下载文献 ({papers.length})
                         </button>
-                    )}
-                </div>
-
-                {/* 视图 Tab 切换 */}
-                <div className="flex items-center gap-2 mt-2 pt-2 border-t border-white/5">
-                    <button
-                        onClick={() => setActiveTab('my_papers')}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                            activeTab === 'my_papers'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : 'text-slate-400 hover:text-white'
-                        }`}
-                    >
-                        已下载文献 ({papers.length})
-                    </button>
-                    <button
-                        onClick={() => setActiveTab('discover')}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold transition ${
-                            activeTab === 'discover'
-                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
-                                : 'text-slate-400 hover:text-white'
-                        }`}
-                    >
-                        探索检索结果 {searchResults.length > 0 && `(${searchResults.length})`}
-                    </button>
+                        <button
+                            onClick={() => setActiveTab('discover')}
+                            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                                activeTab === 'discover'
+                                    ? 'bg-white text-emerald-700 shadow-sm'
+                                    : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            探索检索结果 {searchResults.length > 0 && `(${searchResults.length})`}
+                        </button>
+                    </div>
                 </div>
             </div>
 
             {/* 内容滚动区 */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6 no-scrollbar">
                 {activeTab === 'my_papers' ? (
                     papers.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-16 text-center space-y-3 text-slate-500">
-                            <BookOpen size={48} weight="thin" className="text-slate-600" />
-                            <p className="text-sm">暂无本地文献，请通过上方搜索框输入关键词抓取</p>
+                        <div className="flex flex-col items-center justify-center py-20 text-center space-y-3 text-slate-400">
+                            <BookOpen size={48} weight="thin" className="text-slate-300" />
+                            <div className="space-y-1">
+                                <p className="text-sm font-semibold text-slate-600">书架暂无文献</p>
+                                <p className="text-xs text-slate-400">在上方检索 Europe PMC 开放获取文献，抓取全文并晨读</p>
+                            </div>
                             <button
                                 onClick={() => {
                                     const defaultKw = tags[0] || 'CRISPR';
                                     setSearchKeyword(defaultKw);
                                     handleSearch(defaultKw);
                                 }}
-                                className="px-4 py-2 rounded-xl bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-medium transition"
+                                className="mt-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition active:scale-95 shadow-sm"
                             >
-                                快速抓取 {tags[0] || 'CRISPR'} 前沿文献
+                                快速抓取 {tags[0] || 'CRISPR'} 前沿
                             </button>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-16">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-20">
                             {papers.map(paper => {
                                 const figureBlock = paper.blocks.find(b => b.type === 'figure') as any;
                                 return (
                                     <div
                                         key={paper.id}
                                         onClick={() => onSelectPaper(paper)}
-                                        className="p-3.5 rounded-xl bg-[#141d27]/70 hover:bg-[#182330] border border-white/10 hover:border-emerald-500/40 cursor-pointer transition flex flex-col justify-between group shadow-sm"
+                                        className="p-5 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between group shadow-sm active:scale-[0.99]"
                                     >
-                                        <div className="space-y-2">
+                                        <div className="space-y-2.5">
                                             <div className="flex items-center justify-between text-[10px]">
-                                                <span className="font-mono text-emerald-400 font-bold uppercase tracking-wider">
+                                                <span className="font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                                                     {paper.journalTitle || 'Academic'}
                                                 </span>
                                                 <span className="text-slate-400 font-mono">
@@ -352,56 +359,56 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                 </span>
                                             </div>
 
-                                            <h3 className="text-sm font-bold text-slate-100 font-serif line-clamp-2 leading-snug group-hover:text-emerald-300 transition">
+                                            <h3 className="text-sm sm:text-base font-bold text-slate-800 font-serif line-clamp-2 leading-snug group-hover:text-emerald-700 transition-colors">
                                                 {paper.title}
                                             </h3>
 
                                             {paper.titleZh && (
-                                                <p className="text-xs text-emerald-300/80 line-clamp-1 font-sans">
+                                                <p className="text-xs font-medium text-emerald-800 line-clamp-1 font-sans">
                                                     {paper.titleZh}
                                                 </p>
                                             )}
 
                                             {/* 百字晨读机理摘要预览 */}
                                             {paper.summary100 && (
-                                                <div className="p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/20 text-[11px] text-emerald-100/90 line-clamp-2 leading-relaxed font-sans">
+                                                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 text-xs text-emerald-900 line-clamp-2 leading-relaxed font-sans">
                                                     {paper.summary100}
                                                 </div>
                                             )}
 
                                             {/* 图配缩略图 */}
                                             {figureBlock?.imageUrl && (
-                                                <div className="h-24 rounded-lg overflow-hidden bg-black/40 border border-white/5 flex items-center justify-center">
+                                                <div className="h-28 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex items-center justify-center p-1">
                                                     <img
                                                         src={figureBlock.imageUrl}
                                                         alt="Figure thumbnail"
-                                                        className="max-h-full max-w-full object-contain"
+                                                        className="max-h-full max-w-full object-contain rounded"
                                                         loading="lazy"
                                                     />
                                                 </div>
                                             )}
                                         </div>
 
-                                        <div className="pt-3 mt-2 border-t border-white/5 flex items-center justify-between text-[11px] text-slate-400">
-                                            <div className="flex items-center gap-2">
+                                        <div className="pt-3.5 mt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                                            <div className="flex items-center gap-2 font-medium">
                                                 <span>进度: {paper.readProgress || 0}%</span>
                                                 {paper.translatedAt && (
-                                                    <span className="px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold">
+                                                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
                                                         双语
                                                     </span>
                                                 )}
                                             </div>
 
-                                            <div className="flex items-center gap-2">
+                                            <div className="flex items-center gap-1.5">
                                                 <button
                                                     onClick={(e) => handleDeletePaper(e, paper.id)}
-                                                    className="w-7 h-7 rounded-full hover:bg-red-500/20 text-slate-500 hover:text-red-400 flex items-center justify-center transition"
-                                                    title="删除"
+                                                    className="w-8 h-8 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition active:scale-95"
+                                                    title="删除文献"
                                                 >
-                                                    <Trash size={14} />
+                                                    <Trash size={15} />
                                                 </button>
-                                                <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center group-hover:bg-emerald-500 group-hover:text-white transition">
-                                                    <ArrowRight size={13} weight="bold" />
+                                                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center transition shadow-2xs active:scale-95">
+                                                    <ArrowRight size={14} weight="bold" />
                                                 </div>
                                             </div>
                                         </div>
@@ -412,10 +419,11 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                     )
                 ) : (
                     /* 检索结果展示区 */
-                    <div className="space-y-3 pb-16">
+                    <div className="space-y-3 pb-20">
                         {searchResults.length === 0 ? (
-                            <div className="text-center py-16 text-slate-500 text-xs">
-                                暂无检索结果，请在上方输入关键词检索 Europe PMC
+                            <div className="text-center py-20 text-slate-400 text-xs space-y-1">
+                                <p className="font-semibold text-slate-500">暂无检索结果</p>
+                                <p>请在上方搜索框输入学科关键词检索 Europe PMC 开放获取前沿</p>
                             </div>
                         ) : (
                             searchResults.map(res => {
@@ -425,11 +433,11 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                 return (
                                     <div
                                         key={res.id}
-                                        className="p-3.5 rounded-xl bg-[#141d27]/70 border border-white/10 hover:border-white/20 transition flex flex-col justify-between space-y-2"
+                                        className="p-5 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 hover:shadow-md transition-all flex flex-col justify-between space-y-3 shadow-sm"
                                     >
                                         <div className="space-y-1.5">
                                             <div className="flex items-center justify-between text-[10px]">
-                                                <span className="font-mono text-emerald-400 font-bold uppercase">
+                                                <span className="font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold uppercase">
                                                     {res.journalTitle || 'Academic'}
                                                 </span>
                                                 <span className="text-slate-400 font-mono">
@@ -437,12 +445,12 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                 </span>
                                             </div>
 
-                                            <h4 className="text-sm font-bold text-slate-100 font-serif leading-snug">
+                                            <h4 className="text-sm sm:text-base font-bold text-slate-800 font-serif leading-snug">
                                                 {res.title}
                                             </h4>
 
                                             {res.authorString && (
-                                                <p className="text-[11px] text-slate-400 line-clamp-1">
+                                                <p className="text-xs text-slate-500 line-clamp-1">
                                                     {res.authorString}
                                                 </p>
                                             )}
@@ -452,9 +460,9 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                             <button
                                                 onClick={() => handleFetchPaper(res)}
                                                 disabled={isFetchingPaper}
-                                                className={`px-3.5 py-1.5 rounded-lg text-xs font-medium flex items-center gap-1.5 transition active:scale-95 ${
+                                                className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-2xs ${
                                                     isAlreadyDownloaded
-                                                        ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/30'
+                                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
                                                         : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                                                 }`}
                                             >

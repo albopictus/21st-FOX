@@ -144,37 +144,39 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                             throwOnError: false,
                             output: 'html'
                         });
-                        return <span key={index} dangerouslySetInnerHTML={{ __html: html }} className="inline-block mx-1 font-mono text-emerald-300" />;
+                        return <span key={index} dangerouslySetInnerHTML={{ __html: html }} className="inline-block mx-1 font-mono text-emerald-800 font-semibold" />;
                     } catch (e) {
-                        return <span key={index} className="text-emerald-300 font-mono text-xs">{part}</span>;
+                        return <span key={index} className="text-emerald-800 font-mono text-xs font-semibold">{part}</span>;
                     }
                 }
-                return <span key={index} className="text-emerald-300 font-mono text-xs">{part}</span>;
+                return <span key={index} className="text-emerald-800 font-mono text-xs font-semibold">{part}</span>;
             }
             return <span key={index}>{part}</span>;
         });
     };
 
     return (
-        <div className="flex flex-col h-full w-full bg-[#0d131a] text-slate-100 select-text overflow-hidden relative font-sans">
-            {/* 顶栏进度与导航 */}
-            <div className="flex-none bg-[#141d27]/90 backdrop-blur-md border-b border-white/10 z-20">
-                <div className="flex items-center justify-between px-3.5 py-2.5">
-                    <div className="flex items-center gap-3">
+        <div className="flex flex-col h-full w-full bg-[#fdfbf7] text-slate-800 select-text overflow-hidden relative font-sans">
+            {/* 顶栏进度与导航：自习室统一毛玻璃风格 */}
+            <div className="bg-[#fdfbf7]/90 backdrop-blur-md border-b border-[#e5e5e5] shrink-0 sticky top-0 z-20" style={{ paddingTop: 'var(--safe-top)' }}>
+                <div className="flex items-center justify-between px-4 sm:px-6 py-2.5">
+                    <div className="flex items-center gap-2.5">
                         <button
                             onClick={onBack}
-                            className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 active:scale-95 flex items-center justify-center text-slate-300 transition"
+                            className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform"
                             title="返回书架"
                         >
-                            <ArrowLeft size={18} />
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-slate-600">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                            </svg>
                         </button>
                         <div>
-                            <div className="text-[11px] font-mono uppercase tracking-wider text-emerald-400 font-bold flex items-center gap-1.5">
-                                <span>{paper.journalTitle || 'Academic Paper'}</span>
-                                <span className="text-white/30">•</span>
-                                <span className="text-white/60">{paper.pmcid}</span>
+                            <div className="text-[10px] font-mono uppercase tracking-wider text-emerald-700 font-bold flex items-center gap-1.5">
+                                <span>{paper.journalTitle || 'Academic'}</span>
+                                <span className="text-slate-300">•</span>
+                                <span className="text-slate-500 font-mono">{paper.pmcid}</span>
                             </div>
-                            <div className="text-xs font-semibold text-slate-200 line-clamp-1 max-w-[200px] sm:max-w-[360px]">
+                            <div className="text-xs font-semibold text-slate-800 line-clamp-1 max-w-[170px] sm:max-w-[340px]">
                                 {paper.titleZh || paper.title}
                             </div>
                         </div>
@@ -184,21 +186,21 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                         <button
                             onClick={handleFullTranslate}
                             disabled={isTranslating}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition active:scale-95 shadow-sm ${
+                            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition active:scale-95 shadow-2xs ${
                                 paper.translatedAt
-                                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-500/40'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                     : 'bg-emerald-600 hover:bg-emerald-500 text-white'
                             }`}
                             title="学术级双语精翻"
                         >
                             {isTranslating ? (
                                 <>
-                                    <SpinnerGap size={14} className="animate-spin" />
+                                    <SpinnerGap size={13} className="animate-spin" />
                                     <span>{transPercent}%</span>
                                 </>
                             ) : paper.translatedAt ? (
                                 <>
-                                    <CheckCircle size={14} weight="fill" className="text-emerald-400" />
+                                    <CheckCircle size={14} weight="fill" className="text-emerald-700" />
                                     <span>已双语</span>
                                 </>
                             ) : (
@@ -211,18 +213,18 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
 
                         <button
                             onClick={() => onAskTutor(`论文《${paper.title}》`)}
-                            className="w-9 h-9 rounded-full bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 flex items-center justify-center transition active:scale-95"
+                            className="p-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform text-slate-600"
                             title="呼出助教"
                         >
-                            <ChatCircleText size={18} />
+                            <ChatCircleText size={20} />
                         </button>
                     </div>
                 </div>
 
                 {/* 滚动阅读进度细条 */}
-                <div className="w-full h-0.5 bg-white/5">
+                <div className="w-full h-0.5 bg-slate-200/70">
                     <div
-                        className="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-150"
+                        className="h-full bg-emerald-600 transition-all duration-150"
                         style={{ width: `${scrollPercent}%` }}
                     />
                 </div>
@@ -230,9 +232,9 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
 
             {/* 翻译进度浮层通知 */}
             {isTranslating && (
-                <div className="bg-emerald-950/90 border-b border-emerald-500/30 px-4 py-2 flex items-center justify-between text-xs text-emerald-200">
+                <div className="bg-emerald-50 border-b border-emerald-200/80 px-4 py-2 flex items-center justify-between text-xs text-emerald-800 font-medium animate-fade-in">
                     <div className="flex items-center gap-2">
-                        <SpinnerGap size={14} className="animate-spin text-emerald-400" />
+                        <SpinnerGap size={14} className="animate-spin text-emerald-600" />
                         <span>{transStatus}</span>
                     </div>
                     <span className="font-mono font-bold">{transPercent}%</span>
@@ -243,52 +245,50 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
             <div
                 ref={containerRef}
                 onScroll={handleScroll}
-                className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full"
+                className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 space-y-6 max-w-3xl mx-auto w-full no-scrollbar"
             >
-                {/* 论文扉页标头 */}
-                <div className="pb-6 border-b border-white/10 space-y-3">
+                {/* 论文扉页白纸大卡片 */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100 space-y-3.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="px-2.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
                             Open Access
                         </span>
                         {paper.pubDate && (
-                            <span className="text-[11px] text-slate-400 font-mono">
+                            <span className="text-xs text-slate-400 font-mono">
                                 📅 {paper.pubDate}
                             </span>
                         )}
                         {paper.doi && (
-                            <span className="text-[11px] text-slate-400 font-mono">
+                            <span className="text-xs text-slate-400 font-mono">
                                 DOI: {paper.doi}
                             </span>
                         )}
                     </div>
 
-                    <h1 className="text-xl sm:text-2xl font-bold font-serif leading-snug text-slate-100">
+                    <h1 className="text-xl sm:text-2xl font-bold font-serif leading-snug text-slate-900 tracking-tight">
                         {paper.title}
                     </h1>
 
                     {paper.titleZh && (
-                        <h2 className="text-base sm:text-lg font-semibold text-emerald-300/90 font-sans leading-relaxed">
+                        <h2 className="text-base sm:text-lg font-semibold text-emerald-800 font-sans leading-relaxed">
                             {paper.titleZh}
                         </h2>
                     )}
 
                     {paper.authorString && (
-                        <p className="text-xs text-slate-400 font-sans leading-relaxed">
-                            <span className="text-slate-500">Authors: </span>{paper.authorString}
+                        <p className="text-xs text-slate-500 font-sans leading-relaxed">
+                            <span className="text-slate-400 font-medium">Authors: </span>{paper.authorString}
                         </p>
                     )}
 
                     {/* 百字晨读核心机理总结卡片 */}
                     {paper.summary100 && (
-                        <div className="mt-4 p-4 rounded-xl bg-gradient-to-br from-emerald-950/50 via-[#162a26]/60 to-[#0e1c19]/70 border border-emerald-500/30 shadow-lg relative overflow-hidden">
-                            <div className="flex items-center gap-2 mb-2 text-emerald-400">
-                                <Sparkle size={16} weight="fill" />
-                                <span className="text-xs font-bold uppercase tracking-wider font-sans">
-                                    晨读核心机理与突破速递
-                                </span>
+                        <div className="mt-4 p-4 rounded-2xl bg-emerald-50/80 border border-emerald-200/70 shadow-2xs space-y-1.5">
+                            <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-xs uppercase tracking-wider font-sans">
+                                <Sparkle size={15} weight="fill" />
+                                <span>晨读核心机理速递</span>
                             </div>
-                            <p className="text-xs sm:text-sm text-emerald-100 leading-relaxed text-justify font-sans">
+                            <p className="text-xs sm:text-sm text-emerald-950 leading-relaxed text-justify font-sans">
                                 {paper.summary100}
                             </p>
                         </div>
@@ -296,13 +296,13 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                 </div>
 
                 {/* 积木块正文排版 */}
-                <div className="space-y-5 pb-20">
+                <div className="space-y-4 pb-20">
                     {paper.blocks.map(block => {
                         if (block.type === 'heading') {
                             const h = block as PaperHeadingBlock;
                             const isExpanded = expandedBlockIds.has(h.id);
                             return (
-                                <div key={h.id} className="pt-4 pb-1">
+                                <div key={h.id} className="pt-5 pb-1">
                                     <div
                                         onClick={() => toggleBlockExpand(h)}
                                         className="cursor-pointer group flex items-baseline justify-between"
@@ -310,22 +310,22 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                                         <h3
                                             className={`font-bold font-serif tracking-tight ${
                                                 h.level === 1
-                                                    ? 'text-xl text-emerald-200 border-b border-white/10 pb-2'
+                                                    ? 'text-xl text-slate-900 border-b border-slate-200 pb-2'
                                                     : h.level === 2
-                                                    ? 'text-lg text-slate-200'
-                                                    : 'text-base text-slate-300'
+                                                    ? 'text-lg text-slate-800'
+                                                    : 'text-base text-slate-700'
                                             }`}
                                         >
                                             {h.text}
                                         </h3>
                                         {h.textZh && (
-                                            <span className="text-[10px] text-emerald-400/60 font-mono opacity-0 group-hover:opacity-100 transition ml-2">
-                                                {isExpanded ? '收起中文' : '展开中文'}
+                                            <span className="text-[11px] text-emerald-700 font-medium opacity-0 group-hover:opacity-100 transition ml-2">
+                                                {isExpanded ? '收起对照' : '展开对照'}
                                             </span>
                                         )}
                                     </div>
                                     {isExpanded && h.textZh && (
-                                        <div className="mt-1 text-xs text-emerald-300/80 font-sans pl-1">
+                                        <div className="mt-1 text-xs text-emerald-800 font-sans pl-1 font-medium">
                                             {h.textZh}
                                         </div>
                                     )}
@@ -341,68 +341,68 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                             return (
                                 <div
                                     key={p.id}
-                                    className="group relative rounded-xl transition-all duration-200"
+                                    className="group relative rounded-2xl transition-all duration-150"
                                 >
-                                    {/* 英文段落：点击触发微动效展开/折叠对照 */}
+                                    {/* 英文段落：轻触展开/折叠双语对照 */}
                                     <p
                                         onClick={() => toggleBlockExpand(p)}
-                                        className={`font-serif text-[15px] sm:text-[16px] leading-relaxed text-slate-200/90 text-justify cursor-pointer p-2.5 -mx-2.5 rounded-lg transition-colors ${
+                                        className={`font-serif text-[15px] sm:text-[16px] leading-relaxed text-slate-800 text-justify cursor-pointer p-3 -mx-3 rounded-xl transition-colors ${
                                             isExpanded
-                                                ? 'bg-white/[0.04] text-white shadow-inner'
-                                                : 'hover:bg-white/[0.02]'
+                                                ? 'bg-white shadow-2xs border border-slate-100'
+                                                : 'hover:bg-black/[0.02]'
                                         }`}
                                     >
                                         {renderInlineContent(p.text)}
                                     </p>
 
-                                    {/* 右侧悬浮快捷操作 */}
-                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 absolute right-2 -top-3 z-10 bg-[#16212d] border border-white/15 px-2 py-0.5 rounded-full shadow-md text-[10px]">
+                                    {/* 右侧悬浮快捷操作胶囊 */}
+                                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1.5 absolute right-2 -top-3 z-10 bg-white border border-slate-200 px-2.5 py-1 rounded-full shadow-md text-[11px] text-slate-600">
                                         <button
                                             onClick={() => toggleBlockExpand(p)}
-                                            className="text-emerald-400 hover:text-emerald-300 flex items-center gap-1"
+                                            className="text-emerald-700 hover:text-emerald-900 flex items-center gap-1 font-medium active:scale-95"
                                         >
-                                            <Translate size={11} />
+                                            <Translate size={12} />
                                             <span>{isExpanded ? '折叠' : '双语'}</span>
                                         </button>
-                                        <span className="text-white/20">|</span>
+                                        <span className="text-slate-300">|</span>
                                         <button
                                             onClick={() => onAskTutor(p.text, `请向我解读该论文段落：\n"${p.text.slice(0, 150)}..."`)}
-                                            className="text-teal-400 hover:text-teal-300 flex items-center gap-1"
+                                            className="text-teal-700 hover:text-teal-900 flex items-center gap-1 font-medium active:scale-95"
                                         >
-                                            <ChatCircleText size={11} />
+                                            <ChatCircleText size={12} />
                                             <span>问助教</span>
                                         </button>
                                     </div>
 
                                     {/* 中文对照卡片（微动效平滑展开） */}
                                     {isExpanded && (
-                                        <div className="mt-2 p-3.5 rounded-xl bg-gradient-to-r from-emerald-950/40 to-[#0e1c19]/60 border-l-4 border-emerald-500 border-y border-r border-emerald-500/20 shadow-sm animate-fade-in">
+                                        <div className="mt-2 p-4 rounded-2xl bg-emerald-50/70 border-l-4 border-emerald-500 border-y border-r border-emerald-100/80 shadow-2xs animate-fade-in">
                                             {isTranslatingThis ? (
-                                                <div className="flex items-center gap-2 text-xs text-emerald-300 py-1">
-                                                    <SpinnerGap size={14} className="animate-spin text-emerald-400" />
+                                                <div className="flex items-center gap-2 text-xs text-emerald-800 py-1 font-medium">
+                                                    <SpinnerGap size={14} className="animate-spin text-emerald-600" />
                                                     <span>正在学术级精准翻译该段落...</span>
                                                 </div>
                                             ) : p.textZh ? (
                                                 <div className="space-y-1.5">
-                                                    <div className="flex items-center justify-between text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                                                    <div className="flex items-center justify-between text-[10px] text-emerald-800 font-bold uppercase tracking-wider">
                                                         <span>中文对照学术译文</span>
                                                         <button
                                                             onClick={() => onAskTutor(p.text, `针对该段落的中文含义，我有疑问：\n"${p.textZh.slice(0, 100)}..."`)}
-                                                            className="text-emerald-400/70 hover:text-emerald-300 flex items-center gap-1"
+                                                            className="text-emerald-700 hover:text-emerald-900 flex items-center gap-1 font-medium active:scale-95"
                                                         >
                                                             <span>基于此段提问</span>
                                                         </button>
                                                     </div>
-                                                    <p className="font-sans text-[13px] sm:text-[14px] leading-relaxed text-emerald-100 text-justify">
+                                                    <p className="font-sans text-[13px] sm:text-[14px] leading-relaxed text-emerald-950 text-justify">
                                                         {renderInlineContent(p.textZh)}
                                                     </p>
                                                 </div>
                                             ) : (
-                                                <div className="text-xs text-slate-400 flex items-center justify-between">
+                                                <div className="text-xs text-slate-500 flex items-center justify-between">
                                                     <span>暂无翻译</span>
                                                     <button
                                                         onClick={() => toggleBlockExpand(p)}
-                                                        className="text-emerald-400 hover:underline"
+                                                        className="text-emerald-700 font-medium hover:underline"
                                                     >
                                                         重试翻译
                                                     </button>
@@ -423,9 +423,9 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                                     {/* 插图卡片 */}
                                     <div
                                         onClick={() => setActiveFigure(fig)}
-                                        className="rounded-xl overflow-hidden border border-white/10 bg-black/40 cursor-pointer group relative shadow-md hover:border-emerald-500/40 transition"
+                                        className="rounded-2xl overflow-hidden border border-slate-200/90 bg-white cursor-pointer group relative shadow-sm hover:border-emerald-300 transition-all"
                                     >
-                                        <div className="relative flex items-center justify-center p-3 max-h-[380px] overflow-hidden bg-white/[0.02]">
+                                        <div className="relative flex items-center justify-center p-4 max-h-[380px] overflow-hidden bg-slate-50/50">
                                             <img
                                                 src={fig.imageUrl}
                                                 alt={fig.label || 'Paper figure'}
@@ -433,9 +433,9 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                                                 loading="lazy"
                                             />
                                         </div>
-                                        <div className="absolute top-2.5 right-2.5 px-2.5 py-1 rounded-full bg-black/70 backdrop-blur-md text-[10px] text-white/80 font-mono flex items-center gap-1 opacity-80 group-hover:opacity-100 transition border border-white/10">
+                                        <div className="absolute top-3 right-3 px-3 py-1 rounded-full bg-white/90 backdrop-blur-md text-[10px] text-slate-700 font-mono flex items-center gap-1 opacity-80 group-hover:opacity-100 transition border border-slate-200 shadow-sm font-medium">
                                             <Eye size={12} />
-                                            <span>轻触双指缩放原图</span>
+                                            <span>双指缩放原图</span>
                                         </div>
                                     </div>
 
@@ -443,12 +443,12 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                                     {(fig.caption || fig.captionZh) && (
                                         <div className="px-2">
                                             <div className="flex items-baseline gap-2">
-                                                <span className="font-bold text-emerald-400 text-xs font-mono">
+                                                <span className="font-bold text-emerald-700 text-xs font-mono">
                                                     {fig.label || 'Fig.'}
                                                 </span>
                                                 <p
                                                     onClick={() => toggleBlockExpand(fig)}
-                                                    className="text-xs text-slate-400 leading-relaxed font-serif cursor-pointer hover:text-slate-300"
+                                                    className="text-xs text-slate-600 leading-relaxed font-serif cursor-pointer hover:text-slate-900"
                                                 >
                                                     {fig.caption}
                                                 </p>
@@ -456,8 +456,8 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
 
                                             {/* 中文图注展开卡片 */}
                                             {isCaptionExpanded && fig.captionZh && (
-                                                <div className="mt-2 p-2.5 rounded-lg bg-emerald-950/30 border border-emerald-500/20 text-xs text-emerald-200 font-sans">
-                                                    <span className="text-[10px] font-bold uppercase text-emerald-400 block mb-0.5">
+                                                <div className="mt-2 p-3 rounded-xl bg-emerald-50/70 border border-emerald-100/80 text-xs text-emerald-950 font-sans">
+                                                    <span className="text-[10px] font-bold uppercase text-emerald-800 block mb-1">
                                                         中文学术图注
                                                     </span>
                                                     {fig.captionZh}
