@@ -1,5 +1,11 @@
 import React, { useRef, useState, useEffect, useMemo } from 'react';
-import { ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, Money, BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots, CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple, BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple, Star, Briefcase, Gift } from '@phosphor-icons/react';
+import {
+  ShareNetwork, Trash, Plus, Smiley, PaperPlaneTilt, Lightning, Money,
+  BookOpenText, GearSix, Image, Lock, ArrowsClockwise, ChatCircleDots,
+  CalendarBlank, ForkKnife, Coffee, Code, Brain, PencilSimple,
+  BellSimpleRinging, Alarm, Sparkle, FadersHorizontal, LinkSimple,
+  Star, Briefcase, Gift
+} from '@phosphor-icons/react';
 import { CharacterProfile, ChatTheme, EmojiCategory, Emoji } from '../../types';
 import { PRESET_THEMES } from './ChatConstants';
 import TokenImg from '../os/TokenImg';

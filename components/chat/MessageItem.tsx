@@ -2,10 +2,8 @@ import { avatarDecorationImageStyle, isAnniversaryFrame } from '../../utils/anni
 
 
 
-import React, { useEffect, useRef, useState } from 'react';
-const AivenFishSaleReceipt = React.lazy(() => import('../../apps/vrWorld/AivenFishSaleReceipt').then(module => ({ default: module.AivenFishSaleReceipt })));
-import { Message, ChatTheme } from '../../types';
 import React, { useEffect, useRef, useState, useContext } from 'react';
+const AivenFishSaleReceipt = React.lazy(() => import('../../apps/vrWorld/AivenFishSaleReceipt').then(module => ({ default: module.AivenFishSaleReceipt })));
 import { Message, ChatTheme, AppID } from '../../types';
 import { OSContext } from '../../context/OSContext';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
