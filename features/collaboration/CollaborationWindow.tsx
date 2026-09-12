@@ -2655,7 +2655,7 @@ const CollaborationWindow: React.FC<CollaborationWindowProps> = ({
         <ModePicker character={character} onChoose={createSession} onBack={sessions.length > 0 ? () => { setShowModePicker(false); setShowEntryChooser(true); } : undefined} />
       ) : (
         <>
-          <div ref={scrollRef} className="collab-ui-thread flex-1 overflow-y-auto overflow-x-hidden pb-5 pt-4 no-scrollbar">
+          <div ref={scrollRef} className="collab-ui-thread flex-1 overflow-y-auto overflow-x-hidden pb-5 pt-4 desktop-scrollbar">
             {messages.length === 0 && !isGenerating && (
               <div className="collab-empty-state mx-auto flex min-h-full max-w-md flex-col items-center justify-center px-8 pb-20 text-center">
                 <div className="collab-empty-brand-wrap relative">

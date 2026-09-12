@@ -3850,7 +3850,7 @@ const Chat: React.FC = () => {
                                  </p>
                              )}
                          </div>
-                         <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2 no-scrollbar">
+                         <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-2 desktop-scrollbar">
                              {memoryPalaceResult.memories.map((m, i) => {
                                  const roomMeta: Record<string, { label: string; color: string }> = {
                                      living_room: { label: '客厅', color: '#f59e0b' },
@@ -4151,7 +4151,7 @@ const Chat: React.FC = () => {
                             </div>
 
                             {/* 内容列表 */}
-                            <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-3 no-scrollbar">
+                            <div className="flex-1 overflow-y-auto px-5 pb-4 space-y-3 desktop-scrollbar">
                                 {groups.map(g => (
                                     <div key={g.key}
                                         className="rounded-2xl overflow-hidden"
@@ -4206,7 +4206,7 @@ const Chat: React.FC = () => {
                 );
             })()}
 
-            <div ref={scrollRef} onScroll={handleChatScroll} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 no-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
+            <div ref={scrollRef} onScroll={handleChatScroll} onClick={() => { if (inputPreferences.autoReply) setShowPanel('none'); }} className="flex-1 overflow-y-auto overflow-x-hidden pt-6 pb-6 desktop-scrollbar" style={{ backgroundImage: activeTheme.type === 'custom' && activeTheme.user.backgroundImage ? 'none' : undefined }}>
                 {/* 电脑宽屏下居中黄金阅读列（max-w-2xl），气泡占比自然受控，两侧透出背景 */}
                 <div className={`w-full flex-1 flex flex-col ${isDesktop ? 'max-w-2xl mx-auto px-4' : ''}`}>
                 {windowedFocusMsgId !== null && (
