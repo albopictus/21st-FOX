@@ -150,4 +150,29 @@ describe('RealtimeContextManager.fetchWeather 双源策略', () => {
             makeConfig({ weatherApiKey: '', weatherCity: '北京' }));
         expect(weather).toBeNull();
     });
+
+    it('缓存按城市分槽：查完北京再查东京不会读到北京那份（角色各自地区互不串）', async () => {
+        const GEO_TOKYO = { results: [{ latitude: 35.6895, longitude: 139.6917, name: '东京都' }] };
+        global.fetch = vi.fn()
+            .mockResolvedValueOnce(jsonResponse(GEO_BEIJING))
+            .mockResolvedValueOnce(jsonResponse(METEO_CURRENT))
+            .mockResolvedValueOnce(jsonResponse(GEO_TOKYO))
+            .mockResolvedValueOnce(jsonResponse(METEO_CURRENT));
+
+        const beijing = await RealtimeContextManager.fetchWeather(
+            makeConfig({ weatherApiKey: '', weatherCity: '北京' }));
+        const tokyo = await RealtimeContextManager.fetchWeather(
+            makeConfig({ weatherApiKey: '', weatherCity: '东京' }));
+
+        expect(beijing?.city).toBe('北京市');
+        expect(tokyo?.city).toBe('东京都');
+        // 两座城市各打了一次 geocoding + forecast，没有一次被缓存误命中而跳过请求
+        expect(vi.mocked(fetch).mock.calls.length).toBe(4);
+
+        // 北京再查一次应该命中它自己的缓存（不再新增请求），且还是北京
+        const beijingAgain = await RealtimeContextManager.fetchWeather(
+            makeConfig({ weatherApiKey: '', weatherCity: '北京' }));
+        expect(beijingAgain?.city).toBe('北京市');
+        expect(vi.mocked(fetch).mock.calls.length).toBe(4);
+    });
 });
