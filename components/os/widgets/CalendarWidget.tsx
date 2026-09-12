@@ -10,6 +10,7 @@ interface CalendarWidgetProps {
   paper?: boolean;
   editing?: boolean;
   onDelete?: () => void;
+  opacity?: number;
 }
 
 const CALENDAR_WEEKDAYS = [
@@ -30,10 +31,41 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
   paper = false,
   editing = false,
   onDelete,
+  opacity = 100,
 }) => {
-  const acCard = acnh
-    ? { background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)' }
+  const scale = Math.max(0, Math.min(100, opacity ?? 100)) / 100;
+  const acCard: React.CSSProperties | undefined = acnh
+    ? {
+        background: `rgba(247,243,223, ${scale})`,
+        border: `2px solid rgba(232,226,214, ${scale})`,
+        boxShadow: `0 6px 18px rgba(61,52,40, ${0.12 * scale})`,
+        color: '#725d42',
+      }
     : undefined;
+  const paperCard: React.CSSProperties | undefined = paper
+    ? {
+        background: `rgba(224,221,215, ${0.36 * scale})`,
+        border: `1px solid rgba(91,72,51, ${0.07 * scale})`,
+        boxShadow: `0 5px 16px rgba(91,72,51, ${0.055 * scale})`,
+        color: contentColor,
+      }
+    : undefined;
+  const defaultCard: React.CSSProperties | undefined = !acnh && !paper
+    ? {
+        background: `rgba(255,255,255, ${0.25 * scale})`,
+        backdropFilter: scale > 0.05 ? `blur(${20 * scale}px)` : 'none',
+        WebkitBackdropFilter: scale > 0.05 ? `blur(${20 * scale}px)` : 'none',
+        border: `1px solid rgba(255,255,255, ${0.25 * scale})`,
+        boxShadow: `0 8px 32px rgba(0,0,0, ${0.18 * scale}), inset 0 1px 0 rgba(255,255,255, ${0.08 * scale})`,
+        color: contentColor,
+      }
+    : undefined;
+
+  const cardStyle: React.CSSProperties = {
+    ...(paperCard || acCard || defaultCard),
+    textShadow: scale < 0.4 ? '0 1px 3px rgba(0,0,0,0.45)' : undefined,
+  };
+
   const acDot = acnh ? '#6fba2c' : undefined;
   const now = new Date();
   const currentYear = now.getFullYear();
@@ -67,25 +99,15 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
       )}
 
       <div
-        className={`h-full flex flex-col rounded-3xl p-3 overflow-hidden ${
-          acnh ? '' : paper ? '' : 'bg-white/25 backdrop-blur-xl border border-white/25 shadow-[0_8px_32px_rgba(0,0,0,0.18),inset_0_1px_0_rgba(255,255,255,0.08)]'
-        }`}
-        style={
-          paper
-            ? {
-                background: 'rgba(224,221,215,0.36)',
-                border: '1px solid rgba(91,72,51,0.07)',
-                boxShadow: '0 5px 16px rgba(91,72,51,0.055)',
-              }
-            : acCard
-        }
+        className="h-full flex flex-col rounded-3xl p-3 overflow-hidden"
+        style={cardStyle}
       >
         <div className="flex justify-between items-center mb-1.5 shrink-0" style={{ color: contentColor }}>
           <h3 className="text-sm font-bold tracking-widest">
             {monthName} {currentYear}
           </h3>
           <div
-            onClick={() => openApp('schedule')}
+            onClick={() => { if (!editing) openApp('schedule'); }}
             className={`p-1 rounded-full cursor-pointer transition-colors ${
               acnh
                 ? 'bg-[#82D5BB]/30 hover:bg-[#82D5BB]/50'
@@ -122,7 +144,7 @@ export const CalendarWidget: React.FC<CalendarWidgetProps> = ({
               <div
                 key={day}
                 className="flex items-center justify-center relative cursor-pointer min-h-0"
-                onClick={() => openApp('schedule')}
+                onClick={() => { if (!editing) openApp('schedule'); }}
               >
                 <div
                   className={`aspect-square h-full max-h-7 max-w-7 flex items-center justify-center rounded-full text-xs font-medium ${

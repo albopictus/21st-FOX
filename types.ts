@@ -233,6 +233,14 @@ export interface OSTheme {
   nowPlayingWidgetLight?: boolean;
   /** 日程卡片统一皮肤：桌面、全屏、房间与聊天内同步。 */
   scheduleCardAppearance?: ScheduleCardAppearance;
+  /** 小组件背景透明度 (0~100)。如 schedule / calendar / memo 等。 */
+  widgetOpacity?: {
+    schedule?: number;
+    calendar?: number;
+    memo?: number;
+    quad_apps?: number;
+    [key: string]: number | undefined;
+  };
   /** 交换日记 App 全局皮肤与自定义 CSS。 */
   journalAppearance?: JournalAppearance;
   desktopDecorations?: DesktopDecoration[];

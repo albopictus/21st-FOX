@@ -21,6 +21,7 @@ import {
     GRID_COLS, GRID_ROWS, rowsForScreen, DEFAULT_LOCKED_KINDS,
     migrateLegacyLauncher, collectPlacedAppIds, findHomeIndex,
     emptyPage, addItem, removeItem, moveItem, resizeItem, toggleLock, canPlace,
+    tryDisplace, applyDisplacements,
 } from '../utils/desktopGrid';
 import { Plus, Minus, X, Lock, LockOpen, ArrowsOutSimple, House, CaretLeft, CaretRight } from '@phosphor-icons/react';
 import { getDailyScheduleForChar } from '../utils/dailySchedule';
@@ -81,6 +82,7 @@ interface DesktopPageViewProps {
       pageIndex: number;
       slotIndex: number;
     };
+    displacements?: Map<string, { x: number; y: number }>;
   };
   registerPageGridRef: (pageIndex: number, el: HTMLDivElement | null) => void;
   widgetChar: CharacterProfile | null;
@@ -175,19 +177,39 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
                 const content = renderGridItemContent(item, widgetCtx);
                 if (content == null) return null;
                 const draggable = layoutEditing && !item.locked;
+                const displacedPos = (dragPreview && dragPreview.pageIndex === pageIndex && dragPreview.displacements)
+                  ? dragPreview.displacements.get(item.id)
+                  : undefined;
+                const deltaX = displacedPos ? (displacedPos.x - item.x) * (cellPx + GRID_COL_GAP) : 0;
+                const deltaY = displacedPos ? (displacedPos.y - item.y) * (cellH + rowGap) : 0;
+                const isDisplaced = displacedPos !== undefined && (deltaX !== 0 || deltaY !== 0);
+
                 return (
                   <div
                     key={item.id}
                     data-grid-item={item.id}
-                    className={`relative min-w-0 min-h-0 ${item.kind === 'app' ? 'flex items-center justify-center' : ''} ${draggable ? 'launcher-edit-wobble' : ''}`}
+                    data-grid-kind={item.kind}
+                    className={`relative min-w-0 min-h-0 ${item.kind === 'app' ? 'flex items-center justify-center' : ''}`}
                     style={{
                       gridColumn: `${item.x + 1} / span ${item.w}`,
                       gridRow: `${item.y + 1} / span ${item.h}`,
                       touchAction: layoutEditing ? 'none' : undefined,
+                      transform: isDisplaced ? `translate3d(${deltaX}px, ${deltaY}px, 0)` : 'translate3d(0px, 0px, 0)',
+                      transition: layoutEditing ? 'transform 260ms cubic-bezier(0.2, 0.9, 0.3, 1.15)' : undefined,
+                      zIndex: isDisplaced ? 15 : undefined,
+                      willChange: layoutEditing ? 'transform' : undefined,
                     }}
                     onPointerDown={(e) => onItemPointerDown(e, item, pageIndex)}
+                    onClickCapture={(e) => {
+                      if (layoutEditing && item.kind === 'app') {
+                        if (!(e.target as HTMLElement).closest('[data-grid-action]')) {
+                          e.stopPropagation();
+                          e.preventDefault();
+                        }
+                      }
+                    }}
                   >
-                    <div className={`w-full h-full overflow-visible ${item.kind === 'app' ? 'flex items-center justify-center' : ''}`}>
+                    <div className={`w-full h-full overflow-visible ${item.kind === 'app' ? 'flex items-center justify-center' : ''} ${draggable ? 'launcher-edit-wobble' : ''}`}>
                       {content}
                     </div>
 
@@ -257,7 +279,7 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
                   </div>
                 ) : (
                   <div
-                    className="pointer-events-none rounded-2xl border-2 border-dashed z-20"
+                    className="pointer-events-none rounded-2xl border-2 border-dashed z-20 launcher-drag-placeholder"
                     style={{
                       gridColumn: `${dragPreview.x + 1} / span ${dragPreview.w}`,
                       gridRow: `${dragPreview.y + 1} / span ${dragPreview.h}`,
@@ -290,19 +312,39 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
               const content = renderGridItemContent(item, widgetCtx);
               if (content == null) return null;
               const draggable = layoutEditing && !item.locked;
+              const displacedPos = (dragPreview && dragPreview.pageIndex === pageIndex && dragPreview.displacements)
+                ? dragPreview.displacements.get(item.id)
+                : undefined;
+              const deltaX = displacedPos ? (displacedPos.x - item.x) * (cellPx + GRID_COL_GAP) : 0;
+              const deltaY = displacedPos ? (displacedPos.y - item.y) * (cellH + rowGap) : 0;
+              const isDisplaced = displacedPos !== undefined && (deltaX !== 0 || deltaY !== 0);
+
               return (
                 <div
                   key={item.id}
                   data-grid-item={item.id}
-                  className={`relative min-w-0 min-h-0 ${item.kind === 'app' ? 'flex items-center justify-center' : ''} ${draggable ? 'launcher-edit-wobble' : ''}`}
+                  data-grid-kind={item.kind}
+                  className={`relative min-w-0 min-h-0 ${item.kind === 'app' ? 'flex items-center justify-center' : ''}`}
                   style={{
                     gridColumn: `${item.x + 1} / span ${item.w}`,
                     gridRow: `${item.y + 1} / span ${item.h}`,
                     touchAction: layoutEditing ? 'none' : undefined,
+                    transform: isDisplaced ? `translate3d(${deltaX}px, ${deltaY}px, 0)` : 'translate3d(0px, 0px, 0)',
+                    transition: layoutEditing ? 'transform 260ms cubic-bezier(0.2, 0.9, 0.3, 1.15)' : undefined,
+                    zIndex: isDisplaced ? 15 : undefined,
+                    willChange: layoutEditing ? 'transform' : undefined,
                   }}
                   onPointerDown={(e) => onItemPointerDown(e, item, pageIndex)}
+                  onClickCapture={(e) => {
+                    if (layoutEditing && item.kind === 'app') {
+                      if (!(e.target as HTMLElement).closest('[data-grid-action]')) {
+                        e.stopPropagation();
+                        e.preventDefault();
+                      }
+                    }
+                  }}
                 >
-                  <div className={`w-full h-full overflow-visible ${item.kind === 'app' ? 'flex items-center justify-center' : ''}`}>
+                  <div className={`w-full h-full overflow-visible ${item.kind === 'app' ? 'flex items-center justify-center' : ''} ${draggable ? 'launcher-edit-wobble' : ''}`}>
                     {content}
                   </div>
 
@@ -372,7 +414,7 @@ const DesktopPageView: React.FC<DesktopPageViewProps> = React.memo(({
                 </div>
               ) : (
                 <div
-                  className="pointer-events-none rounded-2xl border-2 border-dashed z-20"
+                  className="pointer-events-none rounded-2xl border-2 border-dashed z-20 launcher-drag-placeholder"
                   style={{
                     gridColumn: `${dragPreview.x + 1} / span ${dragPreview.w}`,
                     gridRow: `${dragPreview.y + 1} / span ${dragPreview.h}`,
@@ -425,6 +467,7 @@ interface LauncherDockProps {
   acnh: boolean;
   paper: boolean;
   bottomInset: string;
+  layoutEditing?: boolean;
 }
 
 const LauncherDock: React.FC<LauncherDockProps> = React.memo(({
@@ -434,15 +477,30 @@ const LauncherDock: React.FC<LauncherDockProps> = React.memo(({
   acnh,
   paper,
   bottomInset,
+  layoutEditing = false,
 }) => (
   <div className="mt-auto flex justify-center w-full px-4 relative z-30" style={{ paddingBottom: bottomInset }}>
     <div
+      onClickCapture={(e) => {
+        if (layoutEditing) {
+          e.stopPropagation();
+          e.preventDefault();
+        }
+      }}
       className={`rounded-[1.75rem] px-4 py-3 flex gap-3 sm:gap-6 items-center mx-auto max-w-full justify-between overflow-x-auto no-scrollbar transform-gpu ${acnh || paper ? '' : 'bg-white/30 border border-white/25 shadow-[0_8px_40px_rgba(0,0,0,0.22),inset_0_1px_0_rgba(255,255,255,0.08)]'}`}
       style={acnh ? { background: 'transparent' } : paper ? { background: 'rgba(224,221,215,0.42)', border: '1px solid rgba(91,72,51,0.07)', boxShadow: '0 6px 18px rgba(91,72,51,0.065)' } : undefined}
     >
       {dockApps.map(app => (
         <div key={app.id} className="relative">
-          <AppIcon app={app} onClick={() => openApp(app.id)} variant="dock" size="md" />
+          <AppIcon
+            app={app}
+            onClick={() => {
+              if (!layoutEditing) openApp(app.id);
+            }}
+            disabled={layoutEditing}
+            variant="dock"
+            size="md"
+          />
           {app.id === 'chat' && totalUnread > 0 && (
             <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-[9px] flex items-center justify-center border-2 border-white/20 shadow-sm font-bold pointer-events-none animate-pop-in">
               {totalUnread > 9 ? '9+' : totalUnread}
@@ -739,6 +797,16 @@ const Launcher: React.FC = () => {
     // 长按计时器（正常情况下 onRootPointerMove 的位移阈值已经会清，这里
     // 是双保险，防止个别设备指针事件被合并/延迟导致长按误触发编辑态）。
     if (bgPressStart.current || itemPressStart.current) clearPress();
+
+    // 如果正在靠边程序化翻页，避免平滑滚动过程中的中间插值把 activePageIndexRef 冲掉
+    if (programmaticScrollTargetRef.current !== null) {
+      const targetLeft = programmaticScrollTargetRef.current * el.clientWidth;
+      if (Math.abs(el.scrollLeft - targetLeft) < 12) {
+        programmaticScrollTargetRef.current = null;
+      }
+      return;
+    }
+
     const index = Math.max(0, Math.min(pagesRef.current.length - 1, Math.round(el.scrollLeft / el.clientWidth)));
     if (index !== activePageIndexRef.current) {
       activePageIndexRef.current = index;
@@ -836,6 +904,28 @@ const Launcher: React.FC = () => {
   };
 
   const handleClickCapture = (e: React.MouseEvent) => {
+    if (layoutEditing) {
+      const target = e.target as HTMLElement;
+      // 徽标操作按钮（删除、锁定、缩放）放行
+      if (target.closest('[data-grid-action]')) {
+        return;
+      }
+      // 组件内快捷操作（如黑胶深浅色切换、贴纸等）放行
+      if (target.closest('[data-action="widget-action"]')) {
+        return;
+      }
+      // 风车四宫格（quad_apps）在编辑态下需要响应点击打开管理面板，放行！
+      if (target.closest('[data-grid-kind="quad_apps"]')) {
+        return;
+      }
+      // 其他网格条目在编辑态下拦截点击，禁止打开 App
+      const itemEl = target.closest('[data-grid-item]');
+      if (itemEl) {
+        e.stopPropagation();
+        e.preventDefault();
+        return;
+      }
+    }
     if (mouseMoved.current > 5 || Date.now() < suppressClickUntil.current) {
       e.stopPropagation();
       e.preventDefault();
@@ -847,6 +937,8 @@ const Launcher: React.FC = () => {
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageTurnTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pageTurnDir = useRef<-1 | 0 | 1>(0);
+  const programmaticScrollTargetRef = useRef<number | null>(null);
+  const lastPointerPos = useRef<{ clientX: number; clientY: number } | null>(null);
   const gesture = useRef<null | {
     mode: 'move' | 'resize' | 'scroll';
     pointerId: number;
@@ -873,6 +965,7 @@ const Launcher: React.FC = () => {
       pageIndex: number;
       slotIndex: number;
     };
+    displacements?: Map<string, { x: number; y: number }>;
   }>(null);
 
   // 长按预警：按到临界值前一小段时间，先让被按住的图标轻微下沉变暗，
@@ -892,6 +985,24 @@ const Launcher: React.FC = () => {
     clearPressWarn();
   };
   const clearPageTurn = () => { if (pageTurnTimer.current) clearTimeout(pageTurnTimer.current); pageTurnTimer.current = null; pageTurnDir.current = 0; };
+
+  const displaceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoveredDisplaceTarget = useRef<{
+    pageIndex: number;
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    key: string;
+  } | null>(null);
+
+  const clearDisplaceTimer = useCallback(() => {
+    if (displaceTimer.current) {
+      clearTimeout(displaceTimer.current);
+      displaceTimer.current = null;
+    }
+    hoveredDisplaceTarget.current = null;
+  }, []);
 
   // 长按桌面空白处（不是某个图标/组件）也能进整理态，不用非得按在图标上。
   const bgPressStart = useRef<{ x: number; y: number; pointerId: number } | null>(null);
@@ -931,7 +1042,7 @@ const Launcher: React.FC = () => {
   };
   useEffect(() => {
     sweepStrayGhosts(); // 挂载时清掉上个会话/崩溃可能留下的残影
-    return () => { clearPress(); clearPageTurn(); gesture.current?.ghost?.remove(); sweepStrayGhosts(); };
+    return () => { clearPress(); clearPageTurn(); clearDisplaceTimer(); gesture.current?.ghost?.remove(); sweepStrayGhosts(); };
   }, []);
 
   const makeGhost = (el: HTMLElement) => {
@@ -965,6 +1076,105 @@ const Launcher: React.FC = () => {
     return { x: col, y: row };
   };
 
+  // 以被拖拽条目的首个 1×1 单元几何中心为基准探测网格落点：只要重叠度超过 50%，即可灵敏对称地命中目标格子
+  const itemCellFromPoint = useCallback((
+    pageIndex: number,
+    clientX: number,
+    clientY: number,
+    item: { w: number; h: number },
+    grabDX: number = 0,
+    grabDY: number = 0,
+  ) => {
+    const cellH = cellHeightFor(cellPx);
+    return cellFromPoint(
+      pageIndex,
+      clientX - grabDX + cellPx / 2,
+      clientY - grabDY + cellH / 2,
+      item.w,
+      item.h,
+    );
+  }, [cellPx]);
+
+  // 记录拖拽过程中是否临时自动新建了末尾页，用于在用户未放置时撤销清理
+  const createdPageInDragRef = useRef<string | null>(null);
+  // 多点触控：主手指拖拽 App 期间，允许第二根手指在屏幕上滑动翻页
+  const secondaryScrollRef = useRef<{ pointerId: number; startX: number; scrollStartLeft: number } | null>(null);
+
+  // 计算拖拽落点及邻近避让（挤开）方案：若目标格子被占用，且旁边有空位可容纳，则挤开原条目
+  const resolveDragPlacement = useCallback((
+    pageIndex: number,
+    targetCell: { x: number; y: number },
+    w: number,
+    h: number,
+    ignoreId?: string,
+  ) => {
+    const page = pagesRef.current[pageIndex];
+    if (!page) return { ok: false, displacements: undefined };
+    const rows = rowsForScreen(pageIndex, page);
+    const disp = tryDisplace(page, { x: targetCell.x, y: targetCell.y, w, h }, ignoreId, GRID_COLS, rows);
+    if (disp && disp.ok) {
+      return { ok: true, displacements: disp.displacedItems.size > 0 ? disp.displacedItems : undefined };
+    }
+    return { ok: false, displacements: undefined };
+  }, []);
+
+  // 带防抖延迟的拖拽落点与避让设置：当需要挤开邻近条目时，需悬停停留一定时间（360ms）才触发位移，防止快速划过造成图标乱跳
+  const setDragPlacementWithDwell = useCallback((
+    pageIndex: number,
+    cell: { x: number; y: number },
+    w: number,
+    h: number,
+    ignoreId?: string,
+  ) => {
+    const { ok, displacements } = resolveDragPlacement(pageIndex, cell, w, h, ignoreId);
+    if (!ok) {
+      clearDisplaceTimer();
+      setDragPreview({ pageIndex, x: cell.x, y: cell.y, w, h, ok: false, displacements: undefined });
+      return;
+    }
+
+    if (!displacements || displacements.size === 0) {
+      // 目标位置为空白区域，无需挤开任何已有条目：立即显示候选框，清除悬停倒计时
+      clearDisplaceTimer();
+      setDragPreview({ pageIndex, x: cell.x, y: cell.y, w, h, ok: true, displacements: undefined });
+      return;
+    }
+
+    // 目标位置已被占用，需要挤开邻近条目：启用悬停防抖延迟（280ms），避免手指滑动经过时产生过度灵敏的图标晃动
+    const targetKey = `${pageIndex}:${cell.x},${cell.y}:${w}x${h}`;
+    if (hoveredDisplaceTarget.current?.key === targetKey) {
+      // 仍然停留在同一个被占用的格子上：若计时器正在跑则继续等待，若已触发过则保持当前位移不变
+      return;
+    }
+
+    // 进入了新的被占用格子：立即清除上一格的计时器，先显示该格子的静态候选，待悬停稳定后再挤开
+    if (displaceTimer.current) {
+      clearTimeout(displaceTimer.current);
+      displaceTimer.current = null;
+    }
+    hoveredDisplaceTarget.current = { pageIndex, x: cell.x, y: cell.y, w, h, key: targetKey };
+    setDragPreview({ pageIndex, x: cell.x, y: cell.y, w, h, ok: true, displacements: undefined });
+
+    displaceTimer.current = setTimeout(() => {
+      displaceTimer.current = null;
+      if (
+        gesture.current?.active &&
+        gesture.current.mode === 'move' &&
+        hoveredDisplaceTarget.current?.key === targetKey
+      ) {
+        try {
+          if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate(12);
+          }
+        } catch {}
+        setDragPreview(prev => {
+          if (!prev || prev.pageIndex !== pageIndex || prev.x !== cell.x || prev.y !== cell.y) return prev;
+          return { ...prev, ok: true, displacements };
+        });
+      }
+    }, 280);
+  }, [resolveDragPlacement, clearDisplaceTimer]);
+
   const queuePageTurn = (dir: -1 | 1) => {
     if (pageTurnDir.current === dir && pageTurnTimer.current) return;
     clearPageTurn();
@@ -973,15 +1183,69 @@ const Launcher: React.FC = () => {
       const g = gesture.current;
       const scroller = scrollContainerRef.current;
       if (!g?.active || g.mode !== 'move' || !scroller || pageTurnDir.current !== dir) { clearPageTurn(); return; }
-      const next = Math.max(0, Math.min(totalPages - 1, activePageIndexRef.current + dir));
-      if (next === activePageIndexRef.current) { clearPageTurn(); return; }
+      
+      const cur = activePageIndexRef.current;
+      let next = cur + dir;
+      const pgs = pagesRef.current;
+      let isNewPageCreated = false;
+
+      // 向右翻页且已在现有最后一页：自动在末尾追加一张新页！
+      if (dir === 1 && cur >= pgs.length - 1) {
+        const newPg = emptyPage();
+        createdPageInDragRef.current = newPg.id;
+        const nextPages = [...pgs, newPg];
+        commitPages(nextPages);
+        next = nextPages.length - 1;
+        isNewPageCreated = true;
+      }
+
+      next = Math.max(0, Math.min(pagesRef.current.length - 1, next));
+      if (next === cur) { clearPageTurn(); return; }
+
+      clearDisplaceTimer();
+
+      programmaticScrollTargetRef.current = next;
       activePageIndexRef.current = next;
       setActivePageIndex(next);
       _lastPageIndex = next;
-      scroller.scrollTo({ left: scroller.clientWidth * next, behavior: 'smooth' });
-      pageTurnTimer.current = setTimeout(turn, 760);
+
+      try {
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+          navigator.vibrate(15);
+        }
+      } catch {}
+
+      if (isNewPageCreated) {
+        setTimeout(() => {
+          const sc = scrollContainerRef.current;
+          if (sc) {
+            sc.scrollTo({ left: sc.clientWidth * next, behavior: 'smooth' });
+          }
+          if (lastPointerPos.current && gesture.current?.item) {
+            const item = gesture.current.item;
+            const cell = itemCellFromPoint(next, lastPointerPos.current.clientX, lastPointerPos.current.clientY, item, gesture.current.grabDX, gesture.current.grabDY);
+            if (cell) {
+              setDragPlacementWithDwell(next, cell, item.w, item.h, undefined);
+            }
+          }
+        }, 25);
+      } else {
+        scroller.scrollTo({ left: scroller.clientWidth * next, behavior: 'smooth' });
+        if (lastPointerPos.current && g.item) {
+          const item = g.item;
+          const cell = itemCellFromPoint(next, lastPointerPos.current.clientX, lastPointerPos.current.clientY, item, g.grabDX, g.grabDY);
+          if (cell) {
+            const ignoreId = next === g.fromPage ? item.id : undefined;
+            setDragPlacementWithDwell(next, cell, item.w, item.h, ignoreId);
+          }
+        }
+      }
+
+      // 连续翻页间隔设为 500ms
+      pageTurnTimer.current = setTimeout(turn, 500);
     };
-    pageTurnTimer.current = setTimeout(turn, 560);
+    // 首次翻页延迟设为 480ms（给边缘停顿或放置留出充裕时间，避免误翻页）
+    pageTurnTimer.current = setTimeout(turn, 480);
   };
 
   const itemPressStart = useRef<{ x: number; y: number; pointerId: number } | null>(null);
@@ -1016,6 +1280,7 @@ const Launcher: React.FC = () => {
 
     if (item.locked || !itemEl) return; // 锁定项不可拖
 
+    lastPointerPos.current = { clientX: e.clientX, clientY: e.clientY };
     gesture.current = {
       mode: 'move', pointerId: e.pointerId, item, fromPage: pageIndex,
       startX: e.clientX, startY: e.clientY, el: itemEl, active: false,
@@ -1046,7 +1311,40 @@ const Launcher: React.FC = () => {
     setDragPreview({ pageIndex, x: item.x, y: item.y, w: item.w, h: item.h, ok: true });
   }, []);
 
+  // 多指手势：主手按住拖动 App 图标时，捕获第二根手指的滑动，实现边拖边滑屏翻页
+  const onRootPointerDownCapture = (e: React.PointerEvent<HTMLDivElement>) => {
+    const g = gesture.current;
+    if (g && g.active && g.mode === 'move' && e.pointerId !== g.pointerId) {
+      e.stopPropagation();
+      e.preventDefault();
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {}
+      secondaryScrollRef.current = {
+        pointerId: e.pointerId,
+        startX: e.clientX,
+        scrollStartLeft: scrollContainerRef.current?.scrollLeft ?? 0,
+      };
+      if (scrollContainerRef.current) {
+        scrollContainerRef.current.style.scrollSnapType = 'none';
+      }
+      return;
+    }
+  };
+
   const onRootPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    // 检查是否是副手指在滑屏翻页
+    if (secondaryScrollRef.current && secondaryScrollRef.current.pointerId === e.pointerId) {
+      const container = scrollContainerRef.current;
+      if (container) {
+        const dx = e.clientX - secondaryScrollRef.current.startX;
+        container.scrollLeft = secondaryScrollRef.current.scrollStartLeft - dx;
+      }
+      return;
+    }
+
+    lastPointerPos.current = { clientX: e.clientX, clientY: e.clientY };
+
     if (bgPressStart.current && bgPressStart.current.pointerId === e.pointerId) {
       const dx = e.clientX - bgPressStart.current.x;
       const dy = e.clientY - bgPressStart.current.y;
@@ -1074,10 +1372,6 @@ const Launcher: React.FC = () => {
     }
 
     // 'scroll' 模式一旦确认就要一直跟手翻页，不能再卡在下面 `!g.active` 那道
-    // 只服务于 move/resize 的门槛后面——active 只在长按计时器真正触发时才会
-    // 变 true，而模式切成 'scroll' 后那个计时器回调会因为 g.mode !== 'move'
-    // 直接放弃，active 永远停在 false。放在 !g.active 前面判断，才不会每次
-    // pointermove 都卡在下面直接 return，导致翻页手势形同虚设。
     if (g.mode === 'scroll') {
       const container = scrollContainerRef.current;
       if (container && g.scrollStartLeft !== undefined) {
@@ -1087,8 +1381,7 @@ const Launcher: React.FC = () => {
     }
 
     if (!g.active) {
-      // 还没进入拖拽：横向大幅移动 → 当作翻页滑动。跟 handleMouseDown 一样，
-      // 直接赋值 scrollLeft 期间 snap 机制会捣乱，先关掉，松手时再恢复。
+      // 还没进入拖拽：横向大幅移动 → 当作翻页滑动
       const dx = e.clientX - g.startX;
       const dy = e.clientY - g.startY;
       if (Math.hypot(dx, dy) > 8 && Math.abs(dx) > Math.abs(dy) * 1.5) {
@@ -1106,14 +1399,24 @@ const Launcher: React.FC = () => {
       g.ghost.style.top = `${e.clientY - (g.grabDY || 0)}px`;
     }
     const rootRect = e.currentTarget.getBoundingClientRect();
-    if (e.clientX <= rootRect.left + 64) queuePageTurn(-1);
-    else if (e.clientX >= rootRect.right - 64) queuePageTurn(1);
+    const edgeZone = Math.max(48, Math.floor(rootRect.width * 0.12));
+    const ghostRect = g.ghost?.getBoundingClientRect();
+
+    const atLeftEdge = e.clientX <= rootRect.left + edgeZone || (ghostRect ? ghostRect.left <= rootRect.left + 8 : false);
+    const atRightEdge = e.clientX >= rootRect.right - edgeZone || (ghostRect ? ghostRect.right >= rootRect.right - 8 : false);
+
+    if (atLeftEdge) queuePageTurn(-1);
+    else if (atRightEdge) queuePageTurn(1);
     else clearPageTurn();
 
     const visPage = activePageIndexRef.current;
     const item = g.item!;
-    const cell = cellFromPoint(visPage, e.clientX - (g.grabDX || 0) + 1, e.clientY - (g.grabDY || 0) + 1, item.w, item.h);
-    if (!cell) { setDragPreview(null); return; }
+    const cell = itemCellFromPoint(visPage, e.clientX, e.clientY, item, g.grabDX, g.grabDY);
+    if (!cell) {
+      clearDisplaceTimer();
+      setDragPreview(null);
+      return;
+    }
 
     // 拖拽 1×1 App 时，检测是否悬停在某个「四宫格风车组件」上方：直接吸附进四宫格
     if (item.kind === 'app' && item.refId) {
@@ -1143,6 +1446,7 @@ const Launcher: React.FC = () => {
             }
 
             if (targetSlot >= 0) {
+              clearDisplaceTimer();
               setDragPreview({
                 pageIndex: visPage,
                 x: quad.x,
@@ -1164,19 +1468,82 @@ const Launcher: React.FC = () => {
     }
 
     const ignoreId = visPage === g.fromPage ? item.id : undefined;
-    const ok = canPlace(pagesRef.current[visPage], { x: cell.x, y: cell.y, w: item.w, h: item.h }, ignoreId, GRID_COLS, rowsForScreen(visPage, pagesRef.current[visPage]));
-    setDragPreview({ pageIndex: visPage, x: cell.x, y: cell.y, w: item.w, h: item.h, ok });
+    setDragPlacementWithDwell(visPage, cell, item.w, item.h, ignoreId);
   };
 
   const onRootPointerUp = (e?: React.PointerEvent<HTMLDivElement>) => {
+    // 1. 如果是副手指抬起
+    if (secondaryScrollRef.current && e && secondaryScrollRef.current.pointerId === e.pointerId) {
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+      secondaryScrollRef.current = null;
+      const container = scrollContainerRef.current;
+      if (container) {
+        const pgs = pagesRef.current;
+        const rawTarget = Math.round(container.scrollLeft / container.clientWidth);
+        let target = Math.max(0, rawTarget);
+        let isNew = false;
+        if (target >= pgs.length) {
+          const newPg = emptyPage();
+          createdPageInDragRef.current = newPg.id;
+          const nextPages = [...pgs, newPg];
+          commitPages(nextPages);
+          target = nextPages.length - 1;
+          isNew = true;
+        } else {
+          target = Math.min(pgs.length - 1, target);
+        }
+
+        activePageIndexRef.current = target;
+        _lastPageIndex = target;
+        setActivePageIndex(target);
+
+        const restoreSnap = () => {
+          if (scrollContainerRef.current) scrollContainerRef.current.style.scrollSnapType = 'x mandatory';
+        };
+
+        if (isNew) {
+          setTimeout(() => {
+            const sc = scrollContainerRef.current;
+            if (sc) {
+              sc.scrollTo({ left: target * sc.clientWidth, behavior: 'smooth' });
+            }
+            restoreSnap();
+          }, 25);
+        } else {
+          container.scrollTo({ left: target * container.clientWidth, behavior: 'smooth' });
+          container.addEventListener('scrollend', restoreSnap, { once: true });
+          setTimeout(restoreSnap, 420);
+        }
+
+        clearDisplaceTimer();
+        // 副手指翻页完成后，立即为目标页计算落点预览
+        if (lastPointerPos.current && gesture.current?.item) {
+          const item = gesture.current.item;
+          const cell = itemCellFromPoint(target, lastPointerPos.current.clientX, lastPointerPos.current.clientY, item, gesture.current.grabDX, gesture.current.grabDY);
+          if (cell) {
+            const ignoreId = target === gesture.current.fromPage ? item.id : undefined;
+            setDragPlacementWithDwell(target, cell, item.w, item.h, ignoreId);
+          }
+        }
+      }
+      return;
+    }
+
     bgPressStart.current = null;
     itemPressStart.current = null;
     const g = gesture.current;
-    // pointerId 对不上（多指 / 系统手势打断了原来那根手指的序列）也不能放过残影：
-    // 真正拥有这个手势的 gesture.ghost 清一遍，再顺手扫场一次兜底。
-    if (e && g && g.pointerId !== e.pointerId) { g.ghost?.remove(); sweepStrayGhosts(); return; }
+
+    // 如果是指针不匹配的其它未知指针抬起，忽略它，不破坏主手势
+    if (e && g && g.pointerId !== e.pointerId) {
+      return;
+    }
+
     clearPress();
     clearPageTurn();
+    clearDisplaceTimer();
+    programmaticScrollTargetRef.current = null;
 
     if (g?.active && g.mode === 'resize' && g.item) {
       const p = dragPreview;
@@ -1184,16 +1551,44 @@ const Launcher: React.FC = () => {
     } else if (g?.active && g.mode === 'move' && g.item) {
       if (g.el) g.el.style.opacity = '';
       g.ghost?.remove();
-      const p = dragPreview;
+
+      // 落点预览：若当前 dragPreview 为空或停在旧页，重新按当前停留在屏幕上的 activePageIndex 进行最终落点判定
+      const visPage = activePageIndexRef.current;
+      let finalPreview = dragPreview;
+      if ((!finalPreview || finalPreview.pageIndex !== visPage) && lastPointerPos.current && g.item) {
+        const item = g.item;
+        const cell = itemCellFromPoint(visPage, lastPointerPos.current.clientX, lastPointerPos.current.clientY, item, g.grabDX, g.grabDY);
+        if (cell) {
+          const ignoreId = visPage === g.fromPage ? item.id : undefined;
+          const { ok, displacements } = resolveDragPlacement(visPage, cell, item.w, item.h, ignoreId);
+          finalPreview = { pageIndex: visPage, x: cell.x, y: cell.y, w: item.w, h: item.h, ok, displacements };
+        }
+      }
+
+      // 若处于有效落点但因为手指停留时间未达到 360ms 悬停延迟导致 displacements 尚未填充，
+      // 在松手落下的瞬间补齐 displacements，保证即刻松手（quick drop）也能正确挤开条目
+      if (finalPreview && finalPreview.ok && !finalPreview.displacements && !finalPreview.dropToQuad) {
+        const ignoreId = finalPreview.pageIndex === g.fromPage ? g.item.id : undefined;
+        const { displacements } = resolveDragPlacement(
+          finalPreview.pageIndex,
+          { x: finalPreview.x, y: finalPreview.y },
+          finalPreview.w,
+          finalPreview.h,
+          ignoreId
+        );
+        if (displacements) {
+          finalPreview = { ...finalPreview, displacements };
+        }
+      }
+
+      let droppedOnTempPage = false;
+      const p = finalPreview;
       if (p && p.ok) {
         if (p.dropToQuad && g.item.kind === 'app' && g.item.refId) {
           const { quadId, pageIndex: targetPi, slotIndex } = p.dropToQuad;
           const appRefId = g.item.refId;
 
-          // 1. 从原页面移除被拖入的 1×1 App
           const srcPageWithoutApp = removeItem(pagesRef.current[g.fromPage!], g.item.id);
-
-          // 2. 将应用放入目标四宫格对应槽位
           const nextPages = pagesRef.current.map((pg, pi) => {
             let pageToUpdate = pi === g.fromPage ? srcPageWithoutApp : pg;
             if (pi === targetPi) {
@@ -1218,26 +1613,56 @@ const Launcher: React.FC = () => {
           commitPages(nextPages);
           trackEvent('桌面拖拽收纳应用入四宫格');
         } else if (p.pageIndex === g.fromPage) {
-          replacePage(g.fromPage!, moveItem(pagesRef.current[g.fromPage!], g.item.id, p.x, p.y, GRID_COLS, rowsForScreen(g.fromPage!, pagesRef.current[g.fromPage!])));
+          // 同一页内放置：应用挤开位移 + 移动自身到目标位置
+          const pageWithDisplacement = applyDisplacements(pagesRef.current[g.fromPage!], p.displacements);
+          const nextPg: DesktopPage = {
+            ...pageWithDisplacement,
+            items: pageWithDisplacement.items.map(i => i.id === g.item!.id ? { ...i, x: p.x, y: p.y } : i),
+          };
+          replacePage(g.fromPage!, nextPg);
         } else {
+          // 跨页放置：原页移除被拖拽项，目标页应用挤开位移 + 添加被拖拽项
           const src = removeItem(pagesRef.current[g.fromPage!], g.item.id);
-          const placed = addItem(pagesRef.current[p.pageIndex], {
+          const targetWithDisplacement = applyDisplacements(pagesRef.current[p.pageIndex], p.displacements);
+          const placed = addItem(targetWithDisplacement, {
             kind: g.item.kind, refId: g.item.refId, w: g.item.w, h: g.item.h,
             locked: g.item.locked, title: g.item.title, config: g.item.config,
             x: p.x, y: p.y,
           }, GRID_COLS, rowsForScreen(p.pageIndex, pagesRef.current[p.pageIndex]));
           const next = pagesRef.current.map((pg, i) =>
-            i === g.fromPage ? src : i === p.pageIndex ? (placed?.page ?? pg) : pg);
+            i === g.fromPage ? src : i === p.pageIndex ? (placed?.page ?? targetWithDisplacement) : pg);
           commitPages(next);
+
+          if (createdPageInDragRef.current && pagesRef.current[p.pageIndex]?.id === createdPageInDragRef.current) {
+            droppedOnTempPage = true;
+          }
         }
       } else if (g.el) {
         g.el.style.opacity = '';
       }
+
+      // 如果拖拽中途自动新建了末尾页，而用户最终未将条目放置在该页上，撤销该空页
+      const tempId = createdPageInDragRef.current;
+      createdPageInDragRef.current = null;
+      if (tempId && !droppedOnTempPage) {
+        const pgs = pagesRef.current;
+        const tempPg = pgs.find(pg => pg.id === tempId);
+        if (tempPg && tempPg.items.length === 0 && pgs.length > 1) {
+          const cleaned = pgs.filter(pg => pg.id !== tempId);
+          commitPages(cleaned);
+          const curPi = activePageIndexRef.current;
+          if (curPi >= cleaned.length) {
+            const clamped = cleaned.length - 1;
+            activePageIndexRef.current = clamped;
+            _lastPageIndex = clamped;
+            setActivePageIndex(clamped);
+            scrollContainerRef.current?.scrollTo({ left: clamped * (scrollContainerRef.current?.clientWidth || 0), behavior: 'smooth' });
+          }
+        }
+      }
+
       suppressClickUntil.current = Date.now() + 400;
     } else if (g?.active && g.mode === 'scroll') {
-      // 整理态下的翻页手势（不管是按在图标上滑出来的，还是直接按空白处起手的）：
-      // 手指跟随期间 scrollLeft 是逐帧手动赋值的，没有原生惯性，松手就近贴到
-      // 最近一页，跟其它翻页路径的手感对齐。贴完再把手势开始前关掉的 snap 恢复。
       const container = scrollContainerRef.current;
       if (container) {
         const target = Math.max(0, Math.min(totalPages - 1, Math.round(container.scrollLeft / container.clientWidth)));
@@ -1274,8 +1699,9 @@ const Launcher: React.FC = () => {
   }, []);
 
   const handleOpenChat = useCallback(() => {
+    if (layoutEditing) return;
     openApp(AppID.Chat);
-  }, [openApp]);
+  }, [layoutEditing, openApp]);
 
   const handleAddToCurrentPage = useCallback((spec: { kind: GridItemKind; refId?: string }) => {
     const cur = activePageIndexRef.current;
@@ -1418,19 +1844,24 @@ const Launcher: React.FC = () => {
 
   const widgetCtx: WidgetRenderContext = useMemo(() => ({
     contentColor, acnh, paper, editing: layoutEditing,
-    openApp: (id: string) => openApp(id as AppID),
+    openApp: (id: string) => { if (!layoutEditing) openApp(id as AppID); },
     anniversaries, characters,
     widgetChar, unreadCount: widgetUnread, lastMessage,
-    onOpenCharCard: () => openApp(AppID.Chat),
+    onOpenCharCard: () => { if (!layoutEditing) openApp(AppID.Chat); },
     scheduleData, scheduleChar,
-    onOpenSchedule: () => { setScheduleViewerOpen(true); trackEvent('打开角色日程面板'); },
+    onOpenSchedule: () => {
+      if (layoutEditing) return;
+      setScheduleViewerOpen(true);
+      trackEvent('打开角色日程面板');
+    },
     onEditImage: openImagePicker,
     onOpenQuadManager: handleOpenQuadManager,
+    widgetOpacity: theme.widgetOpacity,
   }), [
     contentColor, acnh, paper, layoutEditing, openApp,
     anniversaries, characters, widgetChar, widgetUnread,
     lastMessage, scheduleData, scheduleChar, openImagePicker,
-    handleOpenQuadManager,
+    handleOpenQuadManager, theme.widgetOpacity,
   ]);
 
   const dockAppsConfig = useMemo(() => {
@@ -1456,6 +1887,7 @@ const Launcher: React.FC = () => {
     <div
       data-launcher-root
       className="h-full w-full flex flex-col relative z-10 overflow-hidden font-sans select-none"
+      onPointerDownCapture={onRootPointerDownCapture}
       onPointerDown={onBackgroundPointerDown}
       onPointerMove={onRootPointerMove}
       onPointerUp={onRootPointerUp}
@@ -1464,10 +1896,13 @@ const Launcher: React.FC = () => {
     >
       <style>{`
         .launcher-drag-ghost { opacity:.96; filter: drop-shadow(0 12px 14px rgba(75,65,54,.18)); }
-        .launcher-edit-wobble { animation: launcherWobble 2.4s ease-in-out infinite; }
-        @keyframes launcherWobble { 0%,100%{transform:rotate(-0.5deg)} 50%{transform:rotate(0.5deg)} }
+        .launcher-edit-wobble { animation: launcherWobble 2.4s ease-in-out infinite; transform-origin: 50% 50%; }
+        @keyframes launcherWobble { 0%,100%{transform:rotate(-0.6deg)} 50%{transform:rotate(0.6deg)} }
         /* 长按预警：还没到「进入整理态」的临界点，先给个「快松手」的信号 */
         .launcher-press-warn { transition: transform 160ms ease, filter 160ms ease, opacity 160ms ease; transform: scale(0.88); filter: brightness(0.8); opacity: 0.85; }
+        /* 拖拽落点候选框浮现微弹动画 */
+        .launcher-drag-placeholder { animation: launcherPlaceholderPop 160ms cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+        @keyframes launcherPlaceholderPop { 0% { opacity: 0.2; transform: scale(0.92); } 100% { opacity: 1; transform: scale(1); } }
       `}</style>
 
       {layoutEditing && (
@@ -1638,6 +2073,7 @@ const Launcher: React.FC = () => {
         acnh={acnh}
         paper={paper}
         bottomInset={launcherBottomInset}
+        layoutEditing={layoutEditing}
       />
 
       <ScheduleFullscreenViewer
