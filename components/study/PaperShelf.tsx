@@ -24,7 +24,8 @@ const PRESET_KEYWORDS = [
 export const PaperShelf: React.FC<PaperShelfProps> = ({
     onSelectPaper,
     apiConfig,
-    onBackToCourses
+    onBackToCourses,
+    onOpenSettings
 }) => {
     const [papers, setPapers] = useState<StudyPaper[]>([]);
     const [searchKeyword, setSearchKeyword] = useState('');
