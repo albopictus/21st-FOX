@@ -1,7 +1,7 @@
 import type { StudyPaper, PaperBlock, APIConfig } from '../types';
 import { safeResponseJson, extractJson } from './safeApi';
 
-const TRANSLATION_SYSTEM_PROMPT = `你是一位享誉学术界的顶级期刊翻译家兼资深学科主编（精通生物医学、人工智能、物理化学等跨学科前沿）。
+export const DEFAULT_PAPER_TRANSLATION_PROMPT = `你是一位享誉学术界的顶级期刊翻译家兼资深学科主编（精通生物医学、人工智能、物理化学等跨学科前沿）。
 你的任务是将输入的学术文献（已拆解为积木块 Block）翻译为地道、典雅且极其精准的中文学术译文。
 
 【翻译准则与硬性约束】：
@@ -12,13 +12,45 @@ const TRANSLATION_SYSTEM_PROMPT = `你是一位享誉学术界的顶级期刊翻
 5. 保持句式流畅连贯、逻辑缜密，将复杂的英语长难句重构成严谨通顺的学术汉语。`;
 
 /**
+ * 获取文献翻译实际生效的 API 配置（优先读取文献专用 API，留空则使用兜底 API）
+ */
+export function getPaperApiConfig(fallbackConfig: APIConfig): APIConfig {
+    try {
+        const saved = localStorage.getItem('study_paper_api_config');
+        if (saved) {
+            const parsed = JSON.parse(saved);
+            const baseUrl = (parsed.baseUrl || '').trim() || fallbackConfig.baseUrl;
+            const apiKey = (parsed.apiKey || '').trim() || fallbackConfig.apiKey;
+            const model = (parsed.model || '').trim() || fallbackConfig.model;
+            return { baseUrl, apiKey, model };
+        }
+    } catch {}
+    return fallbackConfig;
+}
+
+/**
+ * 获取文献翻译提示词（优先读取用户自定义提示词，未设置则使用默认学术期刊提示词）
+ */
+export function getPaperTranslationPrompt(): string {
+    try {
+        const saved = localStorage.getItem('study_paper_translation_prompt');
+        if (saved && saved.trim()) return saved.trim();
+    } catch {}
+    return DEFAULT_PAPER_TRANSLATION_PROMPT;
+}
+
+/**
  * 翻译单个块（用户点击未翻译段落时按需即时翻译）
  */
 export async function translateSingleBlock(
     text: string,
-    apiConfig: APIConfig
+    apiConfig: APIConfig,
+    customPrompt?: string
 ): Promise<string> {
     if (!text.trim()) return '';
+
+    const effectiveConfig = getPaperApiConfig(apiConfig);
+    const systemPrompt = customPrompt || getPaperTranslationPrompt();
 
     const prompt = `请将以下英文学术段落翻译为专业、精准的中文学术译文。
 严格保留 LaTeX 公式（$...$）、专业缩写与单位。直接输出中文译文，不要多余说明。
@@ -26,16 +58,16 @@ export async function translateSingleBlock(
 英文原文：
 ${text}`;
 
-    const response = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+    const response = await fetch(`${effectiveConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiConfig.apiKey}`
+            'Authorization': `Bearer ${effectiveConfig.apiKey}`
         },
         body: JSON.stringify({
-            model: apiConfig.model,
+            model: effectiveConfig.model,
             messages: [
-                { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
+                { role: 'system', content: systemPrompt },
                 { role: 'user', content: prompt }
             ],
             temperature: 0.3,
@@ -54,8 +86,11 @@ ${text}`;
 export async function translateStudyPaper(
     paper: StudyPaper,
     apiConfig: APIConfig,
-    onProgress?: (percent: number, statusText: string) => void
+    onProgress?: (percent: number, statusText: string) => void,
+    customPrompt?: string
 ): Promise<StudyPaper> {
+    const effectiveConfig = getPaperApiConfig(apiConfig);
+    const systemPrompt = customPrompt || getPaperTranslationPrompt();
     const updatedPaper: StudyPaper = JSON.parse(JSON.stringify(paper));
 
     // 1. 第一阶段：翻译标题并提炼【百字晨读机理与创新点总结】
@@ -86,16 +121,16 @@ ${introContext.slice(0, 3500)}
 }`;
 
     try {
-        const sumResp = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+        const sumResp = await fetch(`${effectiveConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiConfig.apiKey}`
+                'Authorization': `Bearer ${effectiveConfig.apiKey}`
             },
             body: JSON.stringify({
-                model: apiConfig.model,
+                model: effectiveConfig.model,
                 messages: [
-                    { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
+                    { role: 'system', content: systemPrompt },
                     { role: 'user', content: summaryPrompt }
                 ],
                 temperature: 0.3,
@@ -156,16 +191,16 @@ ${JSON.stringify(payload, null, 2)}
 }`;
 
         try {
-            const bResp = await fetch(`${apiConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+            const bResp = await fetch(`${effectiveConfig.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${apiConfig.apiKey}`
+                    'Authorization': `Bearer ${effectiveConfig.apiKey}`
                 },
                 body: JSON.stringify({
-                    model: apiConfig.model,
+                    model: effectiveConfig.model,
                     messages: [
-                        { role: 'system', content: TRANSLATION_SYSTEM_PROMPT },
+                        { role: 'system', content: systemPrompt },
                         { role: 'user', content: batchPrompt }
                     ],
                     temperature: 0.3,

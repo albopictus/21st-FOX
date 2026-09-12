@@ -14,6 +14,7 @@ import { trackEvent } from '../utils/analytics';
 import { extractPdfText, isPdfFile } from '../utils/pdfText';
 import { PaperShelf } from '../components/study/PaperShelf';
 import { PaperReader } from '../components/study/PaperReader';
+import { DEFAULT_PAPER_TRANSLATION_PROMPT } from '../utils/paperTranslator';
 
 type KatexLike = {
     renderToString: (latex: string, options: any) => string;
@@ -337,9 +338,12 @@ const StudyApp: React.FC = () => {
     const [tempPdfData, setTempPdfData] = useState<{name: string, text: string} | null>(null);
     const [katexRenderer, setKatexRenderer] = useState<KatexLike | null>(null);
 
+    // Study Room Settings Modal State
+    const [showStudySettings, setShowStudySettings] = useState(false);
+    const [studySettingsTab, setStudySettingsTab] = useState<'tutor' | 'paper'>('tutor');
+
     // Study-specific API config (overrides main apiConfig when set)
     const [studyApi, setStudyApi] = useState<Partial<APIConfig>>({});
-    const [showStudySettings, setShowStudySettings] = useState(false);
     const [localStudyUrl, setLocalStudyUrl] = useState('');
     const [localStudyKey, setLocalStudyKey] = useState('');
     const [localStudyModel, setLocalStudyModel] = useState('');
@@ -349,6 +353,13 @@ const StudyApp: React.FC = () => {
     const [editingPreset, setEditingPreset] = useState<StudyTutorPreset | null>(null);
     const [presetName, setPresetName] = useState('');
     const [presetPrompt, setPresetPrompt] = useState('');
+
+    // Literature Translation Settings
+    const [paperApi, setPaperApi] = useState<Partial<APIConfig>>({});
+    const [localPaperUrl, setLocalPaperUrl] = useState('');
+    const [localPaperKey, setLocalPaperKey] = useState('');
+    const [localPaperModel, setLocalPaperModel] = useState('');
+    const [paperPrompt, setPaperPrompt] = useState(DEFAULT_PAPER_TRANSLATION_PROMPT);
 
     // Effective API config: study-specific overrides fall back to main config
     const effectiveApi: APIConfig = {
@@ -403,6 +414,19 @@ const StudyApp: React.FC = () => {
             }
             const savedPresets = localStorage.getItem('study_tutor_presets');
             if (savedPresets) setTutorPresets(JSON.parse(savedPresets));
+
+            const savedPaperApi = localStorage.getItem('study_paper_api_config');
+            if (savedPaperApi) {
+                const parsed = JSON.parse(savedPaperApi);
+                setPaperApi(parsed);
+                setLocalPaperUrl(parsed.baseUrl || '');
+                setLocalPaperKey(parsed.apiKey || '');
+                setLocalPaperModel(parsed.model || '');
+            }
+            const savedPaperPrompt = localStorage.getItem('study_paper_translation_prompt');
+            if (savedPaperPrompt && savedPaperPrompt.trim()) {
+                setPaperPrompt(savedPaperPrompt.trim());
+            }
         } catch (e) { console.error('Failed to load study settings', e); }
     }, []);
 
@@ -511,6 +535,40 @@ const StudyApp: React.FC = () => {
 
     const deletePreset = (id: string) => {
         savePresets(tutorPresets.filter(p => p.id !== id));
+    };
+
+    const savePaperApi = () => {
+        const cfg: Partial<APIConfig> = {};
+        if (localPaperUrl.trim()) cfg.baseUrl = localPaperUrl.trim();
+        if (localPaperKey.trim()) cfg.apiKey = localPaperKey.trim();
+        if (localPaperModel.trim()) cfg.model = localPaperModel.trim();
+        setPaperApi(cfg);
+        localStorage.setItem('study_paper_api_config', JSON.stringify(cfg));
+        trackEvent('保存自习室独立 API 线路');
+        addToast('文献翻译 API 已保存', 'success');
+    };
+
+    const clearPaperApi = () => {
+        setPaperApi({});
+        setLocalPaperUrl('');
+        setLocalPaperKey('');
+        setLocalPaperModel('');
+        localStorage.removeItem('study_paper_api_config');
+        addToast('已恢复继承自习室/全局 API', 'info');
+    };
+
+    const handleSavePaperPrompt = () => {
+        if (!paperPrompt.trim()) return;
+        localStorage.setItem('study_paper_translation_prompt', paperPrompt.trim());
+        addToast('文献翻译提示词已保存', 'success');
+    };
+
+    const handleResetPaperPrompt = () => {
+        if (confirm('确定要恢复默认的顶级学术期刊翻译提示词吗？')) {
+            setPaperPrompt(DEFAULT_PAPER_TRANSLATION_PROMPT);
+            localStorage.removeItem('study_paper_translation_prompt');
+            addToast('已恢复默认学术提示词', 'info');
+        }
     };
 
     // --- PDF Processing ---
@@ -1308,7 +1366,6 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 katexRenderer={katexRenderer}
                 apiConfig={effectiveApi}
                 onUpdatePaper={(updated) => setActivePaper(updated)}
-                onOpenSettings={() => setShowStudySettings(true)}
             />
         );
     }
@@ -1323,7 +1380,6 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 }}
                 apiConfig={effectiveApi}
                 onBackToCourses={() => setMode('bookshelf')}
-                onOpenSettings={() => setShowStudySettings(true)}
             />
         );
     }
@@ -1771,58 +1827,170 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
 
                 {/* Study Room Settings Modal */}
                 <Modal isOpen={showStudySettings} title="自习室设置" onClose={() => setShowStudySettings(false)}>
-                    <div className="space-y-6">
-                        {/* Dedicated API Config */}
-                        <div>
-                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">专用 API（留空则使用全局设置）</h4>
-                            <div className="space-y-2">
-                                <input value={localStudyUrl} onChange={e => setLocalStudyUrl(e.target.value)} placeholder="API Base URL" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                <input value={localStudyKey} onChange={e => setLocalStudyKey(e.target.value)} placeholder="API Key" type="password" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                <input value={localStudyModel} onChange={e => setLocalStudyModel(e.target.value)} placeholder="模型名称 (e.g. gpt-4o)" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                <div className="flex gap-2">
-                                    <button onClick={saveStudyApi} className="flex-1 py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs">保存</button>
-                                    <button onClick={clearStudyApi} className="py-2.5 px-4 bg-slate-200 text-slate-500 font-bold rounded-xl text-xs">清除</button>
-                                </div>
-                                {(studyApi.baseUrl || studyApi.model) && (
-                                    <div className="text-[10px] text-emerald-600 bg-emerald-50 rounded-lg p-2">
-                                        当前使用专用 API: {studyApi.model || effectiveApi.model}
-                                    </div>
-                                )}
-                            </div>
+                    <div className="space-y-5">
+                        {/* 顶部分栏切换 */}
+                        <div className="flex bg-slate-100 p-1 rounded-xl">
+                            <button
+                                onClick={() => setStudySettingsTab('tutor')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                                    studySettingsTab === 'tutor'
+                                        ? 'bg-white text-slate-800 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                AI 助教与课堂
+                            </button>
+                            <button
+                                onClick={() => setStudySettingsTab('paper')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                                    studySettingsTab === 'paper'
+                                        ? 'bg-white text-emerald-600 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                学术文献翻译
+                            </button>
                         </div>
 
-                        {/* Tutor Prompt Presets */}
-                        <div>
-                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">提示词预设</h4>
-                            {tutorPresets.length > 0 && (
-                                <div className="space-y-2 mb-3">
-                                    {tutorPresets.map(p => (
-                                        <div key={p.id} className="bg-slate-50 rounded-xl p-3 flex items-start gap-2">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="text-sm font-bold text-slate-700">{p.name}</div>
-                                                <div className="text-xs text-slate-400 truncate">{p.prompt}</div>
+                        {studySettingsTab === 'tutor' ? (
+                            <>
+                                {/* Dedicated API Config */}
+                                <div>
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">助教专用 API（留空则使用全局设置）</h4>
+                                    <div className="space-y-2">
+                                        <input value={localStudyUrl} onChange={e => setLocalStudyUrl(e.target.value)} placeholder="API Base URL" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
+                                        <input value={localStudyKey} onChange={e => setLocalStudyKey(e.target.value)} placeholder="API Key" type="password" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
+                                        <input value={localStudyModel} onChange={e => setLocalStudyModel(e.target.value)} placeholder="模型名称 (e.g. gpt-4o)" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
+                                        <div className="flex gap-2">
+                                            <button onClick={saveStudyApi} className="flex-1 py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs">保存</button>
+                                            <button onClick={clearStudyApi} className="py-2.5 px-4 bg-slate-200 text-slate-500 font-bold rounded-xl text-xs">清除</button>
+                                        </div>
+                                        {(studyApi.baseUrl || studyApi.model) && (
+                                            <div className="text-[10px] text-emerald-600 bg-emerald-50 rounded-lg p-2">
+                                                当前使用专用 API: {studyApi.model || effectiveApi.model}
                                             </div>
-                                            <button onClick={() => { setEditingPreset(p); setPresetName(p.name); setPresetPrompt(p.prompt); }} className="text-slate-400 hover:text-emerald-500 shrink-0 p-1">
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Tutor Prompt Presets */}
+                                <div>
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">提示词预设</h4>
+                                    {tutorPresets.length > 0 && (
+                                        <div className="space-y-2 mb-3">
+                                            {tutorPresets.map(p => (
+                                                <div key={p.id} className="bg-slate-50 rounded-xl p-3 flex items-start gap-2">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-sm font-bold text-slate-700">{p.name}</div>
+                                                        <div className="text-xs text-slate-400 truncate">{p.prompt}</div>
+                                                    </div>
+                                                    <button onClick={() => { setEditingPreset(p); setPresetName(p.name); setPresetPrompt(p.prompt); }} className="text-slate-400 hover:text-emerald-500 shrink-0 p-1">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg>
+                                                    </button>
+                                                    <button onClick={() => deletePreset(p.id)} className="text-slate-400 hover:text-red-500 shrink-0 p-1">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <div className="space-y-2 bg-slate-100 rounded-xl p-3">
+                                        <input value={presetName} onChange={e => setPresetName(e.target.value)} placeholder="预设名称（如：数学辅导）" className="w-full bg-white rounded-lg p-2.5 text-sm focus:outline-emerald-500" />
+                                        <textarea value={presetPrompt} onChange={e => setPresetPrompt(e.target.value)} placeholder="提示词内容（如：请用中文讲解，多用简单的比喻...）" className="w-full bg-white rounded-lg p-2.5 text-sm focus:outline-emerald-500 resize-none h-24" />
+                                        <button onClick={handleSavePreset} disabled={!presetName.trim() || !presetPrompt.trim()} className="w-full py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs disabled:opacity-40">
+                                            {editingPreset ? '更新预设' : '添加预设'}
+                                        </button>
+                                        {editingPreset && (
+                                            <button onClick={() => { setEditingPreset(null); setPresetName(''); setPresetPrompt(''); }} className="w-full py-2 text-slate-400 text-xs">取消编辑</button>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {/* Paper Translation Dedicated API */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">文献翻译专用 API</h4>
+                                        <span className="text-[10px] text-slate-400">留空则继承自习室/全局</span>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <input
+                                            value={localPaperUrl}
+                                            onChange={e => setLocalPaperUrl(e.target.value)}
+                                            placeholder="API Base URL (留空继承)"
+                                            className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500"
+                                        />
+                                        <input
+                                            value={localPaperKey}
+                                            onChange={e => setLocalPaperKey(e.target.value)}
+                                            placeholder="API Key (留空继承)"
+                                            type="password"
+                                            className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500"
+                                        />
+                                        <input
+                                            value={localPaperModel}
+                                            onChange={e => setLocalPaperModel(e.target.value)}
+                                            placeholder="模型名称 (如 deepseek-chat, gpt-4o)"
+                                            className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500"
+                                        />
+                                        <div className="flex gap-2">
+                                            <button
+                                                onClick={savePaperApi}
+                                                className="flex-1 py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs shadow-sm hover:bg-emerald-600 active:scale-95 transition"
+                                            >
+                                                保存翻译 API
                                             </button>
-                                            <button onClick={() => deletePreset(p.id)} className="text-slate-400 hover:text-red-500 shrink-0 p-1">
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                            <button
+                                                onClick={clearPaperApi}
+                                                className="py-2.5 px-4 bg-slate-200 text-slate-500 font-bold rounded-xl text-xs hover:bg-slate-300 active:scale-95 transition"
+                                            >
+                                                恢复继承
                                             </button>
                                         </div>
-                                    ))}
+                                        <div className="text-[10px] text-emerald-600 bg-emerald-50 rounded-lg p-2 flex items-center justify-between">
+                                            <span>
+                                                {paperApi.baseUrl || paperApi.model ? '已启用独立文献翻译 API' : '当前使用继承配置'}
+                                            </span>
+                                            <span className="font-mono font-bold">
+                                                生效模型: {paperApi.model || studyApi.model || apiConfig.model || '未设定'}
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
-                            )}
-                            <div className="space-y-2 bg-slate-100 rounded-xl p-3">
-                                <input value={presetName} onChange={e => setPresetName(e.target.value)} placeholder="预设名称（如：数学辅导）" className="w-full bg-white rounded-lg p-2.5 text-sm focus:outline-emerald-500" />
-                                <textarea value={presetPrompt} onChange={e => setPresetPrompt(e.target.value)} placeholder="提示词内容（如：请用中文讲解，多用简单的比喻...）" className="w-full bg-white rounded-lg p-2.5 text-sm focus:outline-emerald-500 resize-none h-24" />
-                                <button onClick={handleSavePreset} disabled={!presetName.trim() || !presetPrompt.trim()} className="w-full py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs disabled:opacity-40">
-                                    {editingPreset ? '更新预设' : '添加预设'}
-                                </button>
-                                {editingPreset && (
-                                    <button onClick={() => { setEditingPreset(null); setPresetName(''); setPresetPrompt(''); }} className="w-full py-2 text-slate-400 text-xs">取消编辑</button>
-                                )}
-                            </div>
-                        </div>
+
+                                {/* Paper Translation Custom Prompt */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">文献翻译学术提示词</h4>
+                                        <button
+                                            onClick={handleResetPaperPrompt}
+                                            className="text-[10px] text-slate-400 hover:text-emerald-600 underline"
+                                        >
+                                            恢复默认提示词
+                                        </button>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mb-2 leading-relaxed">
+                                        该提示词用于指导大模型进行段落双语精翻及百字晨读机理提炼，严格保护 LaTeX 公式与专业缩写。
+                                    </p>
+                                    <div className="space-y-2">
+                                        <textarea
+                                            value={paperPrompt}
+                                            onChange={e => setPaperPrompt(e.target.value)}
+                                            placeholder="输入文献翻译学术系统提示词..."
+                                            className="w-full bg-slate-100 rounded-xl p-3 text-xs focus:outline-emerald-500 resize-none h-44 font-mono leading-relaxed"
+                                        />
+                                        <button
+                                            onClick={handleSavePaperPrompt}
+                                            disabled={!paperPrompt.trim()}
+                                            className="w-full py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs disabled:opacity-40 shadow-sm hover:bg-emerald-600 active:scale-95 transition"
+                                        >
+                                            保存翻译提示词
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </Modal>
 

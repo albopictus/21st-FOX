@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNetwork, Eye, CaretDown, CaretUp, CheckCircle, SpinnerGap, Gear } from '@phosphor-icons/react';
+import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNetwork, Eye, CaretDown, CaretUp, CheckCircle, SpinnerGap } from '@phosphor-icons/react';
 import type { StudyPaper, PaperBlock, PaperParagraphBlock, PaperFigureBlock, PaperHeadingBlock, APIConfig } from '../../types';
 import { PaperFigureModal } from './PaperFigureModal';
-import { translateSingleBlock, translateStudyPaper } from '../../utils/paperTranslator';
+import { translateSingleBlock, translateStudyPaper, getPaperApiConfig } from '../../utils/paperTranslator';
 import { DB } from '../../utils/db';
 
 interface PaperReaderProps {
@@ -12,7 +12,6 @@ interface PaperReaderProps {
     katexRenderer?: { renderToString: (latex: string, options: any) => string } | null;
     apiConfig: APIConfig;
     onUpdatePaper: (updated: StudyPaper) => void;
-    onOpenSettings?: () => void;
 }
 
 export const PaperReader: React.FC<PaperReaderProps> = ({
@@ -21,8 +20,7 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
     onAskTutor,
     katexRenderer,
     apiConfig,
-    onUpdatePaper,
-    onOpenSettings
+    onUpdatePaper
 }) => {
     // 跟踪展开了中文对照的段落 ID 集合
     const [expandedBlockIds, setExpandedBlockIds] = useState<Set<string>>(new Set());
@@ -79,7 +77,8 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
         const textToTranslate = block.type === 'figure' ? block.caption : (block.type === 'paragraph' ? block.text : undefined);
         const hasTranslation = block.type === 'figure' ? Boolean(block.captionZh) : Boolean(block.textZh);
 
-        if (!hasTranslation && textToTranslate && apiConfig.apiKey) {
+        const effectiveConfig = getPaperApiConfig(apiConfig);
+        if (!hasTranslation && textToTranslate && effectiveConfig.apiKey) {
             try {
                 setTranslatingBlockId(block.id);
                 const zh = await translateSingleBlock(textToTranslate, apiConfig);
@@ -101,7 +100,12 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
 
     // 发起全文学术翻译
     const handleFullTranslate = async () => {
-        if (isTranslating || !apiConfig.apiKey) return;
+        const effectiveConfig = getPaperApiConfig(apiConfig);
+        if (isTranslating) return;
+        if (!effectiveConfig.apiKey) {
+            alert('请先在自习室设置中配置 API Key（或文献翻译专用 API）');
+            return;
+        }
         try {
             setIsTranslating(true);
             setTransPercent(5);
