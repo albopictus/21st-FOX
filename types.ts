@@ -4008,9 +4008,11 @@ export interface StudyPaper {
     titleZh?: string;
     journalTitle?: string;
     pubDate?: string;
+    pubType?: string;
     authorString?: string;
     keywords?: string[];
     summary100?: string;
+    abstract?: string;
     blocks: PaperBlock[];
     fetchedAt: number;
     translatedAt?: number;

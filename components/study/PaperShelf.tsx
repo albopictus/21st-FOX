@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, X, Check } from '@phosphor-icons/react';
+import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, X, Check, CalendarBlank, Article, CaretDown, CaretUp, Info } from '@phosphor-icons/react';
 import type { StudyPaper, APIConfig } from '../../types';
 import { DB } from '../../utils/db';
 import { searchEuropePmcArticles, fetchAndParseStudyPaper, EuropePmcArticleSummary } from '../../utils/europePmc';
@@ -36,6 +36,17 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     const [isFetchingPaper, setIsFetchingPaper] = useState(false);
     const [fetchingPmcid, setFetchingPmcid] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'my_papers' | 'discover'>('my_papers');
+    const [expandedAbstractIds, setExpandedAbstractIds] = useState<Set<string>>(new Set());
+
+    const toggleAbstract = (id: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        setExpandedAbstractIds(prev => {
+            const next = new Set(prev);
+            if (next.has(id)) next.delete(id);
+            else next.add(id);
+            return next;
+        });
+    };
 
     // 自定义快捷标签
     const [tags, setTags] = useState<string[]>(() => {
@@ -119,7 +130,7 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
             setIsFetchingPaper(true);
             setFetchingPmcid(summary.pmcid);
 
-            const paper = await fetchAndParseStudyPaper(summary.pmcid, searchKeyword ? [searchKeyword] : []);
+            const paper = await fetchAndParseStudyPaper(summary.pmcid, searchKeyword ? [searchKeyword] : [], summary);
             await DB.savePaper(paper);
             await loadPapers();
             onSelectPaper(paper);
@@ -282,13 +293,19 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                         className="p-5 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between group shadow-sm active:scale-[0.99]"
                                     >
                                         <div className="space-y-2.5">
-                                            <div className="flex items-center justify-between text-[10px]">
+                                            <div className="flex items-center justify-between text-[10px] gap-2 flex-wrap">
                                                 <span className="font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                                                     {paper.journalTitle || 'Academic'}
                                                 </span>
-                                                <span className="text-slate-400 font-mono">
-                                                    {paper.pmcid}
-                                                </span>
+                                                <div className="flex items-center gap-1.5 text-slate-400 font-mono shrink-0">
+                                                    <span>{paper.pmcid}</span>
+                                                    {paper.pubDate && (
+                                                        <span className="flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full text-[10px]">
+                                                            <CalendarBlank size={11} className="text-slate-400" />
+                                                            <span>Pub: {paper.pubDate}</span>
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
 
                                             <h3 className="text-sm sm:text-base font-bold text-slate-800 font-serif line-clamp-2 leading-snug group-hover:text-emerald-700 transition-colors">
@@ -300,6 +317,20 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                     {paper.titleZh}
                                                 </p>
                                             )}
+
+                                            {/* 作者与 DOI */}
+                                            <div className="flex items-center justify-between gap-2 text-xs text-slate-500 flex-wrap">
+                                                {paper.authorString && (
+                                                    <p className="line-clamp-1 flex-1 min-w-[120px]">
+                                                        {paper.authorString}
+                                                    </p>
+                                                )}
+                                                {paper.doi && (
+                                                    <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                                        DOI: {paper.doi}
+                                                    </span>
+                                                )}
+                                            </div>
 
                                             {/* 百字晨读机理摘要预览 */}
                                             {paper.summary100 && (
@@ -361,38 +392,106 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                             searchResults.map(res => {
                                 const isFetchingThis = isFetchingPaper && fetchingPmcid === res.pmcid;
                                 const isAlreadyDownloaded = papers.some(p => p.pmcid === res.pmcid);
+                                const isAbstractExpanded = expandedAbstractIds.has(res.id);
 
                                 return (
                                     <div
                                         key={res.id}
-                                        className="p-5 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 hover:shadow-md transition-all flex flex-col justify-between space-y-3 shadow-sm"
+                                        className="p-5 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 hover:shadow-md transition-all flex flex-col justify-between space-y-3 shadow-xs"
                                     >
-                                        <div className="space-y-1.5">
-                                            <div className="flex items-center justify-between text-[10px]">
-                                                <span className="font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold uppercase">
-                                                    {res.journalTitle || 'Academic'}
-                                                </span>
-                                                <span className="text-slate-400 font-mono">
-                                                    {res.pmcid} · {res.pubYear}
-                                                </span>
+                                        <div className="space-y-2">
+                                            {/* 顶栏：期刊名、类型徽标与发布日期 */}
+                                            <div className="flex items-center justify-between text-[10px] gap-2 flex-wrap">
+                                                <div className="flex items-center gap-1.5 flex-wrap">
+                                                    <span className="font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider truncate max-w-[180px]">
+                                                        {res.journalTitle || 'Academic'}
+                                                    </span>
+                                                    {res.isAbstractOnly && (
+                                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200/60 font-medium">
+                                                            会议简报 / 摘要
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                <div className="flex items-center gap-1.5 text-slate-400 font-mono shrink-0">
+                                                    <span>{res.pmcid}</span>
+                                                    {res.pubDate && (
+                                                        <span className="flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full text-[10px]">
+                                                            <CalendarBlank size={11} className="text-slate-400" />
+                                                            <span>Pub: {res.pubDate}</span>
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
 
+                                            {/* 论文标题 */}
                                             <h4 className="text-sm sm:text-base font-bold text-slate-800 font-serif leading-snug">
                                                 {res.title}
                                             </h4>
 
-                                            {res.authorString && (
-                                                <p className="text-xs text-slate-500 line-clamp-1">
-                                                    {res.authorString}
-                                                </p>
+                                            {/* 作者与 DOI 信息 */}
+                                            <div className="flex items-center justify-between gap-2 text-xs text-slate-500 flex-wrap">
+                                                {res.authorString && (
+                                                    <p className="line-clamp-1 flex-1 min-w-[140px]">
+                                                        {res.authorString}
+                                                    </p>
+                                                )}
+                                                {res.doi && (
+                                                    <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                                        DOI: {res.doi}
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {/* 点一下显示摘要按钮 */}
+                                            {res.abstractText && (
+                                                <div className="pt-0.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => toggleAbstract(res.id, e)}
+                                                        className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 hover:text-emerald-800 active:scale-95 transition bg-emerald-50 hover:bg-emerald-100/80 px-3 py-1 rounded-full border border-emerald-200/60 cursor-pointer shadow-2xs"
+                                                    >
+                                                        <Article size={13} />
+                                                        <span>{isAbstractExpanded ? '收起摘要' : '点一下显示摘要'}</span>
+                                                        {isAbstractExpanded ? <CaretUp size={12} weight="bold" /> : <CaretDown size={12} weight="bold" />}
+                                                    </button>
+                                                </div>
+                                            )}
+
+                                            {/* 展开的摘要预览区 */}
+                                            {isAbstractExpanded && res.abstractText && (
+                                                <div className="p-3.5 rounded-xl bg-slate-50/90 border border-slate-200/80 text-xs text-slate-700 leading-relaxed font-sans space-y-2 animate-fadeIn">
+                                                    <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200/60 pb-1.5">
+                                                        <span className="flex items-center gap-1.5 text-emerald-800 font-mono">
+                                                            <BookOpen size={12} weight="bold" />
+                                                            <span>Abstract / 原文摘要</span>
+                                                        </span>
+                                                        {res.firstPublicationDate && (
+                                                            <span className="text-slate-400 font-mono">
+                                                                Published: {res.firstPublicationDate}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="select-text whitespace-pre-wrap leading-relaxed text-slate-600 font-sans">
+                                                        {res.abstractText}
+                                                    </p>
+                                                </div>
                                             )}
                                         </div>
 
-                                        <div className="pt-2 flex items-center justify-end">
+                                        <div className="pt-2 flex items-center justify-between gap-2 border-t border-slate-100 mt-2">
+                                            <div className="text-[11px] text-slate-400 font-medium">
+                                                {res.isAbstractOnly ? (
+                                                    <span className="text-amber-600/90 text-[10px]">⚠️ 该文为学术会议简报，正文主要为机理摘要</span>
+                                                ) : (
+                                                    <span className="text-emerald-700/80 text-[10px]">✓ 包含全文 JATS XML</span>
+                                                )}
+                                            </div>
+
                                             <button
                                                 onClick={() => handleFetchPaper(res)}
                                                 disabled={isFetchingPaper}
-                                                className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-2xs ${
+                                                className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-2xs shrink-0 ${
                                                     isAlreadyDownloaded
                                                         ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
                                                         : 'bg-emerald-600 hover:bg-emerald-500 text-white'

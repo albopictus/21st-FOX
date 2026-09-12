@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNetwork, Eye, CaretDown, CaretUp, CheckCircle, SpinnerGap } from '@phosphor-icons/react';
+import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNetwork, Eye, CaretDown, CaretUp, CheckCircle, SpinnerGap, Info, CalendarBlank } from '@phosphor-icons/react';
 import type { StudyPaper, PaperBlock, PaperParagraphBlock, PaperFigureBlock, PaperHeadingBlock, APIConfig } from '../../types';
 import { PaperFigureModal } from './PaperFigureModal';
 import { translateSingleBlock, translateStudyPaper, getPaperApiConfig } from '../../utils/paperTranslator';
@@ -254,8 +254,9 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                             Open Access
                         </span>
                         {paper.pubDate && (
-                            <span className="text-xs text-slate-400 font-mono">
-                                📅 {paper.pubDate}
+                            <span className="text-xs text-slate-500 font-mono flex items-center gap-1 bg-slate-100 px-2.5 py-0.5 rounded-full">
+                                <CalendarBlank size={12} className="text-slate-400" />
+                                <span>Published: {paper.pubDate}</span>
                             </span>
                         )}
                         {paper.doi && (
@@ -279,6 +280,21 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                         <p className="text-xs text-slate-500 font-sans leading-relaxed">
                             <span className="text-slate-400 font-medium">Authors: </span>{paper.authorString}
                         </p>
+                    )}
+
+                    {/* 会议论文/仅收录摘要友好提示 */}
+                    {(paper.pubType?.toLowerCase().includes('meeting')
+                        || paper.pubType?.toLowerCase().includes('abstract')
+                        || (!paper.blocks.some(b => b.type === 'heading' && b.text.toLowerCase() !== 'abstract') && paper.blocks.length <= 5)) && (
+                        <div className="p-3.5 rounded-2xl bg-amber-50/90 border border-amber-200/80 text-xs text-amber-900 flex items-start gap-2.5 font-sans leading-relaxed">
+                            <Info size={18} weight="fill" className="text-amber-600 shrink-0 mt-0.5" />
+                            <div className="space-y-0.5">
+                                <span className="font-bold text-amber-950">学术大会简报 / 海报摘要（Meeting Abstract）</span>
+                                <p className="text-[11px] text-amber-800/90 leading-relaxed">
+                                    本文在官方学术数据库中属于会议学术速递与海报简报，原刊仅收录了机理摘要，未收录长篇正文。您可在此精读中英对照摘要，或轻触段落呼出助教深度追问。
+                                </p>
+                            </div>
+                        </div>
                     )}
 
                     {/* 百字晨读核心机理总结卡片 */}
