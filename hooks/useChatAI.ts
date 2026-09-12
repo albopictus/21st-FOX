@@ -1,5 +1,5 @@
 
-import { useState, useRef, useEffect, MutableRefObject } from 'react';
+import { useState, useRef, useEffect, useSyncExternalStore, MutableRefObject } from 'react';
 import { CharacterProfile, UserProfile, Message, Emoji, EmojiCategory, GroupProfile, RealtimeConfig, CharacterBuff, Amsg2ExpiredNoticeRecord } from '../types';
 import { DB } from '../utils/db';
 import { ChatPrompts } from '../utils/chatPrompts';
@@ -28,6 +28,8 @@ import { buildMcpOpenAITools, buildMcpRejectedToolsFallbackBody, buildMcpTextFal
 import { buildToolResultMessage, normalizeToolCallsForCompat } from '../utils/toolCallCompat';
 import { toolCallFingerprint } from '../utils/agenticToolFeedback';
 import { buildChatRequestPayload } from '../utils/chatRequestPayload';
+import { acquireChatReply, isChatReplyActive, subscribeChatReplies } from '../utils/chatReplyLock';
+import { withChatContinuation } from '../utils/chatContinuation';
 import {
     isInstantConfigReady,
     sendInstantPushAndAwaitReply,
@@ -57,6 +59,13 @@ import { buildClaudeProxyCompatibilityBody, shouldRetryClaudeProxyCompatibility 
 import { routeMiniAppToolCall } from '../utils/miniAppToolRoute';
 import { applyEmotionEvalRaw, extractAssistantText } from '../utils/emotionApply';
 import { announceChatGen, CHAT_GEN_EVENTS } from '../utils/chatGenEvents';
+import {
+    advanceSARModuleAfterReply,
+    createSARModuleEventMeta,
+    createSARModuleSurfaceMeta,
+    getSARModuleRuntimePlan,
+    parseSARModuleReply,
+} from '../utils/vrWorld/sarModuleRuntime';
 import { shouldRequestAmbient, buildAmbientEvalSection } from '../utils/roomAmbient';
 import { isEmotionEvalSkipped } from '../utils/devDebug';
 import {
@@ -452,7 +461,8 @@ interface UseChatAIProps {
     translationConfig?: { enabled: boolean; sourceLang: string; targetLang: string };
     memoryPalaceConfig?: { embedding: { baseUrl: string; apiKey: string; model: string; dimensions: number }; lightLLM: { baseUrl: string; apiKey: string; model: string } };
     /** 从 OSContext 传入，用于 palace 自动归档写 char.memories + hideBeforeMessageId */
-    updateCharacter: (id: string, partial: Partial<CharacterProfile>) => void;
+    updateCharacter: (id: string, partial: Partial<CharacterProfile> | ((prev: CharacterProfile) => Partial<CharacterProfile>)) => void;
+    updateUserProfile: (updates: Partial<UserProfile> | ((prev: UserProfile) => Partial<UserProfile>)) => void;
     /** 麦当劳小程序当前快照 (cart/menu/nutrition); open=true 时把这段实时状态追加到 system prompt 末尾, 让 char 协同选餐 */
     mcdMiniAppRef?: MutableRefObject<import('../utils/mcdToolBridge').McdMiniAppSnapshot | undefined>;
     /** 瑞幸小程序当前快照 (cart/menu); 与麦当劳同构 */
@@ -476,6 +486,7 @@ export const useChatAI = ({
     translationConfig,
     memoryPalaceConfig,
     updateCharacter,
+    updateUserProfile,
     mcdMiniAppRef,
     luckinMiniAppRef,
     luckinChatRef,
@@ -484,7 +495,10 @@ export const useChatAI = ({
     // 音乐上下文 — 用于聊天时注入"user 正在听什么 + 当前歌词窗口"
     const music = useMusic();
 
-    const [isTyping, setIsTyping] = useState(false);
+    const [localTyping, setLocalTyping] = useState(false);
+    const characterTyping = useSyncExternalStore(subscribeChatReplies, () => isChatReplyActive(char?.id), () => false);
+    // 同一挂载实例仍串行使用流式预览状态；跨页面重进则读取角色的后台占位。
+    const isTyping = localTyping || characterTyping;
     // 流式预览气泡：stream 开启时，已完成行与安全尾句随增量以临时气泡上屏。
     // 流结束后由 applyAssistantPostProcessing 正常落库渲染，预览随即清空 —— 只影响体感，不改持久化。
     const [streamingBubbles, setStreamingBubbles] = useState<string[]>([]);
@@ -734,25 +748,25 @@ export const useChatAI = ({
         const charForGen: CharacterProfile = skipEmotionInjection
             ? { ...char, buffInjection: '', activeBuffs: [] }
             : char;
+        // 一轮开始时冻结模块快照：API 飞行期间的 UI 更新不能改变这一轮要不要污染、
+        // 也不能让成功结算时多扣/少扣。重掷仍使用效果，但成功后不再次扣回合。
+        const sarModulePlan = getSARModuleRuntimePlan(charForGen, userProfile);
 
-        setIsTyping(true);
-        setStreamingBubbles([]);
-        setStreamingThinking('');
-        setRecallStatus('');
-        // 全局横幅「xx 正在回应…」（ChatBroadcast）。isTyping 等 UI 状态随 Chat 卸载
-        // 一起销毁，但这个异步闭包会继续跑完并落库——横幅靠 window 事件与组件生命周期
-        // 解耦，用户切走 Chat 也能看到生成还活着。finally 里派发 end（两条路径都经过）。
-        announceChatGen(CHAT_GEN_EVENTS.replyStart, { charId: char.id, charName: char.name });
-
-        // Keep the Service Worker alive while we make potentially long AI calls
-        await KeepAlive.start();
-
-        // 本轮的 amsg2 工具会话：角色一轮里可能连着排/取消多个任务，任务清单要在这一轮内
-        // 累加，所以由 session 兜住最新 config，别从 char 快照上读写（char 是生成开始的
-        // 那份，updateCharacter 不回写它）。finally 里打脏也要读它，所以声明在 try 外面。
+        // 工具会话累加本轮新任务；finally 打脏时也要读这一份最新配置。
         const amsg2Session = createAmsg2ToolSession({
             char, userProfile, groups, realtimeConfig, apiConfig, updateCharacter,
         });
+        const releaseReply = acquireChatReply(char.id);
+        if (!releaseReply) { onInstantPosted?.(); return; }
+        setLocalTyping(true);
+        setStreamingBubbles([]);
+        setStreamingThinking('');
+        setRecallStatus('');
+        // 全局横幅「xx 正在回应…」（ChatBroadcast）。Chat 卸载后，生成占位和这个异步
+        // 闭包都会保留并继续落库——横幅靠 window 事件与组件生命周期
+        // 解耦，用户切走 Chat 也能看到生成还活着。finally 里派发 end（两条路径都经过）。
+        announceChatGen(CHAT_GEN_EVENTS.replyStart, { charId: char.id, charName: char.name });
+
         // 本轮里角色自己新排出来的任务。排程现状块每轮现算时靠它把这些点名标出来——不标
         // 的话角色分不清清单上哪条是自己刚排的，回头又排一条一模一样的。
         const amsg2CreatedThisTurn = new Set<string>();
@@ -778,6 +792,8 @@ export const useChatAI = ({
         };
 
         try {
+            // 初始化失败也必须经过 finally 释放本轮占位。
+            await KeepAlive.start();
             const baseUrl = effectiveApi.baseUrl.replace(/\/+$/, '');
             const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${effectiveApi.apiKey || 'sk-none'}` };
 
@@ -842,7 +858,8 @@ export const useChatAI = ({
             // 判据就一句话：这一轮上云会让角色掉能力，那就别上云。留在本地跑，工具照常用。
             // （地址够得着的服务器不受影响，照常上云，worker 自己跑后台 MCP。）
             const mcpWorkerUnreachable = hasWorkerUnreachableMcpServer(char.id);
-            const instantChatVeto: string | null = luckinChatOn ? 'luckin-chat'
+            const instantChatVeto: string | null = sarModulePlan.hasActiveEffect || sarModulePlan.hasAfterglow ? 'sar-module'
+                : luckinChatOn ? 'luckin-chat'
                 : mcdMiniOpen ? 'mcd'
                     : luckinMiniOpen ? 'luckin'
                         : mcpWorkerUnreachable ? 'mcp-worker-unreachable' : null;
@@ -864,7 +881,9 @@ export const useChatAI = ({
             if (instantChatOn && !instantChatRoute) {
                 const skipReason = instantChatVeto ?? 'instant-push-configured';
                 console.warn(
-                    skipReason === 'mcp-worker-unreachable'
+                    skipReason === 'sar-module'
+                        ? '[AmsgInstantChat] SAR 模块效果与解除提示需要本地解析，这一轮在本地生成'
+                        : skipReason === 'mcp-worker-unreachable'
                         ? '[AmsgInstantChat] 这一轮没上云（有 MCP 服务器填的是本机/内网地址，worker 够不着），本地生成，工具照常可用'
                         : instantChatVeto
                             ? `[AmsgInstantChat] 这一轮没上云（${instantChatVeto} 点单流程需要客户端交互），本地生成`
@@ -978,7 +997,9 @@ export const useChatAI = ({
             }));
             const systemPrompt = payload.systemPrompt;
             const cleanedApiMessages = payload.cleanedApiMessages;
-            const fullMessages = payload.fullMessages;
+            const fullMessages = payload.flags.promptBuildSkipped
+                ? payload.fullMessages
+                : withChatContinuation(payload.fullMessages, userProfile.name);
             const promptBuildSkipped = payload.flags.promptBuildSkipped;
             if (payload.flags.mcdActive) {
                 console.log(`🍔 [MCD-MiniApp] 注入协同点餐上下文 step=${mcdMiniSnap?.step} cartItems=${mcdMiniSnap?.cart?.length || 0} menuItems=${mcdMiniSnap?.menuMeals ? Object.keys(mcdMiniSnap.menuMeals).length : 0} nutrition=${mcdMiniSnap?.nutritionData ? mcdMiniSnap.nutritionData.length : 0}字`);
@@ -1009,7 +1030,9 @@ export const useChatAI = ({
             // 这一轮的生成在云端跑（两条路互斥，见 instantChatRoute 的算法）。
             // instantPushConfigured 是路由判定处冻结的同一回合终值——这里绝不自己再读
             // 一次，否则可能「按上云模式把评估打包走了，实际却走本地」，情绪底色悄悄停更。
-            const cloudGenRoute = instantPushConfigured || instantChatRoute;
+            // 有配置不代表这一轮会上云。SAR 模块和本地工具会否决 IP；评估要跟实际路线走。
+            const instantPushRoute = instantPushConfigured && !sarModulePlan.hasActiveEffect && !sarModulePlan.hasAfterglow && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive && !payload.flags.mcpChatActive;
+            const cloudGenRoute = instantPushRoute || instantChatRoute;
             // 评估跟随全局流式开关（专用情绪 API 自带 stream 字段时以它为准）
             const evalStream: boolean = !!((effectiveApi as any).stream ?? apiConfig.stream ?? false);
             const emotionApi = emotionEvalEnabled
@@ -1274,7 +1297,7 @@ export const useChatAI = ({
             // 表现就是"选了城市也没用 / 角色不下单"。这些模式下跳过 instant push, 用本地 fetch 跑工具循环。
             // 双向互斥后理论上到不了：走到这条 trace 说明两边开关同时亮着（脏配置），当断言告警看。
             const AMSG2_SUPPRESSED_TRACE = 'amsg2-suppressed-by-instant';
-            if (instantPushConfigured && !payload.flags.luckinChatActive && !payload.flags.mcdActive && !payload.flags.luckinActive && !payload.flags.mcpChatActive) {
+            if (instantPushRoute) {
                 // 走这条路 = 上面那段 amsg2 的工具、排程现状块都白拼了（instant 发的是原始
                 // fullMessages、请求体不带 tools），下面的活跃会话租约也不会开。三样都是静默
                 // 失效，留一条 trace 让观察窗看得见，别让人对着「功能不响」凭空排查。
@@ -1418,7 +1441,8 @@ export const useChatAI = ({
             // 只允许标签外确实属于普通文字的部分预览。
             // 每次 onDelta 基于累计全文全量重算（safeFetchJson 重试会重开流，天然重置）；
             // 正文尾句和思考内容只在累计文本确实变化时触发重渲染。
-            const streamUiEligible = !!userStream && !toolModeActive && !bilingualActive;
+            // SAR 的正文包在结构化容器里，流式阶段不能把 TRUE/SURFACE 控制标签闪给用户。
+            const streamUiEligible = !!userStream && !toolModeActive && !bilingualActive && !sarModulePlan.requiresEnvelope;
             const streamPreviewEligible = streamUiEligible;
             const streamThinkingEligible = streamUiEligible && payload.flags.thinkingActive;
             // 预览真的上过屏才置 true → 后处理落库时跳过拟人打字延迟（instantRender），
@@ -2048,6 +2072,24 @@ export const useChatAI = ({
                 }
             };
             const rawAiContent = data.choices?.[0]?.message?.content || '';
+            const sarReply = parseSARModuleReply(rawAiContent, sarModulePlan);
+            const latestUserMessage = currentMsgs.slice().reverse().find(message => (
+                message.role === 'user' && message.type === 'text'
+            ));
+            const sarModuleEvents = createSARModuleEventMeta(sarModulePlan);
+            const userSurfaceMeta = sarModulePlan.user?.phase === 'active' && sarReply.userSurface
+                ? createSARModuleSurfaceMeta(sarModulePlan.user, sarReply.userSurface)
+                : undefined;
+            if (latestUserMessage?.id && (sarModuleEvents.length > 0 || userSurfaceMeta)) {
+                await DB.updateMessageMetadata(latestUserMessage.id, previous => ({
+                    ...(previous || {}),
+                    ...(userSurfaceMeta ? { sarModuleSurface: userSurfaceMeta } : {}),
+                    ...(sarModuleEvents.length > 0 ? { sarModuleEvents } : {}),
+                }));
+            }
+            const assistantSurfaceMeta = sarModulePlan.character?.phase === 'active' && sarReply.assistantSurface
+                ? createSARModuleSurfaceMeta(sarModulePlan.character, sarReply.assistantSurface)
+                : undefined;
             const xhsCaches: XhsCaches = {
                 xsecTokenCache: xsecTokenCacheRef.current,
                 noteTitleCache: noteTitleCacheRef.current,
@@ -2055,7 +2097,7 @@ export const useChatAI = ({
                 commentAuthorNameCache: commentAuthorNameCacheRef.current,
                 commentParentIdCache: commentParentIdCacheRef.current,
             };
-            await applyAssistantPostProcessing(rawAiContent, {
+            await applyAssistantPostProcessing(sarReply.canonical, {
                 char,
                 userProfile,
                 emojis,
@@ -2090,7 +2132,22 @@ export const useChatAI = ({
                 // Phase 0: 本地 fetch 路径保持原逻辑, 不跳 2nd-pass LLM, 也没有结构化 directives。
                 skipSecondPassLLM: false,
                 directives: [],
+                sarModuleSurface: assistantSurfaceMeta,
             });
+
+            // 到这里说明正文已成功落库。失败 / 中断不会经过；重掷是替换旧回合，不重复扣寿命。
+            if (!skipEmotionInjection) {
+                if (sarModulePlan.character) {
+                    updateCharacter(char.id, previous => ({
+                        vrState: { ...(previous.vrState || { enabled: false, intervalMinutes: 120 }), sarModule: advanceSARModuleAfterReply(previous.vrState?.sarModule, sarModulePlan.character) },
+                    }));
+                }
+                if (sarModulePlan.user) {
+                    updateUserProfile(previous => ({
+                        vrState: { ...(previous.vrState || { enabled: false }), sarModule: advanceSARModuleAfterReply(previous.vrState?.sarModule, sarModulePlan.user) },
+                    }));
+                }
+            }
 
             // 本地路径回复已全部落库。OSContext 监听这个事件 bump lastMsgTimestamp——
             // 当前挂载的 Chat（可能是切走又切回后新 mount 的实例，本闭包的 setMessages
@@ -2123,8 +2180,9 @@ export const useChatAI = ({
             }
             setMessages(await DB.getRecentMessagesByCharId(char.id, 200));
         } finally {
+            releaseReply();
+            setLocalTyping(false);
             KeepAlive.stop();
-            setIsTyping(false);
             // 本轮生成结束（成功/失败/中断都经过）→ 停止本地续租；远端靠 45s TTL 自然失效。
             // 未开过租约（instant push / 非 amsg2 角色）时是幂等 no-op。
             stopAmsgChatPresence(char.id);

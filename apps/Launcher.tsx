@@ -4,8 +4,10 @@ import { INSTALLED_APPS, DOCK_APPS } from '../constants';
 import { isDevDebugAvailable, subscribeDevDebugAvailability } from '../utils/devDebug';
 import AppIcon from '../components/os/AppIcon';
 import { DB } from '../utils/db';
-import { CharacterProfile, Anniversary, AppID, DailySchedule, DesktopPage, PlacedItem, GridItemKind } from '../types';
-import { ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
+import { isChatPreviewMessage } from '../utils/chatMessageVisibility';
+import { CharacterProfile, Anniversary, AppID, DailySchedule } from '../types';
+import { ScheduleHomeWidget, ScheduleFullscreenViewer } from '../components/schedule/ScheduleHomeWidget';
+import NowPlayingSquareWidget from '../components/os/NowPlayingSquareWidget';
 import MobileGameHome from '../components/os/MobileGameHome';
 import TamagotchiHome from '../components/os/TamagotchiHome';
 import { DesktopGalleryModal } from '../components/os/DesktopGalleryModal';
@@ -551,64 +553,35 @@ const Launcher: React.FC = () => {
 
   // 不在编辑态时跟随 theme（备份导入 / 另一个标签页改了）
   useEffect(() => {
-    if (layoutEditing) return;
-    setPages(migratedPages);
-    pagesRef.current = migratedPages;
-  }, [migratedPages, layoutEditing]);
+      let cancelled = false;
+      const loadData = async () => {
+          // SAFEGUARD: If characters array is empty, reset widget char
+          if (!characters || characters.length === 0) {
+              setWidgetChar(null);
+              setLastMessage('No Character Connected');
+              setAnniversaries([]);
+              return;
+          }
 
-  // 首次迁移落库一次（之后 theme.launcherPages 就存在了）
-  const migrationPersisted = useRef(false);
-  useEffect(() => {
-    if (migrationPersisted.current || !isDataLoaded) return;
-    if (theme.launcherPages && theme.launcherPages.length) { migrationPersisted.current = true; return; }
-    migrationPersisted.current = true;
-    void updateTheme({ launcherPages: migratedPages });
-  }, [isDataLoaded, theme.launcherPages, migratedPages, updateTheme]);
+          const targetChar = characters.find(c => c.id === activeCharacterId) || characters[0];
+          setWidgetChar(targetChar);
 
-  const commitPages = useCallback((next: DesktopPage[]) => {
-    pagesRef.current = next;
-    setPages(next);
-    void updateTheme({ launcherPages: next });
-  }, [updateTheme]);
-
-  const replacePage = useCallback((pageIndex: number, nextPage: DesktopPage) => {
-    const next = pagesRef.current.map((p, i) => (i === pageIndex ? nextPage : p));
-    commitPages(next);
-  }, [commitPages]);
-
-  const placedAppIds = useMemo(() => collectPlacedAppIds(pages), [pages]);
-  const existingKinds = useMemo(() => {
-    const s = new Set<GridItemKind>();
-    for (const p of pages) for (const it of p.items) s.add(it.kind);
-    return s;
-  }, [pages]);
-
-  const totalPages = pages.length;
-
-  // ───────── 数据加载 ─────────
-  useEffect(() => {
-    const loadData = async () => {
-      if (!characters || characters.length === 0) {
-        setWidgetChar(null);
-        setLastMessage('No Character Connected');
-        setAnniversaries([]);
-        return;
-      }
-      const targetChar = characters.find(c => c.id === activeCharacterId) || characters[0];
-      setWidgetChar(targetChar);
-      try {
-        const [msgs, annis] = await Promise.all([
-          DB.getMessagesByCharId(targetChar.id),
-          DB.getAllAnniversaries(),
-        ]);
-        if (msgs.length > 0) {
-          const visibleMsgs = msgs.filter(m => m.role !== 'system');
-          if (visibleMsgs.length > 0) {
-            const last = visibleMsgs[visibleMsgs.length - 1];
-            const cleanContent = last.content.replace(/\[.*?\]/g, '').trim();
-            setLastMessage(cleanContent || (last.type === 'image' ? '[图片]' : '[消息]'));
-          } else {
-            setLastMessage(targetChar.description || 'System Ready.');
+          try {
+              const [recent, annis] = await Promise.all([
+                  DB.getRecentMessagesWithCount(targetChar.id, 1, isChatPreviewMessage),
+                  DB.getAllAnniversaries()
+              ]);
+              if (cancelled) return;
+              const last = recent.messages[0];
+              if (last) {
+                  const cleanContent = last.content.replace(/\[.*?\]/g, '').trim();
+                  setLastMessage(cleanContent || (last.type === 'image' ? '[图片]' : '[消息]'));
+              } else {
+                  setLastMessage(targetChar.description || "System Ready.");
+              }
+              setAnniversaries(annis);
+          } catch (e) {
+              console.error(e);
           }
         } else {
           setLastMessage(targetChar.description || 'System Ready.');
