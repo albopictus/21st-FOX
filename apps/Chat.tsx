@@ -2,9 +2,7 @@ import React, { useState, useEffect, useRef, useLayoutEffect, useMemo, useCallba
 import { createPortal } from 'react-dom';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { isVisibleChatMessage } from '../utils/chatMessageVisibility';
-import { AppID, Message, MessageType, MemoryFragment, Emoji, EmojiCategory, DailySchedule, ScheduleSlot } from '../types';
-import { processImage, processImageToBlob } from '../utils/file';
+const { activeApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();import { processImage, processImageToBlob } from '../utils/file';
 import { safeResponseJson, extractContent } from '../utils/safeApi';
 import { buildChatFineTuneCss, mergeChatFineTune } from '../utils/chatFineTuneCss';
 import ChatFineTunePanel from '../components/chat/ChatFineTunePanel';
@@ -45,6 +43,8 @@ import InstantChatRouteNotice from '../components/chat/InstantChatRouteNotice';
 import MemoryRepairPortal from '../components/chat/MemoryRepairPortal';
 import FavoritesPortal from '../components/chat/VoiceFavoritesPortal';
 import ChatModals from '../components/chat/ChatModals';
+import GiftModal from '../components/chat/GiftModal';
+import { DAILY_ALLOWANCE_COINS } from '../utils/giftCatalog';
 import ChatHistoryCleanupModal from '../components/chat/ChatHistoryCleanupModal';
 import type { ChatCleanupPlan } from '../utils/chatHistoryCleanup';
 import Modal from '../components/os/Modal';
@@ -137,6 +137,7 @@ type InstantToolUiStatus = {
 
 const Chat: React.FC = () => {
     const { activeApp, characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, updateUserProfile, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
+    const { characters, activeCharacterId, setActiveCharacterId, addCharacter, updateCharacter, apiConfig, apiPresets, availableModels, addApiPreset, closeApp, customThemes, addCustomTheme, removeCustomTheme, addWorldbook, updateTheme, saveAppearancePreset, addToast, showError, userProfile, updateUserProfile, lastMsgTimestamp, groups, characterGroups, clearUnread, unreadMessages, realtimeConfig, memoryPalaceConfig, updateMemoryPalaceConfig, remoteVectorConfig, syncEmotionApiToAllCharacters, theme: osTheme, proactiveComposingChars, openDateWithChar } = useOS();
     const isProactiveComposing = !!(activeCharacterId && proactiveComposingChars[activeCharacterId]);
     const localDateKey = useLocalDateKey();
 
@@ -227,6 +228,7 @@ const Chat: React.FC = () => {
     const [allHistoryMessages, setAllHistoryMessages] = useState<Message[]>([]);
     const [transferAmt, setTransferAmt] = useState('');
     const [transferNote, setTransferNote] = useState('');
+    const [showGiftModal, setShowGiftModal] = useState(false);
     const [emojiImportText, setEmojiImportText] = useState('');
     const [settingsContextLimit, setSettingsContextLimit] = useState(500);
     const [settingsContextRangeMode, setSettingsContextRangeMode] = useState<ContextRangeMode>('manual');
@@ -252,6 +254,10 @@ const Chat: React.FC = () => {
         waterlineAlreadyAhead: boolean;
     } | null>(null);
     const [selectedMessage, setSelectedMessage] = useState<Message | null>(null);
+    // 撤回后 5 秒内可撤销：暂存被撤回消息的原始 content / metadata / type
+    const [retractUndo, setRetractUndo] = useState<{ id: number; content: string; metadata: any; type: MessageType } | null>(null);
+    const retractUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    useEffect(() => () => { if (retractUndoTimer.current) clearTimeout(retractUndoTimer.current); }, []);
     const [selectedEmoji, setSelectedEmoji] = useState<Emoji | null>(null);
     const [selectedCategory, setSelectedCategory] = useState<EmojiCategory | null>(null); // For deletion modal
     const [editContent, setEditContent] = useState('');
@@ -435,6 +441,8 @@ const Chat: React.FC = () => {
         updateCharacter,
         updateUserProfile,
     });
+    const triggerAIRef = useRef(triggerAI);
+    triggerAIRef.current = triggerAI;
 
     // --- Voice TTS for chat messages ---
     interface VoiceData { url: string; originalText: string; spokenText?: string; lang?: string; favorite?: boolean; }
@@ -989,8 +997,17 @@ const Chat: React.FC = () => {
             // 有计数、点击却加载不出任何东西的幽灵按钮。倒序游标没取满 fetchLimit 条
             // 即说明该角色的单聊消息已全部在手，此时把总数钳到实际可展示的条数。
             const exhausted = recent.length < fetchLimit;
+            const displayed = chatScopeMsgs.slice(-requestedVisibleCount);
             setTotalMsgCount(exhausted ? chatScopeMsgs.length : totalCount);
-            setMessages(chatScopeMsgs.slice(-requestedVisibleCount));
+            setMessages(displayed);
+
+            const pendingKey = `chat_pending_auto_trigger_${charIdAtStart}`;
+            if (typeof window !== 'undefined' && sessionStorage.getItem(pendingKey)) {
+                sessionStorage.removeItem(pendingKey);
+                setTimeout(() => {
+                    triggerAIRef.current?.(displayed);
+                }, 200);
+            }
         };
         try {
             const { messages: recent, totalCount } = await DB.getRecentMessagesWithCount(activeCharacterId, fetchLimit, accept);
@@ -1644,6 +1661,122 @@ const Chat: React.FC = () => {
         }
     };
 
+    const handleSendGift = async (gift: { id: string; name: string; icon: string; price?: number; description?: string }, note: string) => {
+        if (!char) return;
+
+        // 发送 gift 类型的消息并触发 AI 反应（去金币化，不自动塞入藏品柜，由用户主动收藏）
+        const descText = gift.description ? `（${gift.description}）` : '';
+        const contentText = note ? `[送出礼物: ${gift.name}${descText}] “${note}”` : `[送出礼物: ${gift.name}${descText}]`;
+        await handleSendText(contentText, 'gift', {
+            giftId: gift.id,
+            giftName: gift.name,
+            icon: gift.icon,
+            note: note || undefined,
+            description: gift.description,
+            sender: 'user',
+            status: 'pending',
+        });
+
+        addToast(`已送出 ${gift.name} 🎁`, 'success');
+    };
+
+    // 用户处理收到的礼物：收下 / 婉拒
+    const handleResolveGift = useCallback(async (msg: Message, action: 'accepted' | 'returned') => {
+        if (!char) return;
+        if (msg.metadata?.receipt) return;
+        if (msg.metadata?.status && msg.metadata.status !== 'pending') return;
+
+        await DB.updateMessageMetadata(msg.id, (prev) => ({ ...(prev || {}), status: action, resolvedAt: Date.now() }));
+        await DB.saveMessage({
+            charId: char.id,
+            role: 'user',
+            type: 'gift',
+            content: action === 'accepted' ? '[已收下礼物]' : '[婉拒了礼物]',
+            metadata: {
+                receipt: action,
+                giftName: msg.metadata?.giftName,
+                icon: msg.metadata?.icon,
+                ref: msg.id
+            },
+        });
+        addToast(action === 'accepted' ? '已收下礼物 💝' : '已婉拒礼物', action === 'accepted' ? 'success' : 'info');
+        await reloadMessages(visibleCountRef.current);
+    }, [char, reloadMessages, addToast]);
+
+    const refreshContentFavoriteIds = useCallback(async () => {
+        const items = await listContentFavorites().catch(() => []);
+        setContentFavoriteIds(new Set(items.map(item => item.id)));
+    }, []);
+
+    useEffect(() => {
+        void refreshContentFavoriteIds();
+        window.addEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
+        return () => window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
+    }, [refreshContentFavoriteIds]);
+
+    const handleToggleContentFavorite = useCallback(async (msg: Message) => {
+        if (!msg?.id) return;
+        const favoriteId = contentFavoriteIdForMessage(msg);
+        try {
+            if (contentFavoriteIds.has(favoriteId)) {
+                await removeContentFavoriteById(favoriteId);
+                setContentFavoriteIds(previous => {
+                    const next = new Set(previous);
+                    next.delete(favoriteId);
+                    return next;
+                });
+                addToast(msg.type === 'image' ? '已取消收藏图片' : '已取消收藏聊天消息', 'info');
+                return;
+            }
+            await saveMessageContentFavorite(msg, char?.name || '未知角色');
+            setContentFavoriteIds(previous => new Set(previous).add(favoriteId));
+            addToast(msg.type === 'image' ? '已收藏图片（仅保存引用）' : '已收藏聊天消息', 'success');
+            trackEvent(msg.type === 'image' ? '收藏聊天图片' : '收藏聊天消息');
+        } catch (error) {
+            console.warn('[Chat] favorite content failed', error);
+            addToast('收藏失败，请稍后重试', 'error');
+        }
+    }, [char?.name, contentFavoriteIds, addToast]);
+
+    // 用户收藏/取消收藏礼物（与系统收藏合一，并同步角色礼物列表）
+    const handleCollectGift = useCallback(async (msg: Message) => {
+        if (!char) return;
+        await handleToggleContentFavorite(msg);
+
+        // 同步更新 char.receivedGifts，保证角色主页礼物展示与系统收藏双向同步
+        const currentGifts = char.receivedGifts || [];
+        const colId = `col_${msg.id}`;
+        const isAlreadyInCabinet = currentGifts.some(g => g.id === colId);
+        const favoriteId = contentFavoriteIdForMessage(msg);
+        const willBeFavorited = !contentFavoriteIds.has(favoriteId);
+
+        if (willBeFavorited && !isAlreadyInCabinet) {
+            const record: import('../types').ReceivedGiftRecord = {
+                id: colId,
+                giftId: msg.metadata?.giftId || `msg_${msg.id}`,
+                giftName: msg.metadata?.giftName || '礼物',
+                icon: msg.metadata?.icon || '🎁',
+                note: msg.metadata?.note,
+                description: msg.metadata?.description,
+                timestamp: msg.timestamp || Date.now(),
+                sender: msg.role === 'assistant' ? 'assistant' : 'user'
+            };
+            updateCharacter(char.id, { receivedGifts: [record, ...currentGifts] });
+        } else if (!willBeFavorited && isAlreadyInCabinet) {
+            updateCharacter(char.id, { receivedGifts: currentGifts.filter(g => g.id !== colId) });
+        }
+    }, [char, handleToggleContentFavorite, contentFavoriteIds, updateCharacter]);
+
+    const handleClaimAllowance = () => {
+        const today = new Date().toISOString().slice(0, 10);
+        const cur = userProfile.coins ?? 300;
+        updateUserProfile({
+            coins: cur + DAILY_ALLOWANCE_COINS,
+            lastDailyAllowanceDate: today,
+        });
+        addToast(`已领取今日津贴 +${DAILY_ALLOWANCE_COINS} 金币 🪙`, 'success');
+    };
+
     // 用户点开「收到的转账」卡（角色发来、待处理）选择接收 / 退回：
     // 标记原转账状态 + 补一张回执小卡（role=user，角色侧 prompt 会看到 [[记录:TRANSFER|to=user|...|status=已收下/已退回]]）。
     const handleResolveTransfer = useCallback(async (msg: Message, action: 'accepted' | 'returned') => {
@@ -1743,7 +1876,7 @@ const Chat: React.FC = () => {
         // 只统计「打开某个面板 / 开关某个能力」这几个固定入口，名单写死在这里；
         // 选表情、选分类之类的动作不上报。
         if ([
-            'transfer', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
+            'transfer', 'gift', 'archive', 'settings', 'chrome-css', 'chrome-sound', 'fine-tune',
             'meetup', 'proactive', 'active-msg-2', 'schedule', 'mcd-request', 'luckin-request',
             'html-mode-toggle', 'html-mode-settings', 'thinking-settings', 'favorites', 'collaboration',
             // 独立小功能：点一下就是用了一次，跟「打开某个面板」同一性质。
@@ -1757,6 +1890,7 @@ const Chat: React.FC = () => {
             case 'memory-link': setShowPanel('none'); setMemoryRepairOpen(true); break;
             case 'favorites': setShowPanel('none'); setFavoritesOpen(true); break;
             case 'transfer': setModalType('transfer'); break;
+            case 'gift': setShowPanel('none'); setShowGiftModal(true); break;
             case 'poke': handleSendText('[戳一戳]', 'interaction'); break;
             case 'archive': setModalType('archive-settings'); break;
             case 'settings': setModalType('chat-settings'); break;
@@ -2670,41 +2804,6 @@ const Chat: React.FC = () => {
         window.setTimeout(() => setFlashMsgId(null), 2200);
     };
 
-    const refreshContentFavoriteIds = useCallback(async () => {
-        const items = await listContentFavorites().catch(() => []);
-        setContentFavoriteIds(new Set(items.map(item => item.id)));
-    }, []);
-
-    useEffect(() => {
-        void refreshContentFavoriteIds();
-        window.addEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
-        return () => window.removeEventListener(CONTENT_FAVORITES_CHANGED_EVENT, refreshContentFavoriteIds);
-    }, [refreshContentFavoriteIds]);
-
-    const handleToggleContentFavorite = async (msg: Message) => {
-        if (!msg?.id) return;
-        const favoriteId = contentFavoriteIdForMessage(msg);
-        try {
-            if (contentFavoriteIds.has(favoriteId)) {
-                await removeContentFavoriteById(favoriteId);
-                setContentFavoriteIds(previous => {
-                    const next = new Set(previous);
-                    next.delete(favoriteId);
-                    return next;
-                });
-                addToast(msg.type === 'image' ? '已取消收藏图片' : '已取消收藏聊天消息', 'info');
-                return;
-            }
-            await saveMessageContentFavorite(msg, char?.name || '未知角色');
-            setContentFavoriteIds(previous => new Set(previous).add(favoriteId));
-            addToast(msg.type === 'image' ? '已收藏图片（仅保存引用）' : '已收藏聊天消息', 'success');
-            trackEvent(msg.type === 'image' ? '收藏聊天图片' : '收藏聊天消息');
-        } catch (error) {
-            console.warn('[Chat] favorite content failed', error);
-            addToast('收藏失败，请稍后重试', 'error');
-        }
-    };
-
     const handleOpenFavoriteMessage = (charId: string, messageId: number) => {
         setFavoritesOpen(false);
         if (activeCharIdRef.current === charId) {
@@ -2893,6 +2992,47 @@ const Chat: React.FC = () => {
         setSelectedMessage(null);
         addToast('消息已删除', 'success');
         trackEvent('删除一条消息');
+    };
+
+    /** 撤回一条消息：原文就地改写成「给 AI 看的那句」，原文留 metadata.retracted 供 UI 折叠与撤销 */
+    const handleRetractMessage = async () => {
+        if (!selectedMessage || !isRetractable(selectedMessage)) return;
+        const msg = selectedMessage;
+        const by = msg.role === 'assistant' ? 'assistant' : 'user';
+
+        const { aiFacingContent, retracted, originalContent, originalMetadata, originalType } =
+            await retractMessageInDb(msg);
+        // 撤回的语音要连音频一起作废，否则语音条还会播放撤回前的内容
+        if (originalType === 'voice' || by === 'assistant') discardVoiceForMessages([msg.id]);
+        // 同删除：云端 fire_pack 到点会从 DB 重读，必须打脏
+        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+
+        setMessages(prev => prev.map(m => m.id === msg.id
+            ? { ...m, content: aiFacingContent, metadata: { ...(m.metadata || {}), retracted } }
+            : m));
+        setModalType('none');
+        setSelectedMessage(null);
+
+        // 5 秒撤销窗口
+        if (retractUndoTimer.current) clearTimeout(retractUndoTimer.current);
+        setRetractUndo({ id: msg.id, content: originalContent, metadata: originalMetadata, type: originalType });
+        retractUndoTimer.current = setTimeout(() => setRetractUndo(null), 5000);
+
+        trackEvent('撤回一条消息', { by });
+    };
+
+    /** 撤销刚才的撤回：把原始 content / metadata 写回去 */
+    const undoRetract = async () => {
+        if (!retractUndo) return;
+        const { id, content, metadata } = retractUndo;
+        if (retractUndoTimer.current) { clearTimeout(retractUndoTimer.current); retractUndoTimer.current = null; }
+        setRetractUndo(null);
+        await DB.updateMessage(id, content);
+        await DB.updateMessageMetadata(id, () => metadata ?? undefined);
+        discardVoiceForMessages([id]);
+        markAmsgStateDirty({ char, userProfile, groups, realtimeConfig });
+        setMessages(prev => prev.map(m => m.id === id ? { ...m, content, metadata } : m));
+        addToast('已恢复', 'success');
     };
 
     const confirmEditMessage = async () => {
@@ -3785,7 +3925,7 @@ const Chat: React.FC = () => {
                 onCreatePrompt={createNewPrompt} onEditPrompt={editSelectedPrompt} onSavePrompt={handleSavePrompt} onDeletePrompt={handleDeletePrompt}
                 onSetHistoryStart={handleSetHistoryStart} onRestoreAdaptiveContext={restoreAdaptiveContext} onJumpToMessageInChat={handleJumpToMessageInChat} onEnterSelectionMode={handleEnterSelectionMode}
                 onReplyMessage={handleReplyMessage} onEditMessageStart={() => { if (selectedMessage) { setEditContent(selectedMessage.content); setModalType('edit-message'); } }}
-                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onCopyMessage={handleCopyMessage}
+                onConfirmEditMessage={confirmEditMessage} onDeleteMessage={handleDeleteMessage} onRetractMessage={handleRetractMessage} onCopyMessage={handleCopyMessage}
                 messageFavorited={!!(selectedMessage && contentFavoriteIds.has(contentFavoriteIdForMessage(selectedMessage)))}
                 onToggleMessageFavorite={selectedMessage ? () => handleToggleContentFavorite(selectedMessage) : undefined}
                 onDeleteEmoji={handleDeleteEmoji} onDeleteCategory={handleDeleteCategory}
@@ -3861,6 +4001,17 @@ const Chat: React.FC = () => {
                     addToast('情绪状态已清除', 'info');
                 }}
              />
+
+             {showGiftModal && char && (
+                <GiftModal
+                    character={char}
+                    userProfile={userProfile}
+                    onClose={() => setShowGiftModal(false)}
+                    onSendGift={handleSendGift}
+                    onUpdateCoins={(newCoins) => updateUserProfile({ coins: newCoins })}
+                    onClaimAllowance={handleClaimAllowance}
+                />
+             )}
 
              {/* 小剧场播放器：窥视某个日程时段的角色行为演出 */}
              {theaterSlotIdx !== null && scheduleData && createPortal(
@@ -4139,6 +4290,9 @@ const Chat: React.FC = () => {
                             onMcdSendCart={handleMcdSendCart}
                             onMcdCandidate={handleMcdCandidate}
                             onResolveTransfer={handleResolveTransfer}
+                            onResolveGift={handleResolveGift}
+                            onCollectGift={handleCollectGift}
+                            isGiftCollected={contentFavoriteIds.has(contentFavoriteIdForMessage(m)) || char?.receivedGifts?.some(g => g.id === `col_${m.id}` || (!!m.metadata?.giftId && g.giftId === m.metadata.giftId))}
                             onResolveLifeRecord={handleResolveLifeRecord}
                             onOpenCollaborationFile={handleOpenCollaborationFile}
                             thinkingChainOptions={thinkingChainOptions}
@@ -4342,6 +4496,16 @@ const Chat: React.FC = () => {
                         {/* 引用的是图片 / 表情时这里显示占位符，跟落库的快照同一口径 */}
                         <div className="flex items-center gap-2 truncate"><span className="font-bold text-slate-700">正在回复:</span><span className="truncate max-w-[200px]">{buildReplySnapshotContent(replyTarget)}</span></div>
                         <button onClick={() => setReplyTarget(null)} className="p-1 text-slate-400 hover:text-slate-600">×</button>
+                    </div>
+                )}
+
+                {/* 撤回后 5 秒撤销条 */}
+                {retractUndo && (
+                    <div className="px-4 pb-1.5 flex justify-center animate-fade-in">
+                        <div className="flex items-center gap-2 bg-slate-800/90 text-white text-xs font-medium px-3.5 py-2 rounded-full shadow-lg">
+                            <span>已撤回一条消息</span>
+                            <button onClick={undoRetract} className="font-bold text-amber-300 active:scale-95 transition-transform">撤销</button>
+                        </div>
                     </div>
                 )}
 

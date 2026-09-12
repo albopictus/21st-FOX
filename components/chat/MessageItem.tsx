@@ -5,6 +5,9 @@ import { avatarDecorationImageStyle, isAnniversaryFrame } from '../../utils/anni
 import React, { useEffect, useRef, useState } from 'react';
 const AivenFishSaleReceipt = React.lazy(() => import('../../apps/vrWorld/AivenFishSaleReceipt').then(module => ({ default: module.AivenFishSaleReceipt })));
 import { Message, ChatTheme } from '../../types';
+import React, { useEffect, useRef, useState, useContext } from 'react';
+import { Message, ChatTheme, AppID } from '../../types';
+import { OSContext } from '../../context/OSContext';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
 import { tryParseLifeSimResetCard } from '../../utils/lifeSimChatCard';
 import { VALID_INTERJECTION_TAGS, cleanVoiceMarkupForDisplay } from '../../utils/minimaxTts';
@@ -900,6 +903,126 @@ const LifeRecordCard: React.FC<{
     );
 };
 
+const ScheduleEventCard: React.FC<{
+    m: Message;
+    charName: string;
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+    selectionMode: boolean;
+    onOpenSchedule?: () => void;
+}> = ({ m, charName, commonLayout, selectionMode, onOpenSchedule }) => {
+    const meta = m.metadata || {};
+    const title = meta.title || m.content?.replace(/^\[日程.*?\]\s*/, '') || '日程约定';
+    const dateStr = meta.date || '';
+    const timeStr = meta.time || '';
+    const remarks = meta.remarks || '';
+    const author = meta.authorName || charName;
+    const isEdit = meta.action === 'edit';
+
+    return commonLayout(
+        <div 
+            onClick={(e) => {
+                if (!selectionMode && onOpenSchedule) {
+                    e.stopPropagation();
+                    onOpenSchedule();
+                }
+            }}
+            className="w-64 rounded-2xl overflow-hidden shadow-sm border border-cyan-200/70 cursor-pointer hover:border-cyan-400 transition-all bg-gradient-to-br from-cyan-50/95 via-sky-50/80 to-blue-50/90 active:scale-[0.98]"
+        >
+            <div className="px-3.5 pt-3 pb-2.5">
+                <div className="flex items-center gap-2.5">
+                    <div className="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-lg shadow-sm border border-cyan-100">
+                        📅
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-800 truncate">
+                            {title}
+                        </div>
+                        <div className="text-[10px] text-cyan-700 font-semibold mt-0.5 font-mono">
+                            {dateStr}{timeStr ? ` · ${timeStr}` : ''}
+                        </div>
+                    </div>
+                </div>
+
+                {remarks && (
+                    <div className="mt-2 text-[11px] text-slate-600 bg-white/80 rounded-xl px-2.5 py-1.5 leading-relaxed border border-cyan-100/60 line-clamp-3">
+                        {remarks}
+                    </div>
+                )}
+
+                <div className="mt-2.5 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400">由 {author} {isEdit ? '修改' : '创建'}</span>
+                    <span className="text-cyan-600 font-bold hover:underline flex items-center gap-0.5">
+                        查看日程 →
+                    </span>
+                </div>
+            </div>
+            <div className="px-3.5 py-1.5 bg-cyan-100/60 border-t border-cyan-200/50 text-[9px] text-cyan-800 font-semibold flex items-center justify-between">
+                <span>🗓️ 时光契约 · 日程</span>
+                <span className="opacity-75">{isEdit ? '已更新' : '新约定'}</span>
+            </div>
+        </div>
+    );
+};
+
+const MemoNoteCard: React.FC<{
+    m: Message;
+    charName: string;
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+    selectionMode: boolean;
+    onOpenMemo?: () => void;
+}> = ({ m, charName, commonLayout, selectionMode, onOpenMemo }) => {
+    const meta = m.metadata || {};
+    const title = meta.title || '共享备忘';
+    const preview = meta.preview || m.content?.replace(/^\[备忘录.*?\]\s*/, '') || '';
+    const author = meta.authorName || charName;
+    const isEdit = meta.action === 'edit';
+
+    return commonLayout(
+        <div 
+            onClick={(e) => {
+                if (!selectionMode && onOpenMemo) {
+                    e.stopPropagation();
+                    onOpenMemo();
+                }
+            }}
+            className="w-64 rounded-2xl overflow-hidden shadow-sm border border-amber-200/70 cursor-pointer hover:border-amber-400 transition-all bg-gradient-to-br from-amber-50/95 via-orange-50/80 to-yellow-50/90 active:scale-[0.98]"
+        >
+            <div className="px-3.5 pt-3 pb-2.5">
+                <div className="flex items-center gap-2.5">
+                    <div className="shrink-0 w-9 h-9 rounded-full bg-white flex items-center justify-center text-lg shadow-sm border border-amber-100">
+                        📝
+                    </div>
+                    <div className="min-w-0 flex-1">
+                        <div className="text-xs font-bold text-slate-800 truncate">
+                            {title}
+                        </div>
+                        <div className="text-[10px] text-amber-700 font-medium mt-0.5">
+                            由 {author} {isEdit ? '编辑' : '记录'}
+                        </div>
+                    </div>
+                </div>
+
+                {preview && (
+                    <div className="mt-2 text-[11px] text-slate-600 bg-white/80 rounded-xl px-2.5 py-1.5 leading-relaxed line-clamp-3 whitespace-pre-wrap border border-amber-100/60">
+                        {preview}
+                    </div>
+                )}
+
+                <div className="mt-2.5 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400">共享便签</span>
+                    <span className="text-amber-600 font-bold hover:underline flex items-center gap-0.5">
+                        查看备忘录 →
+                    </span>
+                </div>
+            </div>
+            <div className="px-3.5 py-1.5 bg-amber-100/60 border-t border-amber-200/50 text-[9px] text-amber-800 font-semibold flex items-center justify-between">
+                <span>📑 共享备忘</span>
+                <span className="opacity-75">{isEdit ? '已更新' : '新便签'}</span>
+            </div>
+        </div>
+    );
+};
+
 const TransferCard: React.FC<{
     m: Message;
     isUser: boolean;
@@ -1045,6 +1168,222 @@ const TransferCard: React.FC<{
                                     className="w-full py-2.5 rounded-xl text-sm font-medium text-slate-500 bg-slate-100 active:scale-95 transition-transform mt-1"
                                 >关闭</button>
                             )}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+};
+
+// ============================================================
+// GiftCard: 礼物卡片与详情弹窗
+// ============================================================
+
+const GiftCard: React.FC<{
+    m: Message;
+    isUser: boolean;
+    charName: string;
+    senderAvatar?: string;
+    commonLayout: (content: React.ReactNode) => JSX.Element;
+    selectionMode: boolean;
+    onResolveGift?: (m: Message, action: 'accepted' | 'returned') => void;
+    onCollectGift?: (m: Message) => void;
+    isCollected?: boolean;
+}> = ({ m, isUser, charName, senderAvatar, commonLayout, selectionMode, onResolveGift, onCollectGift, isCollected }) => {
+    const [open, setOpen] = useState(false);
+    const meta = m.metadata || {};
+    const giftName = meta.giftName || meta.name || '礼物';
+    const icon = meta.icon || meta.image || '🎁';
+    const description = meta.description || '';
+    const rawNote = meta.note || (m.content && !m.content.startsWith('[礼物]') && !m.content.startsWith('[收到礼物]') && !m.content.startsWith('[送出礼物]') ? m.content : '');
+    const cleanNote = (rawNote || '').replace(/^\[(?:送出|收到)礼物:[^\]]*\]\s*/, '').replace(/^“|”$/g, '').trim();
+    const isAssistant = m.role === 'assistant';
+    const hasImage = isImageValue(icon);
+    const status: 'pending' | 'accepted' | 'returned' = meta.status || 'pending';
+    const resolved = status !== 'pending';
+    const canResolve = isAssistant && !resolved && !!onResolveGift;
+
+    // 回执小卡片渲染（类似转账回执）
+    if (meta.receipt) {
+        const accepted = meta.receipt === 'accepted';
+        const actor = isUser ? '你' : charName;
+        return (
+            <div className="flex items-center justify-center my-1.5 animate-fade-in">
+                <div className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full bg-slate-100/90 border border-slate-200/70 text-slate-600 text-xs shadow-xs">
+                    <span className="text-sm">{accepted ? '💝' : '↩️'}</span>
+                    <span className="font-medium">{actor}{accepted ? '收下了礼物' : '退回了礼物'}</span>
+                    {giftName && <span className="font-bold text-slate-800">「{giftName}」</span>}
+                </div>
+            </div>
+        );
+    }
+
+    const statusBadge = status === 'accepted' ? '已收下' : status === 'returned' ? '已退回' : isAssistant ? '待查收' : '等待回应';
+
+    const handleResolve = (action: 'accepted' | 'returned') => {
+        onResolveGift?.(m, action);
+        setOpen(false);
+    };
+
+    return (
+        <>
+            {commonLayout(
+                <div
+                    onClick={(e) => {
+                        if (selectionMode) return;
+                        e.stopPropagation();
+                        setOpen(true);
+                    }}
+                    className={`px-4 py-3 rounded-2xl shadow-xs border max-w-[270px] w-fit cursor-pointer transition-all hover:scale-[1.01] active:scale-[0.98] ${
+                        status === 'accepted'
+                            ? 'bg-slate-50/90 border-slate-200/80 text-slate-700'
+                            : status === 'returned'
+                            ? 'bg-slate-50 border-slate-200/60 text-slate-400 opacity-80'
+                            : 'bg-white border-purple-100 shadow-sm text-slate-700'
+                    }`}
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 overflow-hidden">
+                            {hasImage ? (
+                                <TokenImg value={icon} alt={giftName} className="w-full h-full object-contain p-1" />
+                            ) : (
+                                <span className="text-2xl">{icon}</span>
+                            )}
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center justify-between gap-1.5">
+                                <span className="text-xs font-bold text-slate-800 truncate">{giftName}</span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold shrink-0 ${
+                                    status === 'accepted' ? 'bg-emerald-50 text-emerald-600'
+                                    : status === 'returned' ? 'bg-slate-100 text-slate-400'
+                                    : 'bg-purple-50 text-purple-600'
+                                }`}>
+                                    {statusBadge}
+                                </span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                                {isAssistant ? `${charName} 送你的礼物` : `送给 ${charName} 的礼物`}
+                            </div>
+                        </div>
+                    </div>
+
+                    {description && (
+                        <div className="mt-2 text-[11px] text-slate-500 leading-snug line-clamp-2">
+                            {description}
+                        </div>
+                    )}
+
+                    {cleanNote && (
+                        <div className="mt-2 text-xs text-slate-600 bg-slate-50/80 rounded-xl px-2.5 py-1.5 border border-slate-100/80 break-words">
+                            “{cleanNote}”
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* Gift Detail Modal (卡片风格: 头像、物品名字、物品描述、赠言、状态与收藏) */}
+            {open && (
+                <div
+                    onClick={() => setOpen(false)}
+                    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4 animate-fade-in"
+                >
+                    <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="bg-white rounded-[32px] w-full max-w-[320px] p-6 shadow-2xl border border-slate-100 text-center relative animate-scale-up"
+                    >
+                        <button
+                            onClick={() => setOpen(false)}
+                            className="absolute top-5 right-5 text-slate-400 hover:text-slate-600 text-xs w-7 h-7 flex items-center justify-center rounded-full hover:bg-slate-100 transition-colors"
+                        >
+                            ✕
+                        </button>
+
+                        {/* 头像与关系 */}
+                        <div className="flex items-center justify-center gap-2.5 mb-3.5">
+                            <div className="w-8 h-8 rounded-full overflow-hidden border border-slate-200 shrink-0 bg-slate-100 flex items-center justify-center shadow-xs">
+                                {senderAvatar ? (
+                                    <TokenImg value={senderAvatar} alt="avatar" className="w-full h-full object-cover" />
+                                ) : (
+                                    <span className="text-xs text-slate-500 font-bold">{isAssistant ? charName?.[0] : '我'}</span>
+                                )}
+                            </div>
+                            <span className="text-xs font-semibold text-slate-700">
+                                {isAssistant ? `${charName} 送出的礼物` : `送给 ${charName} 的礼物`}
+                            </span>
+                        </div>
+
+                        {/* 礼物图标/图片展示 */}
+                        <div className="w-24 h-24 rounded-2xl bg-slate-50/80 border border-slate-100 flex items-center justify-center mx-auto overflow-hidden p-2 shadow-inner">
+                            {hasImage ? (
+                                <TokenImg value={icon} alt={giftName} className="w-full h-full object-contain" />
+                            ) : (
+                                <span className="text-4xl">{icon}</span>
+                            )}
+                        </div>
+
+                        {/* 物品名字 */}
+                        <h3 className="text-base font-bold text-slate-800 mt-3">{giftName}</h3>
+
+                        {/* 物品描述 */}
+                        {description && (
+                            <div className="mt-1.5 text-xs text-slate-500 leading-relaxed px-2">
+                                {description}
+                            </div>
+                        )}
+
+                        {/* 赠言 */}
+                        {cleanNote && (
+                            <div className="mt-3 p-3 bg-slate-50 rounded-2xl border border-slate-100/80 text-left">
+                                <div className="text-[10px] font-semibold text-slate-400 mb-0.5">赠言</div>
+                                <div className="text-xs text-slate-700 leading-relaxed break-words">
+                                    “{cleanNote}”
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 状态徽标 */}
+                        <div className="mt-3">
+                            <span className={`inline-block text-[11px] px-2.5 py-1 rounded-full font-semibold ${
+                                status === 'accepted' ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                : status === 'returned' ? 'bg-slate-100 text-slate-500 border border-slate-200'
+                                : 'bg-purple-50 text-purple-600 border border-purple-100'
+                            }`}>
+                                {statusBadge}
+                            </span>
+                        </div>
+
+                        {/* 状态操作区 */}
+                        <div className="mt-5 space-y-2">
+                            {canResolve && (
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={() => handleResolve('returned')}
+                                        className="flex-1 py-2.5 rounded-2xl text-xs font-semibold text-slate-500 bg-slate-100 hover:bg-slate-200 active:scale-95 transition-all"
+                                    >
+                                        ↩️ 婉拒
+                                    </button>
+                                    <button
+                                        onClick={() => handleResolve('accepted')}
+                                        className="flex-1 py-2.5 rounded-2xl text-xs font-bold text-white bg-[#a855f7] hover:bg-[#9333ea] shadow-md shadow-purple-200 active:scale-95 transition-all"
+                                    >
+                                        💝 收下
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* 收藏按钮（与标准收藏系统合并） */}
+                            <button
+                                onClick={() => onCollectGift?.(m)}
+                                className={`w-full py-2.5 rounded-2xl text-xs font-bold transition-all active:scale-95 ${
+                                    isCollected
+                                        ? 'bg-amber-50 text-amber-600 border border-amber-200 hover:bg-amber-100/60'
+                                        : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border border-slate-200'
+                                }`}
+                            >
+                                {isCollected ? '⭐ 已收藏' : '⭐ 收藏'}
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1424,6 +1763,11 @@ interface MessageItemProps {
     onLuckinCandidate?: (item: import('./LuckinCard').LuckinCartItem) => void;
     /** 用户点「收到的转账」卡 → 接收 / 退回 */
     onResolveTransfer?: (m: Message, action: 'accepted' | 'returned') => void;
+    /** 用户处理收到的礼物 → 接收 / 婉拒 */
+    onResolveGift?: (m: Message, action: 'accepted' | 'returned') => void;
+    /** 用户主动收藏礼物进心意柜 */
+    onCollectGift?: (m: Message) => void;
+    isGiftCollected?: boolean;
     /** 用户点「生活记录」卡 → 确认 / 否决（角色代记的记录） */
     onResolveLifeRecord?: (m: Message, action: 'confirmed' | 'rejected') => void;
     /** 打开协同文件柜里的原始 Blob；消息本身只保存 assetId 引用。 */
@@ -1476,12 +1820,17 @@ const MessageItem = React.memo(({
     onLuckinSendCart,
     onLuckinCandidate,
     onResolveTransfer,
+    onResolveGift,
+    onCollectGift,
+    isGiftCollected,
     onResolveLifeRecord,
     onOpenCollaborationFile,
     thinkingChainOptions,
 }: MessageItemProps) => {
     const isUser = m.role === 'user';
     const isSystem = m.role === 'system';
+    const os = useContext(OSContext);
+    const openApp = os?.openApp;
     const spacingClass = messageSpacing === 'compact' ? (isLastInGroup ? 'mb-3' : 'mb-0.5') : messageSpacing === 'spacious' ? (isLastInGroup ? 'mb-8' : 'mb-2.5') : (isLastInGroup ? 'mb-6' : 'mb-1.5');
     const marginBottom = spacingClass;
     const avatarSizeClass = avatarSize === 'small' ? 'w-7 h-7' : avatarSize === 'large' ? 'w-12 h-12' : 'w-9 h-9';
@@ -1505,6 +1854,7 @@ const MessageItem = React.memo(({
     const bubbleBgUrl = useBlobRefUrl(styleConfig.backgroundImage);
     const [showVoiceText, setShowVoiceText] = useState(false);
     const [showSarTruth, setShowSarTruth] = useState(false);
+    const [retractRevealed, setRetractRevealed] = useState(false);
     const [openingCollaborationFile, setOpeningCollaborationFile] = useState(false);
     const [replyOffset, setReplyOffset] = useState(0);
     const [isReplyGestureActive, setIsReplyGestureActive] = useState(false);
@@ -1653,6 +2003,43 @@ const MessageItem = React.memo(({
             </div>
         );
     };
+
+    // --- RETRACTED MESSAGE RENDERING ---
+    // 撤回后的消息：居中灰条「X 撤回了一条消息」，点一下展开原文（原文只留在本地，不进 AI 上下文）。
+    if (m.metadata?.retracted) {
+        const rc = m.metadata.retracted as { by: 'user' | 'assistant'; originalContent: string; originalType: string };
+        const who = rc.by === 'assistant' ? charName : '你';
+        return (
+            <div className={`flex flex-col items-center ${marginBottom} w-full animate-fade-in relative transition-[padding] duration-300 ${selectionMode ? 'pl-8' : ''}`}>
+                {selectionMode && (
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer z-20" onClick={() => onToggleSelect(m.id)}>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'border-slate-300 bg-white/80'}`}>
+                            {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
+                        </div>
+                    </div>
+                )}
+                <div className="text-[10px] text-slate-400 mb-1 opacity-70">{formatTime(m.timestamp)}</div>
+                <div
+                    className="text-[11px] text-slate-500 bg-slate-200/50 backdrop-blur-sm px-4 py-1.5 rounded-full flex items-center gap-1.5 border border-white/40 shadow-sm select-none cursor-pointer active:scale-95 transition-transform"
+                    onClick={() => !selectionMode && setRetractRevealed(v => !v)}
+                >
+                    <span className="opacity-80 font-medium">{who}</span>
+                    <span className="opacity-60">撤回了一条消息</span>
+                    <span className="opacity-40 text-[10px]">{retractRevealed ? '收起' : '查看'}</span>
+                </div>
+                {retractRevealed && (
+                    <div className="mt-1.5 max-w-[75%] rounded-2xl bg-slate-100 border border-slate-200 px-3 py-2 text-[12px] text-slate-500 leading-relaxed whitespace-pre-wrap break-words">
+                        {rc.originalType === 'image'
+                            ? <TokenImg value={rc.originalContent} alt="" className="max-h-48 rounded-lg object-contain" loading="lazy" />
+                            : rc.originalType === 'voice' ? '[语音]'
+                            : rc.originalType === 'emoji' ? <TokenImg value={rc.originalContent} alt="" className="w-20 h-20 object-contain" loading="lazy" />
+                            : (rc.originalContent || '[空]')}
+                        <div className="mt-1 text-[9px] text-slate-400">{rc.by === 'assistant' ? 'AI 收到了撤回通知和这条原文' : '原文仅本地可见，AI 只收到「用户撤回了一条消息」'}</div>
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {
@@ -3320,8 +3707,20 @@ const MessageItem = React.memo(({
         return <TransferCard m={m} isUser={isUser} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveTransfer={onResolveTransfer} />;
     }
 
+    if (m.type === 'gift') {
+        return <GiftCard m={m} isUser={isUser} charName={charName} senderAvatar={isUser ? userAvatar : charAvatar} commonLayout={commonLayout} selectionMode={selectionMode} onResolveGift={onResolveGift} onCollectGift={onCollectGift} isCollected={isGiftCollected} />;
+    }
+
     if (m.type === 'life_card') {
         return <LifeRecordCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onResolveLifeRecord={onResolveLifeRecord} />;
+    }
+
+    if (m.type === 'schedule_card') {
+        return <ScheduleEventCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onOpenSchedule={() => openApp?.(AppID.Schedule)} />;
+    }
+
+    if (m.type === 'memo_card') {
+        return <MemoNoteCard m={m} charName={charName} commonLayout={commonLayout} selectionMode={selectionMode} onOpenMemo={() => openApp?.(AppID.Memo)} />;
     }
 
     if (m.type === 'collaboration_file') {

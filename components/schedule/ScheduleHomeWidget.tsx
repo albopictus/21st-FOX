@@ -13,6 +13,7 @@ interface ScheduleSquareWidgetProps {
     character: CharacterProfile | null;
     contentColor?: string;
     onOpen: () => void;
+    opacity?: number;
 }
 
 export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
@@ -20,6 +21,7 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
     character,
     contentColor: inheritedContentColor = '#ffffff',
     onOpen,
+    opacity = 100,
 }) => {
     const { theme } = useOS();
     const currentIdx = schedule ? getCurrentScheduleSlotIndex(schedule.slots, character) : -1;
@@ -33,6 +35,7 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
         theme.hue ?? 260,
         inheritedContentColor,
     );
+    const scale = Math.max(0, Math.min(100, opacity ?? 100)) / 100;
     const contentColor = palette.text;
     const accentHsl = palette.accent;
     const accentSoft = palette.accentSoft;
@@ -65,8 +68,9 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
                 ...scheduleVars,
                 background: palette.background,
                 border: `1px solid ${palette.line}`,
-                boxShadow: '0 8px 30px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.07)',
+                boxShadow: `0 8px 30px rgba(0,0,0,${0.24 * scale}), inset 0 1px 0 rgba(255,255,255,${0.07 * scale})`,
                 color: contentColor,
+                textShadow: scale < 0.4 ? '0 1px 3px rgba(0,0,0,0.45)' : undefined,
             }}
         >
             <ScheduleCustomCssStyle />
@@ -79,8 +83,8 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
                     value={character.avatar}
                     alt=""
                     loading="lazy"
-                    className="absolute inset-0 w-full h-full object-cover opacity-55"
-                    style={{ objectPosition: 'center 28%' }}
+                    className="absolute inset-0 w-full h-full object-cover"
+                    style={{ objectPosition: 'center 28%', opacity: 0.55 * scale }}
                 />
             )}
             {/* Bottom gradient for text legibility */}
@@ -88,65 +92,47 @@ export const ScheduleSquareWidget: React.FC<ScheduleSquareWidgetProps> = ({
                 className="absolute inset-0 pointer-events-none"
                 style={{
                     background: `linear-gradient(to bottom, transparent 30%, ${cardBg} 95%)`,
+                    opacity: scale,
                 }}
             />
             {/* Accent corner glow */}
             <div
-                className="absolute -top-10 -right-10 w-24 h-24 rounded-full pointer-events-none opacity-50"
-                style={{ background: `radial-gradient(circle, ${accentHsl}, transparent 70%)` }}
+                className="absolute -top-10 -right-10 w-24 h-24 rounded-full pointer-events-none"
+                style={{ background: `radial-gradient(circle, ${accentHsl}, transparent 70%)`, opacity: 0.5 * scale }}
             />
 
             {/* Top row: NOW badge + time */}
             <div className="sully-schedule-header absolute top-0 left-0 right-0 flex items-center justify-between pl-3 pr-11 pt-3 z-10">
                 <span
-                    className="text-[8.5px] font-bold tracking-[0.22em] uppercase px-1.5 py-0.5 rounded-full"
-                    style={{
-                        background: currentSlot ? accentSoft : 'rgba(255,255,255,0.14)',
-                        color: currentSlot ? accentHsl : contentColor,
-                        border: '1px solid rgba(255,255,255,0.16)',
-                    }}
+                    className="text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full shadow-xs"
+                    style={{ background: accentSoft, color: accentHsl }}
                 >
-                    {currentSlot ? 'Now' : 'Idle'}
+                    {currentSlot ? 'NOW' : 'REST'}
                 </span>
-                <span className="sully-schedule-time text-[10px] font-mono opacity-65 tracking-wider drop-shadow">
-                    {currentSlot ? currentSlot.startTime : timeLabel}
+                <span className="sully-schedule-time font-mono text-[11px] font-semibold opacity-75">
+                    {timeLabel}
                 </span>
             </div>
 
-            {/* Decorative label */}
-            <div className="absolute top-9 left-3 z-10 flex items-center gap-1.5">
-                <span className="text-[9px] font-bold tracking-[0.2em] uppercase opacity-55">Daily</span>
-                <div className="h-px w-5 opacity-30" style={{ background: contentColor }}></div>
-            </div>
-
-            {/* Bottom content */}
-            <div className="absolute bottom-0 left-0 right-0 p-3 z-10">
-                <div className="flex items-center gap-1.5 mb-1">
-                    {currentSlot?.emoji && (
-                        <span className="text-xl shrink-0 drop-shadow-md">{currentSlot.emoji}</span>
-                    )}
-                    <span className="sully-schedule-activity text-[13px] font-bold truncate drop-shadow-md leading-tight">
-                        {currentSlot?.activity || (schedule ? '休息中' : '未生成')}
-                    </span>
+            {/* Center content */}
+            <div className="absolute inset-x-0 bottom-0 p-3 pt-6 flex flex-col justify-end z-10">
+                <div className="text-[10px] font-medium opacity-60 truncate">
+                    {character?.name || 'Character'}
                 </div>
-                {nextSlot ? (
-                    <div className="sully-schedule-description text-[9.5px] opacity-55 truncate leading-tight">
-                        <span className="opacity-70 mr-1">→ {nextSlot.startTime}</span>
-                        {nextSlot.activity}
-                    </div>
-                ) : (
-                    <div className="text-[9.5px] opacity-40 truncate tracking-widest uppercase">
-                        {character?.name || '—'}
+                <div className="sully-schedule-activity text-sm font-bold truncate mt-0.5 flex items-center gap-1">
+                    {currentSlot?.emoji && <span>{currentSlot.emoji}</span>}
+                    <span>{currentSlot?.activity || (schedule ? '休息中' : '尚未安排')}</span>
+                </div>
+                {nextSlot && (
+                    <div className="sully-schedule-description text-[10px] opacity-65 truncate mt-0.5">
+                        {nextSlot.startTime} {nextSlot.emoji ? `${nextSlot.emoji} ` : ''}{nextSlot.activity}
                     </div>
                 )}
             </div>
 
-            {/* Tap hint */}
-            <div
-                className="absolute bottom-3 right-3 w-6 h-6 rounded-full flex items-center justify-center z-10 opacity-70"
-                style={{ background: 'rgba(255,255,255,0.14)', border: '1px solid rgba(255,255,255,0.2)' }}
-            >
-                <svg viewBox="0 0 24 24" fill="none" strokeWidth={2.2} stroke="currentColor" className="w-3 h-3">
+            {/* Corner expand icon */}
+            <div className="absolute bottom-2 right-2 opacity-35 hover:opacity-80 transition-opacity pointer-events-none">
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3 7.5V5a2 2 0 0 1 2-2h2.5M21 7.5V5a2 2 0 0 0-2-2h-2.5M3 16.5V19a2 2 0 0 0 2 2h2.5M21 16.5V19a2 2 0 0 1-2 2h-2.5" />
                 </svg>
             </div>
@@ -161,6 +147,10 @@ interface ScheduleHomeWidgetProps {
     onOpen: () => void;
     acnh?: boolean;
     paper?: boolean;
+    /** 网格里拉大（h≥3）时展开接下来几段的详细日程 */
+    detailed?: boolean;
+    opacity?: number;
+    editing?: boolean;
 }
 
 export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
@@ -170,8 +160,12 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
     onOpen,
     acnh = false,
     paper = false,
+    detailed = false,
+    opacity = 100,
+    editing = false,
 }) => {
     const { theme } = useOS();
+    const scale = Math.max(0, Math.min(100, opacity ?? 100)) / 100;
     // 头像光晕是 CSS 背景，拿不到 <img> 的自动解析，这里在组件顶层先把令牌解开
     const avatarUrl = useBlobRefUrl(character?.avatar);
     const currentIdx = schedule ? getCurrentScheduleSlotIndex(schedule.slots, character) : -1;
@@ -212,20 +206,27 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
     if (effectiveAcnh) {
         return (
             <div
-                onClick={onOpen}
+                onClick={() => { if (!editing) onOpen(); }}
                 onKeyDown={event => {
                     if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        onOpen();
+                        if (!editing) onOpen();
                     }
                 }}
                 role="button"
                 tabIndex={0}
                 className="sully-schedule-root sully-schedule-widget w-full shrink-0 text-left rounded-3xl overflow-hidden active:scale-[0.98] transition-transform relative"
-                style={{ ...scheduleVars, background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)', color: '#725d42' }}>
+                style={{
+                    ...scheduleVars,
+                    background: `rgba(247,243,223,${scale})`,
+                    border: `2px solid rgba(232,226,214,${scale})`,
+                    boxShadow: `0 6px 18px rgba(61,52,40,${0.12 * scale})`,
+                    color: '#725d42',
+                    textShadow: scale < 0.4 ? '0 1px 2px rgba(255,255,255,0.8)' : undefined,
+                }}>
                 <ScheduleCustomCssStyle />
                 <div className="absolute right-3 top-3 z-20" style={{ '--schedule-text': '#725d42', '--schedule-line': 'rgba(91,72,51,.16)' } as React.CSSProperties}>
-                    <ScheduleAppearanceButton compact />
+                    <ScheduleAppearanceButton compact disabled={editing} />
                 </div>
                 <div className="flex flex-col p-4 gap-3">
                     <div className="sully-schedule-header flex items-center gap-2 pr-8">
@@ -283,76 +284,92 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
 
     return (
         <div
-            onClick={onOpen}
+            onClick={() => { if (!editing) onOpen(); }}
             onKeyDown={event => {
                 if (event.key === 'Enter' || event.key === ' ') {
                     event.preventDefault();
-                    onOpen();
+                    if (!editing) onOpen();
                 }
             }}
             role="button"
             tabIndex={0}
-            className="sully-schedule-root sully-schedule-widget w-full shrink-0 group text-left rounded-3xl overflow-hidden transition-transform duration-200 active:scale-[0.98] relative"
+            className="sully-schedule-root sully-schedule-widget w-full h-full group text-left rounded-3xl overflow-hidden transition-transform duration-200 active:scale-[0.98] relative"
             style={effectivePaper ? {
                 ...scheduleVars,
-                background: 'rgba(224,221,215,0.40)',
-                border: '1px solid rgba(91,72,51,0.07)',
-                boxShadow: '0 5px 16px rgba(91,72,51,0.055)',
+                background: `rgba(224,221,215,${0.40 * scale})`,
+                border: `1px solid rgba(91,72,51,${0.07 * scale})`,
+                boxShadow: `0 5px 16px rgba(91,72,51,${0.055 * scale})`,
                 color: contentColor,
+                textShadow: scale < 0.4 ? '0 1px 3px rgba(0,0,0,0.45)' : undefined,
             } : !palette.isOriginal ? {
                 ...scheduleVars,
-                background: palette.background,
+                background: scale < 1 ? 'transparent' : palette.background,
                 border: `1px solid ${palette.line}`,
-                boxShadow: '0 8px 32px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.08)',
+                boxShadow: `0 8px 32px rgba(0,0,0,${0.18 * scale}), inset 0 1px 0 rgba(255,255,255,${0.08 * scale})`,
                 color: contentColor,
+                textShadow: scale < 0.4 ? '0 1px 3px rgba(0,0,0,0.45)' : undefined,
             } : {
                 ...scheduleVars,
-                background: 'rgba(255,255,255,0.08)',
-                backdropFilter: 'blur(24px) saturate(1.4)',
-                WebkitBackdropFilter: 'blur(24px) saturate(1.4)',
-                border: '1px solid rgba(255,255,255,0.12)',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.08)',
+                background: `rgba(255,255,255,${0.08 * scale})`,
+                backdropFilter: scale > 0.05 ? `blur(${24 * scale}px) saturate(1.4)` : 'none',
+                WebkitBackdropFilter: scale > 0.05 ? `blur(${24 * scale}px) saturate(1.4)` : 'none',
+                border: `1px solid rgba(255,255,255,${0.12 * scale})`,
+                boxShadow: `0 8px 32px rgba(0,0,0,${0.18 * scale}), inset 0 1px 0 rgba(255,255,255,${0.08 * scale})`,
                 color: contentColor,
+                textShadow: scale < 0.4 ? '0 1px 3px rgba(0,0,0,0.45)' : undefined,
             }}
         >
             <ScheduleCustomCssStyle />
+            {!palette.isOriginal && scale < 1 && (
+                <div
+                    className="absolute inset-0 pointer-events-none rounded-3xl"
+                    style={{ background: palette.background, opacity: scale }}
+                />
+            )}
             <div className="absolute right-3 top-3 z-20">
-                <ScheduleAppearanceButton compact />
+                <ScheduleAppearanceButton compact disabled={editing} />
             </div>
             {/* Blurred avatar glow（动森奶油底下省略，避免糊脏） */}
             {!effectivePaper && palette.isOriginal && avatarUrl && (
                 <div
-                    className="absolute inset-0 opacity-25 pointer-events-none"
+                    className="absolute inset-0 pointer-events-none"
                     style={{
                         backgroundImage: `url(${avatarUrl})`,
                         backgroundSize: 'cover',
                         backgroundPosition: 'center 28%',
                         filter: 'blur(36px) saturate(1.6)',
                         transform: 'scale(1.35)',
+                        opacity: 0.25 * scale,
                     }}
                 />
             )}
             {/* Accent corner glow */}
             <div
-                className={`absolute -top-12 -right-12 w-32 h-32 rounded-full pointer-events-none ${effectivePaper ? 'opacity-10' : 'opacity-40'}`}
-                style={{ background: `radial-gradient(circle, ${accentHsl}, transparent 70%)` }}
+                className="absolute -top-12 -right-12 w-32 h-32 rounded-full pointer-events-none"
+                style={{
+                    background: `radial-gradient(circle, ${accentHsl}, transparent 70%)`,
+                    opacity: (effectivePaper ? 0.1 : 0.4) * scale,
+                }}
             />
             {/* Accent vertical stripe */}
             <div
                 className="absolute left-0 top-0 bottom-0 w-[3px]"
-                style={{ background: effectivePaper ? 'linear-gradient(to bottom, #788369, rgba(120,131,105,0.12))' : `linear-gradient(to bottom, ${accentHsl}, transparent)` }}
+                style={{
+                    background: effectivePaper ? 'linear-gradient(to bottom, #788369, rgba(120,131,105,0.12))' : `linear-gradient(to bottom, ${accentHsl}, transparent)`,
+                    opacity: scale,
+                }}
             />
 
-            <div className="relative flex flex-col p-4 gap-3">
+            <div className="relative flex flex-col p-4 gap-3 h-full min-h-0">
                 {/* Header row: label + character name + time */}
-                <div className="sully-schedule-header flex items-center gap-2 pr-8 text-[9px] tracking-[0.22em] uppercase opacity-60">
+                <div className="sully-schedule-header shrink-0 flex items-center gap-2 pr-8 text-[9px] tracking-[0.22em] uppercase opacity-60">
                     <span className="font-bold">Daily Schedule</span>
                     <div className="h-px flex-1" style={{ background: contentColor, opacity: 0.25 }}></div>
                     <span className="sully-schedule-time font-mono tracking-wider opacity-80">{timeLabel}</span>
                 </div>
 
                 {/* Main row: avatar | activity */}
-                <div className="flex items-center gap-4">
+                <div className="shrink-0 flex items-center gap-4">
                     <div
                         className={`w-[72px] h-[72px] shrink-0 rounded-2xl overflow-hidden relative ${effectivePaper ? 'bg-[#ded2c1]' : 'bg-slate-800/60'}`}
                         style={{
@@ -403,7 +420,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                             </span>
                         </div>
                         {(currentSlot?.description || nextSlot) && (
-                            <div className="sully-schedule-description text-[10.5px] opacity-55 truncate mt-0.5 leading-snug">
+                            <div className={`sully-schedule-description text-[10.5px] opacity-55 mt-0.5 leading-snug ${detailed ? 'line-clamp-3' : 'truncate'}`}>
                                 {currentSlot?.description ? (
                                     currentSlot.description
                                 ) : nextSlot ? (
@@ -429,7 +446,7 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
 
                 {/* Timeline footer */}
                 {timelineSlots.length > 0 && (
-                    <div className="sully-schedule-timeline flex items-center gap-1.5 pt-1">
+                    <div className="sully-schedule-timeline shrink-0 flex items-center gap-1.5 pt-1">
                         {timelineSlots.slice(0, 10).map((slot, i) => {
                             const isCurrent = i === currentIdx;
                             const isPast = currentIdx >= 0 && i < currentIdx;
@@ -459,6 +476,31 @@ export const ScheduleHomeWidget: React.FC<ScheduleHomeWidgetProps> = ({
                         })}
                     </div>
                 )}
+
+                {/* 拉大后：接下来几段的详细日程 */}
+                {detailed && timelineSlots.length > 0 && (() => {
+                    const upcoming = timelineSlots.filter((_, i) => i > currentIdx).slice(0, 4);
+                    return (
+                        <div
+                            className="mt-1 pt-2 border-t space-y-1.5 flex-1 min-h-0 overflow-hidden"
+                            style={{ borderColor: effectivePaper ? 'rgba(91,72,51,0.10)' : palette.line }}
+                        >
+                            <div className="text-[8px] font-bold tracking-[0.22em] uppercase opacity-45">接下来</div>
+                            {upcoming.length === 0 ? (
+                                <div className="text-[10px] opacity-45">今天的安排到这儿了</div>
+                            ) : upcoming.map((slot, i) => (
+                                <div key={i} className="flex items-center gap-2 text-[10px] leading-snug">
+                                    <span className="font-mono opacity-50 shrink-0">{slot.startTime.slice(0, 5)}</span>
+                                    {slot.emoji && <span className="shrink-0">{slot.emoji}</span>}
+                                    <div className="min-w-0 flex-1 truncate">
+                                        <span className="font-semibold">{slot.activity}</span>
+                                        {slot.description && <span className="opacity-55"> · {slot.description}</span>}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    );
+                })()}
             </div>
         </div>
     );

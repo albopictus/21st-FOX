@@ -97,7 +97,7 @@ export const ScheduleCustomCssStyle: React.FC = () => {
     return <style>{css}</style>;
 };
 
-const ScheduleAppearanceButton: React.FC<{ compact?: boolean }> = ({ compact = false }) => {
+const ScheduleAppearanceButton: React.FC<{ compact?: boolean; disabled?: boolean }> = ({ compact = false, disabled = false }) => {
     const { theme, updateTheme, addToast } = useOS();
     const [open, setOpen] = useState(false);
     const [draft, setDraft] = useState<ScheduleCardAppearance>(() =>
@@ -362,7 +362,9 @@ const ScheduleAppearanceButton: React.FC<{ compact?: boolean }> = ({ compact = f
                 }}
                 onClick={event => {
                     stop(event);
-                    setOpen(true);
+                    if (!disabled) {
+                        setOpen(true);
+                    }
                 }}
                 aria-label="日程卡片设置"
                 title="日程卡片设置"

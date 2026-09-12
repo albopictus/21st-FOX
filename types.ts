@@ -38,6 +38,7 @@ export enum AppID {
   VRWorld = 'vrworld', // 彼方 — 角色自主登入的虚拟世界（定时驱动，房间里看小说/听歌/留言，产出活动卡注入聊天+记忆）
   CharCreatorDev = 'char_creator_dev', // 捏脸系统开发模式 — 仅开发模式可见，向捏人器指定类目追加自定义部件
   WorldHome = 'world_home', // 家园 — 同世界观多角色共同生活的大世界（观测驱动演绎，每角色独立 LLM 调用 + NPC 世界引擎）
+  Memo = 'memo', // 备忘录 — 便签流与双向长文本备忘
 }
 
 export interface SystemLog {
@@ -103,6 +104,80 @@ export interface JournalAppearance {
   customCss?: string;
 }
 
+/** 桌面自由小组件类型定义 */
+export type DesktopWidgetKind =
+  | 'music'
+  | 'memo'
+  | 'image'
+  | 'calendar'
+  | 'anniversary'
+  | 'quad_apps';
+
+export type DesktopWidgetSize = '2x2' | '4x2';
+
+export interface DesktopWidgetInstance {
+  id: string;
+  kind: DesktopWidgetKind;
+  size: DesktopWidgetSize;
+  title?: string;
+  config?: Record<string, any>;
+}
+
+export interface DesktopCustomPage {
+  id: string;
+  widgets?: DesktopWidgetInstance[];
+  appIds?: string[];
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 自由网格桌面（Android 式）—— 每页是固定格子矩阵，App 与小组件都按
+ * (x,y,w,h) 摆在格子上，允许任意留空。取代旧的 launcherAppOrder /
+ * launcherCustomPages / launcherMinusOne* / launcherPinwheelOrder。
+ * 详见 utils/desktopGrid.ts。
+ * ───────────────────────────────────────────────────────────── */
+
+/** 网格条目类型。'app' 用 refId 存 AppID；clock/charCard/schedule 是默认锁定的三块。 */
+export type GridItemKind =
+  | 'app'
+  | 'clock'
+  | 'charCard'
+  | 'schedule'
+  | 'music'
+  | 'image'
+  | 'calendar'
+  | 'anniversary'
+  | 'memo'
+  | 'quad_apps';
+
+/** 网格上的一个条目。x/y 是左上角格子坐标（0 起），w/h 是横竖占用格数。 */
+export interface PlacedItem {
+  id: string;
+  kind: GridItemKind;
+  /** kind==='app' 时为 AppID；其余类型忽略。 */
+  refId?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 锁定后不可拖动 / 改大小 / 删除；编辑态点徽标切换。默认预设给 clock/charCard/schedule 打 true。 */
+  locked?: boolean;
+  title?: string;
+  config?: Record<string, any>;
+}
+
+export interface DesktopPage {
+  id: string;
+  items: PlacedItem[];
+  /**
+   * 页面规格：'windmill' / 'standard' 目前行数一致，只做语义区分；
+   * 'home' 是主屏表头（时钟+角色卡）专属标记——主屏不再靠"固定在第 1 页"这个下标
+   * 认出来，而是靠这个标记，这样用户可以在主屏左右两侧自由插页，主屏挪到哪个
+   * 下标都不会跟丢表头。没有这个标记的旧数据仍然按下标 1 兜底识别（见
+   * desktopGrid.ts 的 findHomeIndex / rowsForScreen）。
+   */
+  layout?: 'windmill' | 'standard' | 'home';
+}
+
 export interface OSTheme {
   hue: number;
   saturation: number;
@@ -130,14 +205,42 @@ export interface OSTheme {
   launcherWidgets?: Record<string, string>; // slots: 'tl' | 'tr' | 'wide' | 'dsq' (legacy 'bl' / 'br' are banned)
   /** 默认桌面长按编辑后的 App / Dock / 第二页风车组件顺序。 */
   launcherAppOrder?: string[];
+  /** 每页桌面 App ID 列表。例如 page 0 (第1页), page 1 (第2页风车), page 2+ (自定义页)。 */
+  launcherPageApps?: string[][];
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** 黑胶音乐小组件自定义中心旋转贴纸。未设置时显示当前歌曲封面。 */
+  customVinylSticker?: string;
+  /** 负一屏（-1屏）小组件列表。未设置时默认装载日历与纪念日组件。 */
+  launcherMinusOneWidgets?: DesktopWidgetInstance[];
+  /** 负一屏（-1屏）App ID 列表（独立于主桌面的 app 池，4×6 共 24 槽）。 */
+  launcherMinusOneApps?: string[];
+  /** 自定义新增桌面页面（Page 2+）。 */
+  launcherCustomPages?: DesktopCustomPage[];
+  /**
+   * 自由网格桌面（Android 式）。存在即为已迁移，Launcher 只读这一份；
+   * 不存在时由 migrateLegacyLauncher 从上面那些旧字段算一次并落库。
+   * 页序：[0] = 负一屏，[1] = 主屏，[2+] = 后续页。见 utils/desktopGrid.ts。
+   */
+  launcherPages?: DesktopPage[];
+  /** 开机 / 冷启动时落在哪一页（存 DesktopPage.id，加删页不错位）。未设置 = 时钟那页（pages[1]）。 */
+  launcherStartPageId?: string;
+  /** 桌面已隐藏/删除的 App ID 列表。可在小组件/应用库中重新添加回桌面。 */
+  launcherHiddenApps?: string[];
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
   nowPlayingWidgetLight?: boolean;
   /** 日程卡片统一皮肤：桌面、全屏、房间与聊天内同步。 */
   scheduleCardAppearance?: ScheduleCardAppearance;
+  /** 小组件背景透明度 (0~100)。如 schedule / calendar / memo 等。 */
+  widgetOpacity?: {
+    schedule?: number;
+    calendar?: number;
+    memo?: number;
+    quad_apps?: number;
+    [key: string]: number | undefined;
+  };
   /** 交换日记 App 全局皮肤与自定义 CSS。 */
   journalAppearance?: JournalAppearance;
   desktopDecorations?: DesktopDecoration[];
@@ -3182,6 +3285,9 @@ export interface CharacterProfile {
    * 独立于 proactiveConfig（主动发消息），互不挤占触发。
    */
   vrState?: VRWorldCharState;
+
+  /** 互赠礼物记录/心意陈列柜 */
+  receivedGifts?: ReceivedGiftRecord[];
 }
 
 /**
@@ -3277,6 +3383,34 @@ export interface UserProfile {
      * enabled=false（登出）时，聊天里给角色的"用户在彼方"提示词随之消失。
      */
     vrState?: UserVRState;
+    /** 用户金币钱包余额（初始 300） */
+    coins?: number;
+    /** 上次领取每日津贴的日期（YYYY-MM-DD） */
+    lastDailyAllowanceDate?: string;
+    /** 用户自定义心意礼物库 */
+    customGifts?: CustomGiftItem[];
+}
+
+export interface CustomGiftItem {
+    id: string;
+    name: string;
+    image: string;       // 图床 URL、blobref 令牌或 data: URI
+    price?: number;      // 价值（已去金币化，可选）
+    description?: string;// 礼物细节描述（供 AI 角色感知）
+    defaultNote?: string;// 默认留言
+    createdAt?: number;
+}
+
+export interface ReceivedGiftRecord {
+    id: string;
+    giftId: string;
+    giftName: string;
+    icon: string;
+    cost?: number;
+    note?: string;
+    description?: string;
+    timestamp: number;
+    sender: 'user' | 'assistant';
 }
 
 export interface UserVRState {
@@ -3701,9 +3835,34 @@ export interface Anniversary {
     title: string;
     date: string;
     charId: string;
+    time?: string; // 可选具体时刻 "HH:mm"
+    remarks?: string; // 详细长文本备注
+    createdBy?: 'user' | 'character'; // 发起人
+    authorName?: string; // 发起人显示名称
+    lastEditedBy?: 'user' | 'character'; // 最后修改人
+    lastEditedAt?: number;
+    createdAt?: number;
     aiThought?: string;
     lastThoughtGeneratedAt?: number;
 }
+
+/** 共同日程事件（与 Anniversary 共享存储，100% 向下兼容） */
+export type ScheduleEvent = Anniversary;
+
+export interface MemoNote {
+    id: string;
+    title: string;
+    content: string; // 正文内容（支持多行长文本、Markdown、列表等）
+    category?: string; // 'inspiration' | 'life' | 'agreement' | 'secret' 等分类或标签
+    charId?: string; // 关联角色 ID（如果是角色主动创建或与某角色特别相关）
+    createdBy: 'user' | 'character'; // 创建者
+    authorName?: string; // 创建者名称
+    lastEditedBy?: 'user' | 'character'; // 最后修改者
+    lastEditedAt: number; // 最后修改时间戳
+    createdAt: number; // 创建时间戳
+    pinned?: boolean; // 是否置顶
+}
+
 
 export interface SocialComment {
     id: string;
@@ -3865,17 +4024,31 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'schedule_card' | 'memo_card' | 'gift';
+
+/**
+ * 撤回标记（metadata.retracted）。撤回后 `Message.content` 会被就地改写成「给 AI 看的那句」：
+ *   - by='user'      → `[用户撤回了一条消息]`（AI 只知道撤回了，看不到原文）
+ *   - by='assistant' → `[你撤回了刚发出的消息，原内容：「…」]`（AI 知道撤回了 + 原文）
+ * 所有 AI 上下文读取口都直接吃改写后的 content，因此天然安全，无需额外过滤。
+ * 原文只留在这里，供 UI 折叠气泡「查看原文」和 5 秒内撤销用。
+ */
+export interface RetractedMeta {
+    by: 'user' | 'assistant';
+    originalContent: string;
+    originalType: MessageType;
+    at: number;
+}
 
 export interface Message {
     id: number;
-    charId: string; 
-    groupId?: string; 
+    charId: string;
+    groupId?: string;
     role: 'user' | 'assistant' | 'system';
     type: MessageType;
     content: string;
     timestamp: number;
-    metadata?: any; 
+    metadata?: any;
     replyTo?: {
         id: number;
         content: string;
@@ -3934,6 +4107,7 @@ export interface FullBackupData {
     diaries?: DiaryEntry[];
     tasks?: Task[];
     anniversaries?: Anniversary[];
+    memoNotes?: MemoNote[];
     roomTodos?: RoomTodo[]; 
     roomNotes?: RoomNote[];
     socialPosts?: SocialPost[]; 

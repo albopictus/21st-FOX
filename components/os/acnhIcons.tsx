@@ -199,12 +199,21 @@ const leafGlyph = <>
   <path d="M50 42 L65 34 M50 56 L35 48" stroke={BROWN} strokeWidth="3.5" strokeLinecap="round" />
 </>;
 
+const giftGlyph = <>
+  <rect x="22" y="44" width="56" height="42" rx="6" fill={CREAM} />
+  <rect x="18" y="32" width="64" height="14" rx="4" fill={CREAM} />
+  <rect x="44" y="32" width="12" height="54" fill="#FC736D" />
+  <circle cx="40" cy="24" r="8" fill="none" stroke="#FC736D" strokeWidth="4" />
+  <circle cx="60" cy="24" r="8" fill="none" stroke="#FC736D" strokeWidth="4" />
+</>;
+
 const ACTION_TILES: Record<string, { color: string; bbox: [number, number, number, number]; glyph: React.ReactNode }> = {
   mcd: { color: '#F7CD67', bbox: [24, 34, 76, 66], glyph: burgerGlyph },
   html: { color: '#B77DEE', bbox: [24, 32, 74, 68], glyph: codeGlyph },
   thinking: { color: '#889DF0', bbox: [30, 14, 70, 84], glyph: leafGlyph },
   transfer: { color: '#F7CD67', bbox: [20, 27, 80, 87], glyph: bagGlyph },
   poke: { color: '#F8A6B2', bbox: [24, 22, 68, 84], glyph: handGlyph },
+  gift: { color: '#F8A6B2', bbox: [18, 16, 82, 86], glyph: giftGlyph },
   archive: { color: '#B77DEE', bbox: [21, 24, 79, 77], glyph: bookGlyph2 },
   settings: { color: '#9A835A', bbox: [20, 28, 80, 78], glyph: slidersGlyph },
   image: { color: '#82D5BB', bbox: [17, 25, 83, 79], glyph: camGlyph('#FC736D') },

@@ -282,6 +282,11 @@ Phase 2 Round 2 起 push 路径跟本地 fetch 路径**功能对齐**，不再�
   （iOS PWA swipe-kill 场景也兜得住）。
 
 详细决策映射 + 验证矩阵看 `~/.claude/plans/instant-push-agentic-loop-phase2.md` §四 / §六。
+### ⚠️ 分支与推送红线（AI 助手与协同开发必读）
+
+- **严禁直接推送 `meow` 和 `main` 分支！**
+- 所有开发、调试与实验必须在独立的 feature 分支（如 `feat/*`）上进行。
+- 任何远程推送（`git push`）操作，**必须先明确向用户询问并获得许可**后方可执行。
 
 ### ⚠️ 后端代理：二改请换成你自己的
 

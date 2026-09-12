@@ -15,7 +15,7 @@ import RoomPlatePanel from '../components/character/RoomPlatePanel';
 import MemoryArchivist from '../components/character/MemoryArchivist';
 import ChibiStudio, { ChibiShelfPanel } from '../components/character/ChibiStudio';
 import TokenImg from '../components/os/TokenImg';
-import { resolveBlobRefsDeep, migrateDataUrlToRef } from '../utils/blobRef';
+import { resolveBlobRefsDeep, migrateDataUrlToRef, isImageValue } from '../utils/blobRef';
 import { characterLaunch } from '../utils/characterLaunch';
 import { safeFetchJson, extractContent } from '../utils/safeApi';
 import { fetchMiniMaxVoices, MiniMaxVoiceItem } from '../utils/minimaxVoice';
@@ -114,7 +114,7 @@ const Character: React.FC = () => {
           return next;
       });
   };
-  const [detailTab, setDetailTab] = useState<'identity' | 'memory' | 'impression' | 'plates' | 'chibi'>(() => launchIntent?.openChibiStudio ? 'chibi' : 'identity');
+  const [detailTab, setDetailTab] = useState<'identity' | 'memory' | 'impression' | 'plates' | 'chibi' | 'gifts'>(() => launchIntent?.openChibiStudio ? 'chibi' : 'identity');
   // QQ捏人工坊（手办柜）全屏覆盖层
   const [showChibiStudio, setShowChibiStudio] = useState(() => !!launchIntent?.openChibiStudio);
   const [editingId, setEditingId] = useState<string | null>(() => launchIntent?.charId || null);
@@ -1306,6 +1306,7 @@ ${isInitialGeneration ? `
                        <button onClick={() => { setDetailTab('impression'); trackEvent('切换角色详情标签页', { tab: 'impression' }); }} className={`pb-2 transition-colors relative ${detailTab === 'impression' ? 'text-slate-800' : ''}`}>印象{detailTab === 'impression' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                        <button onClick={() => { setDetailTab('plates'); trackEvent('切换角色详情标签页', { tab: 'plates' }); }} className={`pb-2 transition-colors relative ${detailTab === 'plates' ? 'text-slate-800' : ''}`}>门牌{detailTab === 'plates' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                        <button onClick={() => { setDetailTab('chibi'); trackEvent('切换角色详情标签页', { tab: 'chibi' }); }} className={`pb-2 transition-colors relative ${detailTab === 'chibi' ? 'text-slate-800' : ''}`}>手办{detailTab === 'chibi' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
+                       <button onClick={() => { setDetailTab('gifts'); trackEvent('切换角色详情标签页', { tab: 'gifts' }); }} className={`pb-2 transition-colors relative ${detailTab === 'gifts' ? 'text-slate-800' : ''}`}>礼物 ({(formData.receivedGifts || []).length}){detailTab === 'gifts' && <div className="absolute bottom-0 left-0 w-full h-0.5 bg-primary rounded-full"></div>}</button>
                    </div>
                  </div>
                </div>
@@ -1788,7 +1789,114 @@ ${isInitialGeneration ? `
                    )}
 
                    {detailTab === 'plates' && formData.id && (
-                       <RoomPlatePanel charId={formData.id} userName={userProfile.name} />
+                                       <RoomPlatePanel charId={formData.id} userName={userProfile.name} />
+                   )}
+
+                   {detailTab === 'gifts' && (
+                       <div className="space-y-4 animate-fade-in">
+                           <div className="flex items-center justify-between px-1">
+                               <div className="flex items-center gap-2">
+                                   <span className="text-xl">🎁</span>
+                                   <div>
+                                       <h3 className="text-sm font-bold text-slate-800">礼物收藏</h3>
+                                       <p className="text-[11px] text-slate-400">
+                                           记录你们彼此赠予的小确幸与惊喜
+                                       </p>
+                                   </div>
+                               </div>
+                               <span className="text-xs font-bold text-rose-500 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">
+                                   共 {(formData.receivedGifts || []).length} 件礼物
+                               </span>
+                           </div>
+
+                           {(!formData.receivedGifts || formData.receivedGifts.length === 0) ? (
+                               <div className="text-center py-16 px-4 bg-white rounded-3xl border border-slate-100 text-slate-400">
+                                   <div className="text-4xl mb-3">🎀</div>
+                                   <div className="text-sm font-bold text-slate-600">还没有收藏的礼物</div>
+                                   <div className="text-xs text-slate-400 mt-1">
+                                       在聊天界面的「＋」菜单中点击「送礼物」，为 {formData.name} 送上第一份惊喜吧～
+                                   </div>
+                               </div>
+                           ) : (
+                               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                   {formData.receivedGifts.map((gift) => {
+                                       const isAssistant = gift.sender === 'assistant';
+                                       const dateStr = new Date(gift.timestamp).toLocaleDateString(undefined, {
+                                           month: 'short',
+                                           day: 'numeric',
+                                           hour: '2-digit',
+                                           minute: '2-digit'
+                                       });
+
+                                       return (
+                                           <div
+                                               key={gift.id}
+                                               className={`p-4 rounded-3xl border transition-all flex flex-col justify-between shadow-sm ${
+                                                    isAssistant
+                                                        ? 'bg-gradient-to-br from-amber-50/70 via-rose-50/40 to-white border-amber-200/60'
+                                                        : 'bg-gradient-to-br from-rose-50/70 via-pink-50/40 to-white border-rose-200/60'
+                                               }`}
+                                           >
+                                               <div className="flex items-start justify-between gap-2">
+                                                   <div className="flex items-center gap-2.5 min-w-0">
+                                                       {isImageValue(gift.icon) ? (
+                                                           <TokenImg
+                                                               value={gift.icon}
+                                                               alt={gift.giftName}
+                                                               className="w-12 h-12 object-contain rounded-2xl bg-white/90 p-1 border border-slate-100 shrink-0 shadow-xs"
+                                                           />
+                                                       ) : (
+                                                           <span className="text-3xl shrink-0 filter drop-shadow-sm">{gift.icon}</span>
+                                                       )}
+                                                       <div className="min-w-0">
+                                                           <div className="text-sm font-bold text-slate-800 truncate" title={gift.giftName}>
+                                                               {gift.giftName}
+                                                           </div>
+                                                           <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full mt-0.5 ${
+                                                               isAssistant
+                                                                   ? 'bg-amber-100/80 text-amber-700'
+                                                                   : 'bg-rose-100/80 text-rose-700'
+                                                           }`}>
+                                                               {isAssistant ? `${formData.name} 回赠` : '你送出'}
+                                                           </span>
+                                                       </div>
+                                                   </div>
+
+                                                   <button
+                                                        onClick={() => {
+                                                            const nextGifts = (formData.receivedGifts || []).filter(g => g.id !== gift.id);
+                                                            setFormData(prev => ({ ...prev, receivedGifts: nextGifts }));
+                                                            updateCharacter(formData.id, { receivedGifts: nextGifts });
+                                                            addToast('已移出礼物收藏', 'info');
+                                                        }}
+                                                        className="w-7 h-7 rounded-full bg-white/80 hover:bg-rose-50 text-slate-400 hover:text-rose-500 flex items-center justify-center text-xs transition-all active:scale-90 border border-slate-100 shrink-0"
+                                                        title="移出收藏"
+                                                    >
+                                                        ✕
+                                                    </button>
+                                               </div>
+
+                                               {gift.description && (
+                                                   <div className="mt-2 text-[11px] text-slate-400 leading-snug line-clamp-2">
+                                                       {gift.description}
+                                                   </div>
+                                               )}
+
+                                               {gift.note && (
+                                                   <div className="mt-2.5 text-xs text-slate-600 bg-white/80 backdrop-blur-sm rounded-2xl p-2.5 border border-slate-100/80 italic leading-relaxed break-words">
+                                                       “{gift.note}”
+                                                   </div>
+                                               )}
+
+                                               <div className="mt-2.5 text-[10px] text-slate-400 text-right">
+                                                   {dateStr}
+                                               </div>
+                                           </div>
+                                       );
+                                   })}
+                               </div>
+                           )}
+                       </div>
                    )}
                </div>
            </div>

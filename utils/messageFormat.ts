@@ -139,6 +139,23 @@ export function normalizeMessageContent(
         });
     }
 
+    if (type === 'gift') {
+        const meta = msg.metadata || {};
+        if (meta.receipt) {
+            const actor = msg.role === 'user' ? userName : charName;
+            const giftName = meta.giftName || '礼物';
+            return `[礼物回执] ${actor}${meta.receipt === 'accepted' ? '收下了礼物' : '婉拒并退回了礼物'}「${giftName}」`;
+        }
+        const giftName = meta.giftName || meta.name || '礼物';
+        const note = meta.note || '';
+        const senderName = msg.role === 'user' ? userName : charName;
+        const receiverName = msg.role === 'user' ? charName : userName;
+        const descPart = meta.description ? `（${meta.description}）` : '';
+        const notePart = note ? `，附言：“${note}”` : '';
+        const statusPart = meta.status === 'accepted' ? '【已收下】' : meta.status === 'returned' ? '【已退回】' : '';
+        return `[礼物] ${senderName} 向 ${receiverName} 赠送了「${giftName}」${descPart}${notePart}${statusPart ? ` ${statusPart}` : ''}`;
+    }
+
     // 结算卡：几种 app 产生，用字段逐一翻成自然文本
     if (type === 'score_card') {
         try {

@@ -62,6 +62,7 @@ const messageTypeLabel = (type?: string): string => ({
     voice: '语音消息',
     emoji: '表情',
     transfer: '转账',
+    gift: '礼物',
     social_card: '动态卡片',
     xhs_card: '小红书卡片',
     music_card: '音乐卡片',

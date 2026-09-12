@@ -305,17 +305,20 @@ interface PresetManagerProps {
     onExport: (id: string) => Promise<Blob>;
     onImport: (file: File) => Promise<void>;
     onReset: () => Promise<void>;
+    onResetLayout: () => Promise<void>;
     addToast: (msg: string, type?: Toast['type']) => void;
     currentTheme: OSTheme;
 }
 
-const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply, onDelete, onRename, onExport, onImport, onReset, addToast, currentTheme }) => {
+const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply, onDelete, onRename, onExport, onImport, onReset, onResetLayout, addToast, currentTheme }) => {
     const [newName, setNewName] = useState('');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editName, setEditName] = useState('');
     const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
     const [confirmReset, setConfirmReset] = useState(false);
     const [resetting, setResetting] = useState(false);
+    const [confirmResetLayout, setConfirmResetLayout] = useState(false);
+    const [resettingLayout, setResettingLayout] = useState(false);
     const importRef = useRef<HTMLInputElement>(null);
 
     const handleReset = async () => {
@@ -325,6 +328,16 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
         } finally {
             setResetting(false);
             setConfirmReset(false);
+        }
+    };
+
+    const handleResetLayout = async () => {
+        setResettingLayout(true);
+        try {
+            await onResetLayout();
+        } finally {
+            setResettingLayout(false);
+            setConfirmResetLayout(false);
         }
     };
 
@@ -395,6 +408,36 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
                             {resetting ? '正在还原...' : '确认还原'}
                         </button>
                         <button onClick={() => setConfirmReset(false)} disabled={resetting}
+                            className="flex-1 py-2.5 bg-white text-slate-500 font-bold text-xs rounded-xl border border-slate-200 active:scale-95 transition-transform disabled:opacity-50">
+                            取消
+                        </button>
+                    </div>
+                )}
+            </section>
+
+            {/* One-click Reset Layout Only */}
+            <section className="bg-gradient-to-br from-sky-50 to-indigo-50 rounded-3xl p-5 shadow-sm border border-sky-100">
+                <div className="flex items-center gap-2 mb-2">
+                    <h2 className="text-sm font-bold text-sky-500 uppercase tracking-widest">一键恢复默认桌面布局</h2>
+                </div>
+                <p className="text-[10px] text-slate-500 mb-3 leading-relaxed">
+                    只重排桌面（App 摆放位置、小组件、页面），<strong>不动</strong>主题色 / 壁纸 / 字体 / 图标。
+                    桌面被拖乱、组件叠在一起时用这个，比上面那个「还原外观」更轻。<br/>
+                    <span className="text-slate-400">所有已装 App 会重新铺回负一屏之后的页面，日程/黑胶/相框组件重新按默认位置摆放。</span>
+                </p>
+                {!confirmResetLayout ? (
+                    <button onClick={() => setConfirmResetLayout(true)}
+                        className="w-full py-2.5 bg-white text-sky-500 font-bold text-xs rounded-xl border border-sky-200 active:scale-95 transition-transform flex items-center justify-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6A2.25 2.25 0 0 1 6 3.75h2.25A2.25 2.25 0 0 1 10.5 6v2.25a2.25 2.25 0 0 1-2.25 2.25H6a2.25 2.25 0 0 1-2.25-2.25V6ZM3.75 15.75A2.25 2.25 0 0 1 6 13.5h2.25a2.25 2.25 0 0 1 2.25 2.25V18a2.25 2.25 0 0 1-2.25 2.25H6A2.25 2.25 0 0 1 3.75 18v-2.25ZM13.5 6a2.25 2.25 0 0 1 2.25-2.25H18A2.25 2.25 0 0 1 20.25 6v2.25A2.25 2.25 0 0 1 18 10.5h-2.25a2.25 2.25 0 0 1-2.25-2.25V6ZM13.5 15.75a2.25 2.25 0 0 1 2.25-2.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-2.25A2.25 2.25 0 0 1 13.5 18v-2.25Z" /></svg>
+                        恢复默认桌面布局
+                    </button>
+                ) : (
+                    <div className="flex gap-2">
+                        <button onClick={handleResetLayout} disabled={resettingLayout}
+                            className="flex-1 py-2.5 bg-sky-500 text-white font-bold text-xs rounded-xl shadow-sm active:scale-95 transition-transform disabled:opacity-50">
+                            {resettingLayout ? '正在恢复...' : '确认恢复'}
+                        </button>
+                        <button onClick={() => setConfirmResetLayout(false)} disabled={resettingLayout}
                             className="flex-1 py-2.5 bg-white text-slate-500 font-bold text-xs rounded-xl border border-slate-200 active:scale-95 transition-transform disabled:opacity-50">
                             取消
                         </button>
@@ -521,6 +564,25 @@ const PresetManager: React.FC<PresetManagerProps> = ({ presets, onSave, onApply,
 
 const Appearance: React.FC = () => {
   const { theme, updateTheme, closeApp, openApp, setCustomIcon, customIcons, addToast, appearancePresets, saveAppearancePreset, applyAppearancePreset, deleteAppearancePreset, renameAppearancePreset, exportAppearancePreset, importAppearancePreset, resetAppearance, characters, activeCharacterId, updateCharacter } = useOS();
+
+  // 只重排桌面（launcherPages 一系），不动主题色/壁纸/字体/图标——比「还原外观」更轻的救援手段。
+  // 清空后 Launcher 的 migrateLegacyLauncher 会用「全部已装 App」重新铺一份默认布局。
+  const handleResetLayout = async () => {
+    await updateTheme({
+      launcherPages: undefined,
+      launcherStartPageId: undefined,
+      launcherAppOrder: undefined,
+      launcherMinusOneApps: undefined,
+      launcherMinusOneWidgets: undefined,
+      launcherCustomPages: undefined,
+      launcherHiddenApps: undefined,
+      launcherDockOrder: undefined,
+      launcherPinwheelOrder: undefined,
+      launcherWidgets: undefined,
+    });
+    addToast('桌面布局已恢复默认', 'success');
+    trackEvent('恢复默认桌面布局');
+  };
   // 一键还原全部「聊天白框自定义 CSS」：清掉全局 + 每个角色自带的。
   // 兼作救援：单角色的坏 CSS 把聊天界面整崩、进不去该角色设置时，从这里一键全清即可恢复。
   const resetAllChromeCss = () => {
@@ -1280,22 +1342,6 @@ const Appearance: React.FC = () => {
                     </p>
                 </section>
 
-                {/* Desktop Music Widget Style */}
-                <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
-                    <h2 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">桌面组件</h2>
-                    <div className="flex items-center justify-between">
-                        <div>
-                            <div className="text-sm font-medium text-slate-700">音乐卡片浅色系</div>
-                            <div className="text-[10px] text-slate-400 mt-0.5">桌面第二页「正在播放」卡片改用浅色样式。仅默认皮肤生效。</div>
-                        </div>
-                        <button
-                            onClick={() => updateTheme({ nowPlayingWidgetLight: !theme.nowPlayingWidgetLight })}
-                            className={`w-12 h-7 rounded-full transition-colors relative shrink-0 ml-3 ${theme.nowPlayingWidgetLight ? 'bg-primary' : 'bg-slate-200'}`}
-                        >
-                            <div className={`absolute top-1 w-5 h-5 bg-white rounded-full shadow-sm transition-transform ${theme.nowPlayingWidgetLight ? 'translate-x-6' : 'translate-x-1'}`} />
-                        </button>
-                    </div>
-                </section>
 
                 {/* Wallpaper Section */}
                 <section className="bg-white rounded-3xl p-5 shadow-sm border border-slate-100">
@@ -1795,6 +1841,7 @@ const Appearance: React.FC = () => {
                 onExport={exportAppearancePreset}
                 onImport={importAppearancePreset}
                 onReset={resetAppearance}
+                onResetLayout={handleResetLayout}
                 addToast={addToast}
                 currentTheme={theme}
             />
