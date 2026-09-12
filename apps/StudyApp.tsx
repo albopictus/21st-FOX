@@ -312,6 +312,7 @@ const StudyApp: React.FC = () => {
     const [mode, setMode] = useState<'bookshelf' | 'classroom' | 'quiz' | 'quiz_review' | 'practice_book' | 'paper_shelf' | 'paper_reader'>('bookshelf');
     const [activePaper, setActivePaper] = useState<StudyPaper | null>(null);
     const [courses, setCourses] = useState<StudyCourse[]>([]);
+    const [bookshelfTab, setBookshelfTab] = useState<'courses' | 'papers'>('courses');
     const [activeCourse, setActiveCourse] = useState<StudyCourse | null>(null);
     const [selectedChar, setSelectedChar] = useState<CharacterProfile | null>(null);
     const [tutorGroupId, setTutorGroupId] = useState<string>(GROUP_FILTER_ALL); // 书架页「当前助教」的分组筛选
@@ -1397,7 +1398,10 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
         return (
             <PaperReader
                 paper={activePaper}
-                onBack={() => setMode('paper_shelf')}
+                onBack={() => {
+                    setBookshelfTab('papers');
+                    setMode('bookshelf');
+                }}
                 onAskTutor={handlePaperAskTutor}
                 katexRenderer={katexRenderer}
                 apiConfig={effectiveApi}
@@ -1739,8 +1743,23 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         </button>
                         <span className="font-bold text-slate-800 text-lg tracking-wide">自习室</span>
                         <div className="flex gap-1">
-                            <button onClick={() => { trackEvent('打开文献晨读'); setMode('paper_shelf'); }} className="p-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform" title="文献晨读">
-                                <Newspaper size={20} className="text-slate-500" />
+                            <button
+                                onClick={() => {
+                                    if (bookshelfTab === 'papers') {
+                                        setBookshelfTab('courses');
+                                    } else {
+                                        trackEvent('打开文献晨读');
+                                        setBookshelfTab('papers');
+                                    }
+                                }}
+                                className={`p-2 rounded-full active:scale-90 transition-transform ${
+                                    bookshelfTab === 'papers'
+                                        ? 'bg-emerald-100/80 text-emerald-800'
+                                        : 'hover:bg-black/5 text-slate-500'
+                                }`}
+                                title={bookshelfTab === 'papers' ? '返回我的课程' : '学术文献晨读'}
+                            >
+                                <Newspaper size={20} />
                             </button>
                             <button onClick={() => { trackEvent('打开练习册'); loadQuizzes(); setMode('practice_book'); }} className="p-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform" title="练习册">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-slate-500"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" /></svg>
@@ -1755,7 +1774,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
 
                 <div className="p-6 flex-1 overflow-y-auto no-scrollbar">
                     {/* Character Selector */}
-                    <div className="mb-8">
+                    <div className="mb-6">
                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">当前助教</h3>
                         {/* 分组筛选（没建分组时不渲染），横向头像列表太挤，单独放一行 */}
                         <CharacterGroupFilterBar characters={characters} groups={characterGroups}
@@ -1772,64 +1791,83 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         </div>
                     </div>
 
-                    {/* 文献晨读专区横幅 */}
-                    <div
-                        onClick={() => { trackEvent('打开文献晨读'); setMode('paper_shelf'); }}
-                        className="mb-8 p-4 rounded-2xl bg-gradient-to-r from-emerald-900/90 to-teal-950 text-white cursor-pointer shadow-md active:scale-[0.99] transition hover:shadow-lg flex items-center justify-between"
-                    >
-                        <div className="space-y-1">
-                            <div className="flex items-center gap-1.5 text-emerald-400 text-xs font-bold uppercase tracking-wider">
-                                <Sparkle size={14} weight="fill" />
-                                <span>学术文献晨读</span>
-                                <span className="px-1.5 py-0.2 bg-emerald-500/30 text-emerald-200 text-[10px] rounded font-mono">Europe PMC</span>
-                            </div>
-                            <h4 className="text-sm font-bold font-serif">国际开放获取前沿 · JATS XML 双语浸润</h4>
-                            <p className="text-[11px] text-emerald-100/70">轻触段落展开中文对照，双指缩放高清图注与助教答疑</p>
-                        </div>
-                        <div className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center text-emerald-300 ml-2 shrink-0">
-                            <ArrowRight size={16} weight="bold" />
-                        </div>
-                    </div>
-
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">我的课程</h3>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <button onClick={() => fileInputRef.current?.click()} className="aspect-[3/4] rounded-r-xl rounded-l-sm border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-2 text-slate-400 hover:border-emerald-400 hover:text-emerald-500 transition-colors bg-white">
-                            {isProcessing ? (
-                                <div className="text-center px-2">
-                                    <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                                    <span className="text-[10px]">{processStatus}</span>
-                                </div>
-                            ) : (
-                                <>
-                                    <span className="text-3xl">+</span>
-                                    <span className="text-xs font-bold">导入 PDF</span>
-                                </>
-                            )}
+                    {/* 书架双 Tab：我的课程 vs 学术文献晨读 */}
+                    <div className="flex bg-slate-200/60 p-1 rounded-2xl mb-5 gap-1">
+                        <button
+                            onClick={() => setBookshelfTab('courses')}
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                                bookshelfTab === 'courses'
+                                    ? 'bg-white text-slate-800 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            我的课程 {courses.length > 0 && `(${courses.length})`}
                         </button>
-                        <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" onChange={handleFileSelect} disabled={isProcessing} />
-
-                        {courses.map(course => (
-                            <div key={course.id} onClick={() => startSession(course)} className="aspect-[3/4] rounded-r-xl rounded-l-sm shadow-md relative group cursor-pointer overflow-hidden transition-transform active:scale-95" style={{ background: course.coverStyle }}>
-                                <div className="absolute left-0 top-0 bottom-0 w-2 bg-black/10"></div> {/* Spine */}
-                                <div className="p-4 flex flex-col h-full text-white relative z-10">
-                                    <div className="flex-1 font-serif font-bold text-lg leading-tight line-clamp-3 drop-shadow-md">{course.title}</div>
-                                    <div className="mt-2">
-                                        <div className="text-[10px] font-bold opacity-80 mb-1">进度 {course.totalProgress}%</div>
-                                        <div className="h-1 bg-white/30 rounded-full overflow-hidden">
-                                            <div className="h-full bg-white transition-all duration-500" style={{ width: `${course.totalProgress}%` }}></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={(e) => requestDeleteCourse(e, course)} 
-                                    className="absolute top-2 right-2 bg-black/20 hover:bg-red-500 text-white w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-all z-20"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                                </button>
-                            </div>
-                        ))}
+                        <button
+                            onClick={() => {
+                                setBookshelfTab('papers');
+                                trackEvent('打开文献晨读');
+                            }}
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                                bookshelfTab === 'papers'
+                                    ? 'bg-white text-emerald-700 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            学术文献晨读
+                        </button>
                     </div>
+
+                    {bookshelfTab === 'courses' ? (
+                        <div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <button onClick={() => fileInputRef.current?.click()} className="aspect-[3/4] rounded-r-xl rounded-l-sm border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-2 text-slate-400 hover:border-emerald-400 hover:text-emerald-500 transition-colors bg-white">
+                                    {isProcessing ? (
+                                        <div className="text-center px-2">
+                                            <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                                            <span className="text-[10px]">{processStatus}</span>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <span className="text-3xl">+</span>
+                                            <span className="text-xs font-bold">导入 PDF</span>
+                                        </>
+                                    )}
+                                </button>
+                                <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" onChange={handleFileSelect} disabled={isProcessing} />
+
+                                {courses.map(course => (
+                                    <div key={course.id} onClick={() => startSession(course)} className="aspect-[3/4] rounded-r-xl rounded-l-sm shadow-md relative group cursor-pointer overflow-hidden transition-transform active:scale-95" style={{ background: course.coverStyle }}>
+                                        <div className="absolute left-0 top-0 bottom-0 w-2 bg-black/10"></div> {/* Spine */}
+                                        <div className="p-4 flex flex-col h-full text-white relative z-10">
+                                            <div className="flex-1 font-serif font-bold text-lg leading-tight line-clamp-3 drop-shadow-md">{course.title}</div>
+                                            <div className="mt-2">
+                                                <div className="text-[10px] font-bold opacity-80 mb-1">进度 {course.totalProgress}%</div>
+                                                <div className="h-1 bg-white/30 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-white transition-all duration-500" style={{ width: `${course.totalProgress}%` }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={(e) => requestDeleteCourse(e, course)} 
+                                            className="absolute top-2 right-2 bg-black/20 hover:bg-red-500 text-white w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-all z-20"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ) : (
+                        <PaperShelf
+                            embedded={true}
+                            onSelectPaper={(p) => {
+                                setActivePaper(p);
+                                setMode('paper_reader');
+                            }}
+                            apiConfig={effectiveApi}
+                        />
+                    )}
                 </div>
 
                 <Modal isOpen={showImportModal} title="课程设置" onClose={() => setShowImportModal(false)} footer={<button onClick={confirmImport} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl">开始生成</button>}>

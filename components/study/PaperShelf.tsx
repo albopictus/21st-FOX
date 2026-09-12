@@ -8,7 +8,8 @@ import Modal from '../os/Modal';
 interface PaperShelfProps {
     onSelectPaper: (paper: StudyPaper) => void;
     apiConfig: APIConfig;
-    onBackToCourses: () => void;
+    onBackToCourses?: () => void;
+    embedded?: boolean;
 }
 
 const DEFAULT_KEYWORDS = [
@@ -25,7 +26,8 @@ const TAGS_STORAGE_KEY = 'sully_study_paper_tags';
 export const PaperShelf: React.FC<PaperShelfProps> = ({
     onSelectPaper,
     apiConfig,
-    onBackToCourses
+    onBackToCourses,
+    embedded = false,
 }) => {
     const [papers, setPapers] = useState<StudyPaper[]>([]);
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -130,124 +132,126 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     };
 
     return (
-        <div className="flex flex-col h-full w-full bg-[#fdfbf7] text-slate-800 select-none overflow-hidden font-sans">
-            {/* 顶栏：自习室统一毛玻璃顶栏与安全区 */}
-            <div className="bg-[#fdfbf7]/90 backdrop-blur-md border-b border-[#e5e5e5] shrink-0 sticky top-0 z-20" style={{ paddingTop: 'var(--safe-top)' }}>
-                <div className="flex items-center px-4 sm:px-6 py-2.5">
-                    <div className="flex justify-between items-center w-full">
-                        <div className="flex items-center gap-2">
+        <div className={embedded ? "space-y-4 text-slate-800 select-none font-sans" : "flex flex-col h-full w-full bg-[#fdfbf7] text-slate-800 select-none overflow-hidden font-sans"}>
+            {/* 顶栏：仅在独立全屏模式下展示自习室统一毛玻璃顶栏与安全区 */}
+            {!embedded && (
+                <div className="bg-[#fdfbf7]/90 backdrop-blur-md border-b border-[#e5e5e5] shrink-0 sticky top-0 z-20" style={{ paddingTop: 'var(--safe-top)' }}>
+                    <div className="flex items-center px-4 sm:px-6 py-2.5">
+                        <div className="flex justify-between items-center w-full">
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={onBackToCourses}
+                                    className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform"
+                                    title="返回课程"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-slate-600">
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
+                                    </svg>
+                                </button>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-bold text-slate-800 text-lg tracking-wide">文献晨读</span>
+                                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono font-bold tracking-tight">
+                                        Europe PMC
+                                    </span>
+                                </div>
+                            </div>
+
                             <button
                                 onClick={onBackToCourses}
-                                className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform"
-                                title="返回课程"
+                                className="px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200/80 text-xs font-medium text-slate-600 active:scale-95 transition-all"
                             >
-                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-6 h-6 text-slate-600">
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
-                                </svg>
+                                返回课程
                             </button>
-                            <div className="flex items-center gap-2">
-                                <span className="font-bold text-slate-800 text-lg tracking-wide">文献晨读</span>
-                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-mono font-bold tracking-tight">
-                                    Europe PMC
-                                </span>
-                            </div>
                         </div>
-
-                        <button
-                            onClick={onBackToCourses}
-                            className="px-3.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200/80 text-xs font-medium text-slate-600 active:scale-95 transition-all"
-                        >
-                            返回课程
-                        </button>
                     </div>
                 </div>
+            )}
 
-                {/* 搜索栏与快捷标签区 */}
-                <div className="px-4 sm:px-6 pb-3 space-y-2.5">
-                    {/* 搜索框：符合 ui-writing-rules 带图标的胶囊输入框 */}
-                    <div className="relative flex items-center">
-                        <input
-                            type="text"
-                            value={searchKeyword}
-                            onChange={e => setSearchKeyword(e.target.value)}
-                            onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                            placeholder="检索学科或前沿文献（例：CRISPR, microglia, optogenetics）"
-                            className="w-full bg-white border border-slate-200/90 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 rounded-2xl py-2.5 pl-10 pr-24 text-xs text-slate-800 placeholder-slate-400 outline-none transition shadow-xs"
-                        />
-                        <MagnifyingGlass size={16} className="absolute left-3.5 text-slate-400 pointer-events-none" />
-                        <button
-                            onClick={() => handleSearch()}
-                            disabled={isSearching}
-                            className="absolute right-1.5 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition active:scale-95 shadow-xs flex items-center gap-1 disabled:opacity-50"
-                        >
-                            {isSearching ? <SpinnerGap size={13} className="animate-spin" /> : <span>检索</span>}
-                        </button>
-                    </div>
+            {/* 搜索栏与快捷标签区 */}
+            <div className={embedded ? "space-y-2.5" : "px-4 sm:px-6 pb-3 space-y-2.5 shrink-0 bg-[#fdfbf7]/90 backdrop-blur-md border-b border-[#e5e5e5]"}>
+                {/* 搜索框：符合 ui-writing-rules 带图标的胶囊输入框 */}
+                <div className="relative flex items-center">
+                    <input
+                        type="text"
+                        value={searchKeyword}
+                        onChange={e => setSearchKeyword(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                        placeholder="检索学科或前沿文献（例：CRISPR, microglia, optogenetics）"
+                        className="w-full bg-white border border-slate-200/90 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 rounded-2xl py-2.5 pl-10 pr-24 text-xs text-slate-800 placeholder-slate-400 outline-none transition shadow-xs"
+                    />
+                    <MagnifyingGlass size={16} className="absolute left-3.5 text-slate-400 pointer-events-none" />
+                    <button
+                        onClick={() => handleSearch()}
+                        disabled={isSearching}
+                        className="absolute right-1.5 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition active:scale-95 shadow-xs flex items-center gap-1 disabled:opacity-50"
+                    >
+                        {isSearching ? <SpinnerGap size={13} className="animate-spin" /> : <span>检索</span>}
+                    </button>
+                </div>
 
-                    {/* 快捷标签胶囊 */}
-                    <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5 pb-1">
-                        <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-[11px] text-slate-400 font-medium">标签：</span>
-                            <button
-                                onClick={() => setShowTagModal(true)}
-                                className="text-[11px] px-2 py-0.5 rounded-full font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition active:scale-95"
-                                title="管理快捷标签"
-                            >
-                                编辑
-                            </button>
-                        </div>
-
-                        {tags.map(kw => (
-                            <button
-                                key={kw}
-                                onClick={() => {
-                                    setSearchKeyword(kw);
-                                    handleSearch(kw);
-                                }}
-                                className="px-3 py-1 rounded-full text-xs transition-all shrink-0 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-600 hover:text-emerald-800 border border-slate-200/80 cursor-pointer active:scale-95 shadow-2xs"
-                            >
-                                {kw}
-                            </button>
-                        ))}
-
+                {/* 快捷标签胶囊 */}
+                <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5 pb-1">
+                    <div className="flex items-center gap-1 shrink-0">
+                        <span className="text-[11px] text-slate-400 font-medium">标签：</span>
                         <button
                             onClick={() => setShowTagModal(true)}
-                            className="px-2.5 py-1 rounded-full bg-white hover:bg-emerald-50 text-xs text-slate-500 hover:text-emerald-700 transition shrink-0 border border-dashed border-slate-300 hover:border-emerald-400 flex items-center gap-1 shadow-2xs active:scale-95"
-                            title="添加或管理标签"
+                            className="text-[11px] px-2 py-0.5 rounded-full font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition active:scale-95"
+                            title="管理快捷标签"
                         >
-                            <Plus size={11} weight="bold" />
-                            <span>添加</span>
+                            编辑
                         </button>
                     </div>
 
-                    {/* 视图 Tab 切换：符合自习室分栏设计 */}
-                    <div className="flex bg-slate-200/70 p-1 rounded-2xl gap-1">
+                    {tags.map(kw => (
                         <button
-                            onClick={() => setActiveTab('my_papers')}
-                            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                                activeTab === 'my_papers'
-                                    ? 'bg-white text-slate-800 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-800'
-                            }`}
+                            key={kw}
+                            onClick={() => {
+                                setSearchKeyword(kw);
+                                handleSearch(kw);
+                            }}
+                            className="px-3 py-1 rounded-full text-xs transition-all shrink-0 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-600 hover:text-emerald-800 border border-slate-200/80 cursor-pointer active:scale-95 shadow-2xs"
                         >
-                            已下载文献 ({papers.length})
+                            {kw}
                         </button>
-                        <button
-                            onClick={() => setActiveTab('discover')}
-                            className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
-                                activeTab === 'discover'
-                                    ? 'bg-white text-emerald-700 shadow-sm'
-                                    : 'text-slate-500 hover:text-slate-800'
-                            }`}
-                        >
-                            探索检索结果 {searchResults.length > 0 && `(${searchResults.length})`}
-                        </button>
-                    </div>
+                    ))}
+
+                    <button
+                        onClick={() => setShowTagModal(true)}
+                        className="px-2.5 py-1 rounded-full bg-white hover:bg-emerald-50 text-xs text-slate-500 hover:text-emerald-700 transition shrink-0 border border-dashed border-slate-300 hover:border-emerald-400 flex items-center gap-1 shadow-2xs active:scale-95"
+                        title="添加或管理标签"
+                    >
+                        <Plus size={11} weight="bold" />
+                        <span>添加</span>
+                    </button>
+                </div>
+
+                {/* 视图 Tab 切换：符合自习室分栏设计 */}
+                <div className="flex bg-slate-200/60 p-1 rounded-2xl gap-1">
+                    <button
+                        onClick={() => setActiveTab('my_papers')}
+                        className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            activeTab === 'my_papers'
+                                ? 'bg-white text-slate-800 shadow-xs'
+                                : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                    >
+                        已下载文献 ({papers.length})
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('discover')}
+                        className={`flex-1 py-1.5 rounded-xl text-xs font-bold transition-all ${
+                            activeTab === 'discover'
+                                ? 'bg-white text-emerald-700 shadow-xs'
+                                : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                    >
+                        探索检索结果 {searchResults.length > 0 && `(${searchResults.length})`}
+                    </button>
                 </div>
             </div>
 
-            {/* 内容滚动区 */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 no-scrollbar">
+            {/* 内容区：内嵌时自然向下流动，独立时自适应滚动 */}
+            <div className={embedded ? "pt-1 pb-16" : "flex-1 overflow-y-auto p-4 sm:p-6 no-scrollbar"}>
                 {activeTab === 'my_papers' ? (
                     papers.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 text-center space-y-3 text-slate-400">
