@@ -5,6 +5,7 @@ import { DB } from '../../utils/db';
 import { searchEuropePmcArticles, fetchAndParseStudyPaper, EuropePmcArticleSummary } from '../../utils/europePmc';
 import { downloadPaperPdf } from '../../utils/paperDownload';
 import { getDailyDiscoveryPaper, DailyPaperDiscovery } from '../../utils/dailyPaper';
+import { ZoteroExportModal } from './ZoteroExportModal';
 import Modal from '../os/Modal';
 
 interface PaperShelfProps {
@@ -47,6 +48,9 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     const [dailyDiscovery, setDailyDiscovery] = useState<DailyPaperDiscovery | null>(null);
     const [isDailyLoading, setIsDailyLoading] = useState(false);
     const [isDailyExpanded, setIsDailyExpanded] = useState(false);
+
+    // Zotero / 引用导出选中的文献
+    const [zoteroTargetPaper, setZoteroTargetPaper] = useState<StudyPaper | null>(null);
 
     const toggleAbstract = (id: string, e?: React.MouseEvent) => {
         if (e) e.stopPropagation();
@@ -572,6 +576,17 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                     >
                                                         <DownloadSimple size={15} />
                                                     </button>
+                                                    {/* 导出至 Zotero / 标准文献引用 */}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setZoteroTargetPaper(paper);
+                                                        }}
+                                                        className="w-8 h-8 rounded-full hover:bg-red-50 text-slate-400 hover:text-red-600 flex items-center justify-center transition active:scale-95"
+                                                        title="导出至 Zotero / 标准学术引用"
+                                                    >
+                                                        <span className="font-bold text-[11px] leading-none">Z</span>
+                                                    </button>
                                                     <button
                                                         onClick={(e) => handleDeletePaper(e, paper.id)}
                                                         className="w-8 h-8 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition active:scale-95"
@@ -902,6 +917,13 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                     </div>
                 </div>
             </Modal>
+
+            {/* Zotero 联动与学术引用导出弹窗 */}
+            <ZoteroExportModal
+                isOpen={Boolean(zoteroTargetPaper)}
+                paper={zoteroTargetPaper}
+                onClose={() => setZoteroTargetPaper(null)}
+            />
         </div>
     );
 };

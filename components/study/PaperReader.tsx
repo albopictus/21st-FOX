@@ -12,6 +12,7 @@ import {
     getFontSizeClasses
 } from '../../utils/paperTypography';
 import { applyBionicReading } from '../../utils/bionicReading';
+import { ZoteroExportModal } from './ZoteroExportModal';
 import Modal from '../os/Modal';
 
 interface PaperReaderProps {
@@ -34,6 +35,7 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
     // 排版与字体状态（持久化存储）
     const [typography, setTypography] = useState<PaperTypographyConfig>(getSavedTypography);
     const [showTypographyModal, setShowTypographyModal] = useState(false);
+    const [showZoteroModal, setShowZoteroModal] = useState(false);
 
     const updateTypography = (patch: Partial<PaperTypographyConfig>) => {
         setTypography(prev => {
@@ -243,6 +245,21 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                             title="排版与字体设置（含 ADHD 专区）"
                         >
                             <TextAa size={19} weight={typography.bionicReading || typography.fontFamily === 'dyslexic' ? 'bold' : 'regular'} />
+                        </button>
+
+                        {/* Zotero 联动与学术引用导出 */}
+                        <button
+                            onClick={() => setShowZoteroModal(true)}
+                            className={`p-2 rounded-full transition-transform active:scale-90 flex items-center justify-center ${
+                                showZoteroModal
+                                    ? 'bg-red-100 text-red-700'
+                                    : 'hover:bg-black/5 text-slate-600'
+                            }`}
+                            title="Zotero 联动与学术引用导出"
+                        >
+                            <div className="w-4 h-4 rounded-sm bg-red-600 text-white font-bold text-[10px] flex items-center justify-center leading-none shadow-2xs">
+                                Z
+                            </div>
                         </button>
 
                         <button
@@ -692,6 +709,13 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                     onClose={() => setActiveFigure(null)}
                 />
             )}
+
+            {/* Zotero 联动与学术引用导出弹窗 */}
+            <ZoteroExportModal
+                isOpen={showZoteroModal}
+                paper={paper}
+                onClose={() => setShowZoteroModal(false)}
+            />
         </div>
     );
 };
