@@ -5,6 +5,7 @@ import { CharacterProfile, CharPlaylistSong, ScheduleEvent, MemoNote, Task } fro
 import { sanitizeForBubble } from './sanitize';
 import { extractTransferCommands } from './transferFormat';
 import { executeLifeDirectives } from './lifeRecords';
+import { retractOwnMessageByAI } from './retractMessage';
 import { wallClockToTimestamp } from './timezone';
 import { CollaborationStore } from '../features/collaboration/store';
 import {
@@ -209,6 +210,27 @@ export const ChatParser = {
         if (content.includes('[[ACTION:POKE]]')) {
             await persist({ charId, role: 'assistant', type: 'interaction', content: '[戳一戳]' });
             content = content.replace('[[ACTION:POKE]]', '').trim();
+        }
+
+        // RETRACT — 角色撤回自己之前的消息。[[ACTION:RETRACT]] = 最近一条；[[ACTION:RETRACT|2]] = 往前第 2 条。
+        // n 只在角色自己的、未撤回的、可撤回类型的消息里数 —— 用户消息不在可寻址范围内，结构上无法被撤回。
+        const retractRegex = /\[\[ACTION:RETRACT(?:\s*\|\s*(\d+))?\]\]/gi;
+        if (retractRegex.test(content)) {
+            const matches = Array.from(content.matchAll(/\[\[ACTION:RETRACT(?:\s*\|\s*(\d+))?\]\]/gi));
+            // 多个 RETRACT 时按 n 从大到小执行，避免撤一条后序号错位
+            const steps = matches
+                .map(m => (m[1] ? parseInt(m[1], 10) : 1))
+                .filter(n => Number.isFinite(n) && n > 0)
+                .sort((a, b) => b - a);
+            for (const n of steps) {
+                try {
+                    const retractedId = await retractOwnMessageByAI(charId, n);
+                    if (retractedId == null) console.warn('[Retract] 没有可撤回的消息, n =', n);
+                } catch (e) {
+                    console.warn('[Retract] 撤回失败:', e);
+                }
+            }
+            content = content.replace(/\[\[ACTION:RETRACT(?:\s*\|\s*\d+)?\]\]/gi, '').trim();
         }
 
         // SEND_GIFT / GIFT — 角色主动回赠/赠送礼物给用户

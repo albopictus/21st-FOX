@@ -4,7 +4,7 @@
 import {
     CharacterProfile, ChatTheme, Message, UserProfile,
     Task, Anniversary, ScheduleEvent, MemoNote, DiaryEntry, RoomTodo, RoomNote, DailySchedule,
-    GalleryImage, FullBackupData, GroupProfile, SocialPost, StudyCourse, GameSession, Worldbook, NovelBook, Emoji, EmojiCategory,
+    GalleryImage, FullBackupData, GroupProfile, SocialPost, StudyCourse, StudyPaper, GameSession, Worldbook, NovelBook, Emoji, EmojiCategory,
     BankTransaction, SavingsGoal, BankFullState, DollhouseState, XhsStockImage, XhsActivityRecord, XhsOwnedPost, SongSheet, QuizSession, GuidebookSession,
     LifeSimState, HandbookEntry, Tracker, TrackerEntry, HotNewsSnapshot,
     LifeRecord, MedPlan, LifeRecordSettings, CharacterGroup,
@@ -28,9 +28,11 @@ const DB_NAME = 'AetherOS_Data';
 // v70：剧场面具箱（原创人物面具）；角色面具仍只存 characterId，不复制神经链接资料。
 // v71：角色小红书伪主页；发帖归属与可删除的自由活动日志分离。
 // v72：共享备忘录 memo_notes，支持长文本、分类与双向编辑。
-const DB_VERSION = 72;
+// v73：学术文献晨读与双语推送（study_papers 表，按 PMC ID / id 存 StudyPaper）。
+const DB_VERSION = 73;
 
 const STORE_CHARACTERS = 'characters';
+const STORE_STUDY_PAPERS = 'study_papers';
 const STORE_CHAR_GROUPS = 'character_groups'; // 角色分组定义（角色通过 groupId 指向；与群聊 groups 无关）
 const STORE_MESSAGES = 'messages';
 const STORE_EMOJIS = 'emojis';
@@ -356,6 +358,7 @@ export const openDB = (): Promise<IDBDatabase> => {
       createStore(STORE_STORY_THEATER_PRESETS, { keyPath: 'id' });
       createStore(STORE_STORY_THEATER_MASKS, { keyPath: 'id' });
       createStore(STORE_MEMO_NOTES, { keyPath: 'id' });
+      createStore(STORE_STUDY_PAPERS, { keyPath: 'id' });
 
       createStore(STORE_HOTNEWS, { keyPath: 'id' });
 
@@ -728,8 +731,9 @@ export const DB = {
     });
   },
 
-  // Same as getRecentMessagesByCharId but also returns the total count (for UI display)
-  getRecentMessagesWithCount: async (charId: string, limit: number): Promise<{ messages: Message[], totalCount: number }> => {
+  // UI 读取不受记忆水位影响。先按展示范围筛选，再凑满 N 条，避免见面/通话占满窗口。
+  // totalCount 仍是廉价的索引计数上限；游标已取尽时，调用方用实际展示条数替代它。
+  getRecentMessagesWithCount: async (charId: string, limit: number, accept?: (message: Message) => boolean): Promise<{ messages: Message[], totalCount: number }> => {
     const db = await openDB();
     return new Promise((resolve, reject) => {
       const transaction = db.transaction(STORE_MESSAGES, 'readonly');
@@ -745,7 +749,7 @@ export const DB = {
               const cursor = cursorReq.result;
               if (cursor && collected.length < limit) {
                   const m = cursor.value as Message;
-                  if (!m.groupId) collected.push(m);
+                  if (!m.groupId && (!accept || accept(m))) collected.push(m);
                   cursor.continue();
               } else {
                   resolve({ messages: collected.reverse(), totalCount });
@@ -790,7 +794,8 @@ export const DB = {
         const timestamp = typeof msg.timestamp === 'number' ? msg.timestamp : Date.now();
         const { timestamp: _ignored, ...payload } = msg;
         const request = store.add({ ...payload, timestamp });
-        request.onsuccess = () => {
+        // request 成功后事务仍可能回滚。主动消息通知和定时任务销账都必须等提交。
+        transaction.oncomplete = () => {
             const newId = request.result as number;
             // 水位线自愈：新消息的自增 id 必然大于既有一切消息 id，也就必然大于水位线
             // （水位线本身是某条旧消息的 id）。出现 newId ≤ 水位线，只有一种可能——
@@ -808,6 +813,41 @@ export const DB = {
             resolve(newId);
         };
         request.onerror = () => reject(request.error);
+        transaction.onerror = () => reject(transaction.error || new Error('消息未能保存'));
+        transaction.onabort = () => reject(transaction.error || new Error('消息未能保存'));
+    });
+  },
+
+  /** One persisted message per logical delivery, including retries after a tab closes. */
+  saveMessageOnce: async (deliveryId: string, msg: Omit<Message, 'id' | 'timestamp'> & { timestamp?: number }): Promise<number> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_MESSAGES, 'readwrite');
+      const store = tx.objectStore(STORE_MESSAGES);
+      let savedId = 0;
+      let inserted = false;
+      const cursorRequest = store.index('charId').openCursor(IDBKeyRange.only(msg.charId), 'prev');
+      cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (cursor) {
+          if (cursor.value.metadata?.deliveryId === deliveryId) { savedId = cursor.value.id; return; }
+          cursor.continue(); return;
+        }
+        const request = store.add({ ...msg, timestamp: msg.timestamp ?? Date.now(), metadata: { ...msg.metadata, deliveryId } });
+        request.onsuccess = () => { savedId = request.result as number; inserted = true; };
+      };
+      tx.oncomplete = () => {
+        if (inserted) {
+          try {
+            for (const key of [`mp_lastMsgId_${msg.charId}`, ...(msg.groupId ? [`mp_lastMsgId_group_${msg.groupId}`] : [])]) {
+              if (parseInt(localStorage.getItem(key) || '0', 10) >= savedId) localStorage.removeItem(key);
+            }
+          } catch { /* message was committed even if browser preferences are unavailable */ }
+        }
+        resolve(savedId);
+      };
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('消息未能保存'));
     });
   },
 
@@ -1705,8 +1745,13 @@ export const DB = {
 
   saveScheduledMessage: async (msg: ScheduledMessage): Promise<void> => {
       const db = await openDB();
-      const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
-      transaction.objectStore(STORE_SCHEDULED).put(msg);
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
+          transaction.objectStore(STORE_SCHEDULED).put(msg);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error || new Error('定时消息未能保存'));
+          transaction.onabort = () => reject(transaction.error || new Error('定时消息未能保存'));
+      });
   },
 
   getDueScheduledMessages: async (charId: string): Promise<ScheduledMessage[]> => {
@@ -1728,8 +1773,13 @@ export const DB = {
 
   deleteScheduledMessage: async (id: string): Promise<void> => {
       const db = await openDB();
-      const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
-      transaction.objectStore(STORE_SCHEDULED).delete(id);
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_SCHEDULED, 'readwrite');
+          transaction.objectStore(STORE_SCHEDULED).delete(id);
+          transaction.oncomplete = () => resolve();
+          transaction.onerror = () => reject(transaction.error || new Error('定时消息未能删除'));
+          transaction.onabort = () => reject(transaction.error || new Error('定时消息未能删除'));
+      });
   },
 
   saveUserProfile: async (profile: UserProfile): Promise<void> => {
@@ -2235,6 +2285,48 @@ export const DB = {
       transaction.objectStore(STORE_QUIZZES).delete(id);
   },
 
+  // --- Study Papers (Academic Morning Reading) ---
+  getAllPapers: async (): Promise<StudyPaper[]> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_STUDY_PAPERS)) return [];
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_STUDY_PAPERS, 'readonly');
+          const store = transaction.objectStore(STORE_STUDY_PAPERS);
+          const request = store.getAll();
+          request.onsuccess = () => resolve((request.result || []).sort((a: StudyPaper, b: StudyPaper) => (b.fetchedAt || 0) - (a.fetchedAt || 0)));
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  getPaperById: async (id: string): Promise<StudyPaper | null> => {
+      const db = await openDB();
+      if (!db.objectStoreNames.contains(STORE_STUDY_PAPERS)) return null;
+      return new Promise((resolve, reject) => {
+          const transaction = db.transaction(STORE_STUDY_PAPERS, 'readonly');
+          const store = transaction.objectStore(STORE_STUDY_PAPERS);
+          const request = store.get(id);
+          request.onsuccess = () => resolve(request.result || null);
+          request.onerror = () => reject(request.error);
+      });
+  },
+
+  savePaper: async (paper: StudyPaper): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_STUDY_PAPERS, 'readwrite');
+      transaction.objectStore(STORE_STUDY_PAPERS).put(paper);
+  },
+
+  deletePaper: async (id: string): Promise<void> => {
+      const db = await openDB();
+      const transaction = db.transaction(STORE_STUDY_PAPERS, 'readwrite');
+      transaction.objectStore(STORE_STUDY_PAPERS).delete(id);
+  },
+
+  getLatestPaper: async (): Promise<StudyPaper | null> => {
+      const papers = await DB.getAllPapers();
+      return papers.length > 0 ? papers[0] : null;
+  },
+
   getAllGames: async (): Promise<GameSession[]> => {
       const db = await openDB();
       if (!db.objectStoreNames.contains(STORE_GAMES)) return [];
@@ -2520,6 +2612,25 @@ export const DB = {
       // 不限存储条数：留言墙已支持每 50 条翻页，旧留言全部保留可翻看
       const messages = state.messages || [];
       transaction.objectStore(STORE_VR_GUESTBOOK).put({ ...state, id: 'board', messages });
+  },
+
+  /** Atomic append: concurrent visitors and system announcements cannot replace each other. */
+  appendVRGuestbookMessages: async (messages: VRGuestbookState['messages']): Promise<void> => {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(STORE_VR_GUESTBOOK, 'readwrite');
+      const store = tx.objectStore(STORE_VR_GUESTBOOK);
+      const request = store.get('board');
+      request.onsuccess = () => {
+        const board: VRGuestbookState = request.result || { id: 'board', messages: [], updatedAt: 0 };
+        const ids = new Set(board.messages.map(m => m.id));
+        const fresh = messages.filter(m => { if (ids.has(m.id)) return false; ids.add(m.id); return true; });
+        if (fresh.length) store.put({ ...board, messages: [...board.messages, ...fresh], updatedAt: Date.now() });
+      };
+      tx.oncomplete = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event('vr-guestbook-updated')); resolve(); };
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error('留言未能保存'));
+    });
   },
 
   clearVRGuestbook: async (): Promise<void> => {

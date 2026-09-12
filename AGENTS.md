@@ -6,6 +6,20 @@
 
 > 包管理器统一用 **pnpm**：装依赖 `pnpm install`、跑测试 `pnpm vitest run`、跑脚本 `pnpm <script>`。别用 npm / yarn（仓库里是 `pnpm-lock.yaml`）。
 
+## ⚠️ 绝对禁令：Git 分支推送红线（最高优先级规则）
+
+1. **绝对禁止未经用户明确同意私自往 `meow` 和 `main` 分支推送任何内容！**
+2. **严禁自动执行 `git push <remote> meow` 或 `git push <remote> main`。**
+3. 代码只能在独立的特性分支（如 `feat/*`、`fix/*`）上开发和测试。
+4. **任何涉及上传或推送的操作，必须在执行前明确向用户询问并获得许可！** 用户没点头前，绝不能上传。
+
+## 🌐 本地开发调试规则：修改文件时默认开启 Cloudflare 穿透
+
+修改任何文件时，**默认顺便开启 / 保持 Cloudflare 穿透，方便用户在手机上实时本地 debug**：
+1. **Vite 配置**：确保 `vite.config.ts` 中的 `server.allowedHosts: true` 保持开启（不阻拦穿透 Host）。
+2. **穿透进程**：若隧道未在运行，执行 `cloudflared tunnel --url http://localhost:5173`（后台守护进程运行）。
+3. **输出指引**：在回复中顺便附上生成的 `https://*.trycloudflare.com` 临时外网链接，方便用户手机端直接扫码/打开测试。
+
 ## 文档地图
 
 | 主题 | 文档 | 什么时候看 |
@@ -25,6 +39,7 @@
 | **Instant Push SSE↔Push 契约** | [`docs/instant-push-dual-channel.md`](./docs/instant-push-dual-channel.md) | **改 instant push 路径或排查「报错但收到消息」类 bug 前必读**。SSE ≠ 送达判定通道、catch 不能直接判 send-failed |
 | **Instant Push 通道** | [`docs/instant-push-branch-notes.md`](./docs/instant-push-branch-notes.md)、[`worker/instant-push/README.md`](./worker/instant-push/README.md) | LLM-driven Web Push、worker 端 agentic loop / reasoning / 副作用 directive |
 | **使用统计** | [`docs/analytics.md`](./docs/analytics.md) | **加任何埋点前必读**。收什么/不收什么的边界、事件名与属性的规矩（属性只能是固定枚举）、构建时门禁与开关、完整事件清单。想加「某功能有多少人开了」看「加新埋点的规矩」第 5 条，别在配置页现场发 |
+| **自动编译 / 构建部署 Key 清单** | [`docs/auto-build-keys.md`](./docs/auto-build-keys.md) | 排查或配置 GitHub Actions 自动构建 (CF / APK / Worker sync)、主动消息部署 Key、Vite build hash 常量时查阅 |
 | **二改 / 加 App / 数据流 / 后端 Worker** | [`README.md`](./README.md) 「给想二改的人」一节 | 新增 App、build badge、sfworker 代理替换、开源协议 |
 
 > README 的「给想二改的人」区域信息量很大（数据流、ContextBuilder、Instant Push Phase 2、sfworker 清单），动后端 / 加功能前先扫一遍。

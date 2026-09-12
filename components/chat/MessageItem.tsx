@@ -1,7 +1,9 @@
+import { avatarDecorationImageStyle, isAnniversaryFrame } from '../../utils/anniversaryGifts';
 
 
 
 import React, { useEffect, useRef, useState, useContext } from 'react';
+const AivenFishSaleReceipt = React.lazy(() => import('../../apps/vrWorld/AivenFishSaleReceipt').then(module => ({ default: module.AivenFishSaleReceipt })));
 import { Message, ChatTheme, AppID } from '../../types';
 import { OSContext } from '../../context/OSContext';
 import { phoneFieldToText } from '../../utils/phoneEvidence';
@@ -15,11 +17,13 @@ import { isImageValue, useBlobRefUrl } from '../../utils/blobRef';
 import { buildReplySnapshotContent } from '../../utils/applyAssistantPostProcessing';
 import { stripLeakedSourceTags } from '../../utils/sanitize';
 import TokenImg from '../os/TokenImg';
+import { SARSpeechSwitch } from '../sar/SARSpeechSwitch';
 import McdCard from './McdCard';
 import HtmlCard from './HtmlCard';
 import LuckinCard from './LuckinCard';
 import LuckinCheckoutCard from './LuckinCheckoutCard';
 import QixiEventCardView from './QixiEventCard';
+import { PaperCard } from './PaperCard';
 
 // 思考链卡片支持的 12 种风格预设 — 同时被 MessageItem 与 ThinkingChainSettingsModal 复用
 export type ThinkingChainStyleId = 'echo' | 'whisper' | 'minimal' | 'ink' | 'neon' | 'terminal' | 'stellar' | 'tama' | 'pixel' | 'muji' | 'ins' | 'custom';
@@ -1848,6 +1852,8 @@ const MessageItem = React.memo(({
     // 无条件解析一次（hook 不能进条件分支）。挂件/头像挂件走 TokenImg，各自组件内解析。
     const bubbleBgUrl = useBlobRefUrl(styleConfig.backgroundImage);
     const [showVoiceText, setShowVoiceText] = useState(false);
+    const [showSarTruth, setShowSarTruth] = useState(false);
+    const [retractRevealed, setRetractRevealed] = useState(false);
     const [openingCollaborationFile, setOpeningCollaborationFile] = useState(false);
     const [replyOffset, setReplyOffset] = useState(0);
     const [isReplyGestureActive, setIsReplyGestureActive] = useState(false);
@@ -1978,6 +1984,7 @@ const MessageItem = React.memo(({
                     <>
                         <TokenImg
                             value={src}
+                            style={isAnniversaryFrame(styleConfig.avatarDecoration) ? { borderRadius: "50%" } : undefined}
                             className={`sully-chat-message-avatar-img w-full h-full ${avatarRadiusClass} object-cover shadow-sm ring-1 ring-black/5 relative z-0`}
                             alt="avatar"
                             loading="lazy"
@@ -1987,13 +1994,7 @@ const MessageItem = React.memo(({
                             <TokenImg
                                 value={styleConfig.avatarDecoration}
                                 className="absolute pointer-events-none z-10 max-w-none"
-                                style={{
-                                    left: `${styleConfig.avatarDecorationX ?? 50}%`,
-                                    top: `${styleConfig.avatarDecorationY ?? 50}%`,
-                                    width: `${avatarSizePx * (styleConfig.avatarDecorationScale ?? 1)}px`,
-                                    height: 'auto',
-                                    transform: `translate(-50%, -50%) rotate(${styleConfig.avatarDecorationRotate ?? 0}deg)`,
-                                }}
+                                style={avatarDecorationImageStyle(styleConfig, avatarSizePx)}
                             />
                         )}
                     </>
@@ -2001,6 +2002,43 @@ const MessageItem = React.memo(({
             </div>
         );
     };
+
+    // --- RETRACTED MESSAGE RENDERING ---
+    // 撤回后的消息：居中灰条「X 撤回了一条消息」，点一下展开原文（原文只留在本地，不进 AI 上下文）。
+    if (m.metadata?.retracted) {
+        const rc = m.metadata.retracted as { by: 'user' | 'assistant'; originalContent: string; originalType: string };
+        const who = rc.by === 'assistant' ? charName : '你';
+        return (
+            <div className={`flex flex-col items-center ${marginBottom} w-full animate-fade-in relative transition-[padding] duration-300 ${selectionMode ? 'pl-8' : ''}`}>
+                {selectionMode && (
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2 cursor-pointer z-20" onClick={() => onToggleSelect(m.id)}>
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'border-slate-300 bg-white/80'}`}>
+                            {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>}
+                        </div>
+                    </div>
+                )}
+                <div className="text-[10px] text-slate-400 mb-1 opacity-70">{formatTime(m.timestamp)}</div>
+                <div
+                    className="text-[11px] text-slate-500 bg-slate-200/50 backdrop-blur-sm px-4 py-1.5 rounded-full flex items-center gap-1.5 border border-white/40 shadow-sm select-none cursor-pointer active:scale-95 transition-transform"
+                    onClick={() => !selectionMode && setRetractRevealed(v => !v)}
+                >
+                    <span className="opacity-80 font-medium">{who}</span>
+                    <span className="opacity-60">撤回了一条消息</span>
+                    <span className="opacity-40 text-[10px]">{retractRevealed ? '收起' : '查看'}</span>
+                </div>
+                {retractRevealed && (
+                    <div className="mt-1.5 max-w-[75%] rounded-2xl bg-slate-100 border border-slate-200 px-3 py-2 text-[12px] text-slate-500 leading-relaxed whitespace-pre-wrap break-words">
+                        {rc.originalType === 'image'
+                            ? <TokenImg value={rc.originalContent} alt="" className="max-h-48 rounded-lg object-contain" loading="lazy" />
+                            : rc.originalType === 'voice' ? '[语音]'
+                            : rc.originalType === 'emoji' ? <TokenImg value={rc.originalContent} alt="" className="w-20 h-20 object-contain" loading="lazy" />
+                            : (rc.originalContent || '[空]')}
+                        <div className="mt-1 text-[9px] text-slate-400">{rc.by === 'assistant' ? 'AI 收到了撤回通知和这条原文' : '原文仅本地可见，AI 只收到「用户撤回了一条消息」'}</div>
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     // --- SYSTEM MESSAGE RENDERING ---
     if (isSystem) {
@@ -2807,12 +2845,49 @@ const MessageItem = React.memo(({
     if (m.type === 'vr_card') {
         const md: any = m.metadata || {};
         const roomNameMap: Record<string, string> = {
-            library: '图书馆', music: '听歌房', guestbook: '留言簿', gym: '娱乐室', postoffice: '邮局',
+            library: '图书馆', music: '听歌房', guestbook: '留言簿', gym: '娱乐室', postoffice: '邮局', theater: '剧院', signal: '信号坠落处', sar: 'SAR 活动空间',
         };
         const roomInfo = { name: roomNameMap[md.room] || '彼方' };
         const activity: string = md.activity || '在彼方度过了一段时间。';
         const excerpts: string[] = Array.isArray(md.annotationExcerpts) ? md.annotationExcerpts : [];
         const timeStr = new Date(m.timestamp).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        const sarNote: any = md.sarCabinetNote;
+        if (sarNote?.id) {
+            const card = (
+                <div className="w-72 max-w-[82vw]">
+                    <div className="relative overflow-hidden border border-stone-400/65 shadow-[4px_6px_0_rgba(86,78,66,.18)]" style={{ background: '#f4eddf', color: '#3f4744' }}>
+                        <div className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-teal-700/80 via-slate-500/60 to-rose-700/70" />
+                        <div className="px-4 pl-5 pt-3 pb-2.5 flex items-start gap-2 border-b border-stone-400/45">
+                            <span className="mt-0.5 text-[15px] text-teal-700">✦</span>
+                            <div className="min-w-0 flex-1">
+                                <div className="text-[8px] tracking-[0.22em] font-bold text-teal-800/65">彼方 · 角色柜中随笔</div>
+                                <div className="mt-1 text-[15px] leading-snug font-bold text-stone-800" style={{ fontFamily: "'Noto Serif SC',serif" }}>{sarNote.title || '一次芯片事故'}</div>
+                                <div className="mt-1 text-[9px] text-stone-500">{sarNote.actorName || charName || 'Ta'} 给 {sarNote.targetName || '另一位玩家'} 用了两枚芯片</div>
+                            </div>
+                            <span className="text-[8px] text-stone-400">{timeStr}</span>
+                        </div>
+                        <div className="px-4 pl-5 py-3">
+                            <div className="flex items-center gap-1.5 text-[9px] text-teal-800/75">
+                                <span className="px-1.5 py-1 border border-teal-800/20 bg-white/30">{sarNote.variantTitle}</span><i className="not-italic text-stone-400">×</i><span className="px-1.5 py-1 border border-teal-800/20 bg-white/30">{sarNote.storyTitle}</span>
+                            </div>
+                            <blockquote className="my-2.5 px-2.5 py-2 border-l-2 border-rose-700/45 bg-[#e8ddce] text-[11px] leading-relaxed text-stone-700" style={{ fontFamily: "'Noto Serif SC',serif" }}>“{sarNote.highlight}”</blockquote>
+                            <p className="text-[11px] leading-[1.65] text-stone-600">{activity}</p>
+                            <details className="group mt-2 border-t border-dashed border-stone-400/50 pt-2 [&_summary]:list-none [&::-webkit-details-marker]:hidden">
+                                <summary className="cursor-pointer select-none text-[9px] font-bold text-teal-800/70">展开完整事故与 TA 的随笔 <span className="inline-block transition-transform group-open:rotate-90">›</span></summary>
+                                <div className="mt-2 space-y-2.5">
+                                    <div><div className="text-[8px] tracking-[0.14em] text-stone-400">事情经过</div><p className="mt-1 whitespace-pre-wrap text-[11px] leading-[1.75] text-stone-600">{sarNote.story}</p></div>
+                                    <div className="border-t border-stone-300/70 pt-2"><div className="text-[8px] tracking-[0.14em] text-rose-800/55">柜中随笔</div><p className="mt-1 whitespace-pre-wrap text-[11px] leading-[1.75] text-stone-700" style={{ fontFamily: "'Noto Serif SC',serif" }}>{sarNote.notes}</p></div>
+                                </div>
+                            </details>
+                        </div>
+                        <div className="px-4 pl-5 py-1.5 border-t border-stone-400/40 flex items-center justify-between text-[8px] text-stone-500">
+                            <span>TA 自己玩过的一局</span><span className="font-bold text-rose-800/60">已收入角色柜子</span>
+                        </div>
+                    </div>
+                </div>
+            );
+            return commonLayout(card);
+        }
         const card = (
             <div className="w-64">
                 <div
@@ -2845,6 +2920,12 @@ const MessageItem = React.memo(({
                             </div>
                         )}
                         {/* 留言簿：把角色在墙上留的原话也显示出来 */}
+                        {md.privateWords && <blockquote className="mt-2 border-l-2 border-teal-200/50 pl-2 text-[12px] leading-relaxed text-indigo-50 whitespace-pre-wrap">{md.privateWords}</blockquote>}
+                        {md.fishing?.sale && <React.Suspense fallback={null}><AivenFishSaleReceipt sale={md.fishing.sale} sellerName={charName || 'Ta'} sellerWords={md.fishing.sale.sellerWords}/></React.Suspense>}
+                        {(md.marketActivity || md.marketEventId) && <details className="mt-2 text-[11px] text-indigo-200/80">
+                            <summary className="cursor-pointer">展开经过与原话</summary>
+                            <p className="mt-2 whitespace-pre-wrap break-words leading-relaxed">{m.content}</p>
+                        </details>}
                         {Array.isArray(md.boardPosts) && md.boardPosts.length > 0 && (
                             <div className="mt-2 space-y-1">
                                 {md.boardPosts.map((p: any, i: number) => (
@@ -3303,6 +3384,11 @@ const MessageItem = React.memo(({
                 </div>
             </div>
         );
+        return commonLayout(card);
+    }
+
+    if (m.type === 'paper_card') {
+        const card = <PaperCard message={m} openApp={(id) => openApp?.(id)} />;
         return commonLayout(card);
     }
 
@@ -3887,7 +3973,11 @@ const MessageItem = React.memo(({
         .replace(/\n{3,}/g, '\n\n')                  // collapse excess newlines
         .trim());   // ⚠️ 末尾再洗一遍鱼声情绪 cue（[excited]/[pause]/(laughs) 等），避免漏到气泡/翻译里
 
-    const rawContent = m.content;
+    const sarSurfaceText = typeof m.metadata?.sarModuleSurface?.surface === 'string'
+        ? m.metadata.sarModuleSurface.surface.trim()
+        : '';
+    const hasSarSurface = !!sarSurfaceText;
+    const rawContent = hasSarSurface && !showSarTruth ? sarSurfaceText : m.content;
 
     // 语音文字（转文字面板 / 语音条预览）显示前：先洗 MiniMax 标记，再洗鱼声情绪 cue，
     // 两家服务商的演出标记都不会漏给用户看。
@@ -3918,16 +4008,28 @@ const MessageItem = React.memo(({
     // Check if raw content has a <语音> tag (voice-only message that hasn't been TTS'd yet).
     // 未闭合的开标签也算 (历史坏数据: 语音块曾被 chunkText 切碎, 开标签落单) —
     // 当语音条渲染 + 转文字兜底, 而不是把原始标签漏给用户看。
-    const hasVoiceTag = !isUser && /<[语語]音[^>]*>/.test(m.content);
+    const voiceMarkupContent = hasSarSurface && !showSarTruth && /<[语語]音[^>]*>/.test(sarSurfaceText)
+        ? sarSurfaceText
+        : m.content;
+    const hasVoiceTag = !isUser && /<[语語]音[^>]*>/.test(voiceMarkupContent);
     // Spoken text inside the <语音> tag — lets the placeholder bar offer a 转文字 toggle
     // even when no audio was synthesized (e.g. character has no MiniMax voice configured),
     // so fake voice messages stay readable just like real ones.
     // 配对优先; 配不上 (未闭合) 就取开标签之后的全部内容。
     const voiceTagText = hasVoiceTag ? cleanVoiceText((
-        m.content.match(/<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>/)?.[1]
-        ?? m.content.match(/<[语語]音[^>]*>([\s\S]*)$/)?.[1]
+        voiceMarkupContent.match(/<[语語]音[^>]*>([\s\S]*?)<\/\s*[语語]音\s*>/)?.[1]
+        ?? voiceMarkupContent.match(/<[语語]音[^>]*>([\s\S]*)$/)?.[1]
         ?? ''
     ).replace(/<字幕>[\s\S]*?<\/字幕>/g, '').trim()) : '';
+    const voiceSubtitleText = cleanVoiceText(
+        voiceMarkupContent.match(/<字幕>([\s\S]*?)<\/字幕>/)?.[1] || '',
+    );
+    const generatedVoiceText = showSarTruth && hasSarSurface && voiceTagText
+        ? voiceTagText
+        : cleanVoiceText(voiceData?.spokenText);
+    const generatedVoiceSubtitle = showSarTruth && hasSarSurface
+        ? voiceSubtitleText
+        : cleanVoiceText(voiceData?.originalText);
     const hasVoiceContent = voiceData?.url || voiceLoading || hasVoiceTag;
     // Don't render empty bubbles (e.g. messages that were just "---"), unless voice data exists or pending
     if (!displayContent && !hasVoiceContent) return null;
@@ -3993,6 +4095,13 @@ const MessageItem = React.memo(({
                     </div>
                 )}
             </div>
+            )}
+
+            {hasSarSurface && (displayContent || hasVoiceContent) && (
+                <div className="sar-chat-speech-control" style={{ color: styleConfig.textColor }}>
+                    <SARSpeechSwitch truth={showSarTruth} moduleTitle={m.metadata?.sarModuleSurface?.moduleTitle}
+                        onToggle={() => setShowSarTruth(value => !value)} />
+                </div>
             )}
 
             {/* Layer 5: 双语「翻译/原文」切换 —— 气泡内右下角，细分隔线压层级，小灰字克制易找 */}
@@ -4107,28 +4216,28 @@ const MessageItem = React.memo(({
                                         {/* When foreign lang voice: show spoken text first, then Chinese translation */}
                                         {voiceData.lang && voiceData.spokenText ? (
                                             <>
-                                                <div className="whitespace-pre-wrap">{cleanVoiceText(voiceData.spokenText)}</div>
-                                                {(cleanVoiceText(voiceData.originalText) || displayContent) && (
+                                                <div className="whitespace-pre-wrap">{generatedVoiceText}</div>
+                                                {(generatedVoiceSubtitle || displayContent) && (
                                                     <div
                                                         style={{ opacity: 0.65 }}
                                                         className="whitespace-pre-wrap text-[10px] mt-1 pt-1 border-t border-current/10"
                                                     >
-                                                        {cleanVoiceText(voiceData.originalText) || displayContent}
+                                                        {generatedVoiceSubtitle || displayContent}
                                                     </div>
                                                 )}
                                             </>
                                         ) : (
                                             <>
                                                 {/* Default: show original text */}
-                                                {(cleanVoiceText(voiceData.originalText) || displayContent) && (
-                                                    <div className="whitespace-pre-wrap">{cleanVoiceText(voiceData.originalText) || displayContent}</div>
+                                                {(generatedVoiceSubtitle || displayContent) && (
+                                                    <div className="whitespace-pre-wrap">{generatedVoiceSubtitle || displayContent}</div>
                                                 )}
-                                                {cleanVoiceText(voiceData.spokenText) && (
+                                                {generatedVoiceText && (
                                                     <div
-                                                        style={{ opacity: (cleanVoiceText(voiceData.originalText) || displayContent) ? 0.55 : 1 }}
-                                                        className={`whitespace-pre-wrap ${(cleanVoiceText(voiceData.originalText) || displayContent) ? 'text-[10px] mt-1 pt-1 border-t border-current/10' : ''}`}
+                                                        style={{ opacity: (generatedVoiceSubtitle || displayContent) ? 0.55 : 1 }}
+                                                        className={`whitespace-pre-wrap ${(generatedVoiceSubtitle || displayContent) ? 'text-[10px] mt-1 pt-1 border-t border-current/10' : ''}`}
                                                     >
-                                                        {cleanVoiceText(voiceData.spokenText)}
+                                                        {generatedVoiceText}
                                                     </div>
                                                 )}
                                             </>
@@ -4213,6 +4322,7 @@ const MessageItem = React.memo(({
            prev.msg.metadata?.reviewStatus === next.msg.metadata?.reviewStatus &&
            prev.msg.metadata?.status === next.msg.metadata?.status &&
            prev.msg.metadata?.receipt === next.msg.metadata?.receipt &&
+           prev.msg.metadata?.sarModuleSurface?.surface === next.msg.metadata?.sarModuleSurface?.surface &&
            prev.isFirstInGroup === next.isFirstInGroup &&
            prev.isLastInGroup === next.isLastInGroup &&
            prev.activeTheme === next.activeTheme &&

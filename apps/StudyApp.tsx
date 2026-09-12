@@ -2,16 +2,20 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useOS } from '../context/OSContext';
 import { DB } from '../utils/db';
-import { StudyCourse, StudyChapter, CharacterProfile, Message, UserProfile, APIConfig, StudyTutorPreset, QuizQuestion, QuizSession, QuizQuestionNote } from '../types';
+import { StudyCourse, StudyChapter, CharacterProfile, Message, UserProfile, APIConfig, StudyTutorPreset, QuizQuestion, QuizSession, QuizQuestionNote, StudyPaper } from '../types';
 import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import { safeResponseJson, extractJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
-import { Notepad, Check, X, CheckCircle, XCircle, Hand } from '@phosphor-icons/react';
+import { Notepad, Check, X, CheckCircle, XCircle, Hand, Newspaper, Sparkle, ArrowRight, User, Key, FolderSimple, ArrowSquareOut, Eye, EyeSlash, SpinnerGap, ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
 import { extractPdfText, isPdfFile } from '../utils/pdfText';
+import { PaperShelf } from '../components/study/PaperShelf';
+import { PaperReader } from '../components/study/PaperReader';
+import { DEFAULT_PAPER_TRANSLATION_PROMPT } from '../utils/paperTranslator';
+import { getZoteroConfig, saveZoteroConfig, testZoteroConnection } from '../utils/zotero';
 
 type KatexLike = {
     renderToString: (latex: string, options: any) => string;
@@ -305,9 +309,11 @@ const BlackboardRenderer: React.FC<{ text: string, isTyping?: boolean, katexRend
 };
 
 const StudyApp: React.FC = () => {
-    const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateCharacter, characterGroups } = useOS();
-    const [mode, setMode] = useState<'bookshelf' | 'classroom' | 'quiz' | 'quiz_review' | 'practice_book'>('bookshelf');
+    const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateCharacter, characterGroups, apiPresets = [], addApiPreset } = useOS();
+    const [mode, setMode] = useState<'bookshelf' | 'classroom' | 'quiz' | 'quiz_review' | 'practice_book' | 'paper_shelf' | 'paper_reader'>('bookshelf');
+    const [activePaper, setActivePaper] = useState<StudyPaper | null>(null);
     const [courses, setCourses] = useState<StudyCourse[]>([]);
+    const [bookshelfTab, setBookshelfTab] = useState<'courses' | 'papers'>('courses');
     const [activeCourse, setActiveCourse] = useState<StudyCourse | null>(null);
     const [selectedChar, setSelectedChar] = useState<CharacterProfile | null>(null);
     const [tutorGroupId, setTutorGroupId] = useState<string>(GROUP_FILTER_ALL); // 书架页「当前助教」的分组筛选
@@ -334,18 +340,40 @@ const StudyApp: React.FC = () => {
     const [tempPdfData, setTempPdfData] = useState<{name: string, text: string} | null>(null);
     const [katexRenderer, setKatexRenderer] = useState<KatexLike | null>(null);
 
+    // Study Room Settings Modal State
+    const [showStudySettings, setShowStudySettings] = useState(false);
+    const [studySettingsTab, setStudySettingsTab] = useState<'tutor' | 'paper' | 'zotero'>('tutor');
+
+    // Zotero Web API 绑定配置
+    const [zoteroUserId, setZoteroUserId] = useState('');
+    const [zoteroApiKey, setZoteroApiKey] = useState('');
+    const [zoteroCollectionKey, setZoteroCollectionKey] = useState('');
+    const [showZoteroApiKey, setShowZoteroApiKey] = useState(false);
+    const [isTestingZotero, setIsTestingZotero] = useState(false);
+    const [zoteroTestResult, setZoteroTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
     // Study-specific API config (overrides main apiConfig when set)
     const [studyApi, setStudyApi] = useState<Partial<APIConfig>>({});
-    const [showStudySettings, setShowStudySettings] = useState(false);
     const [localStudyUrl, setLocalStudyUrl] = useState('');
     const [localStudyKey, setLocalStudyKey] = useState('');
     const [localStudyModel, setLocalStudyModel] = useState('');
+    const [showStudySavePreset, setShowStudySavePreset] = useState(false);
+    const [newStudyPresetName, setNewStudyPresetName] = useState('');
 
     // Tutor prompt presets
     const [tutorPresets, setTutorPresets] = useState<StudyTutorPreset[]>([]);
     const [editingPreset, setEditingPreset] = useState<StudyTutorPreset | null>(null);
     const [presetName, setPresetName] = useState('');
     const [presetPrompt, setPresetPrompt] = useState('');
+
+    // Literature Translation Settings
+    const [paperApi, setPaperApi] = useState<Partial<APIConfig>>({});
+    const [localPaperUrl, setLocalPaperUrl] = useState('');
+    const [localPaperKey, setLocalPaperKey] = useState('');
+    const [localPaperModel, setLocalPaperModel] = useState('');
+    const [paperPrompt, setPaperPrompt] = useState(DEFAULT_PAPER_TRANSLATION_PROMPT);
+    const [showPaperSavePreset, setShowPaperSavePreset] = useState(false);
+    const [newPaperPresetName, setNewPaperPresetName] = useState('');
 
     // Effective API config: study-specific overrides fall back to main config
     const effectiveApi: APIConfig = {
@@ -400,6 +428,24 @@ const StudyApp: React.FC = () => {
             }
             const savedPresets = localStorage.getItem('study_tutor_presets');
             if (savedPresets) setTutorPresets(JSON.parse(savedPresets));
+
+            const savedPaperApi = localStorage.getItem('study_paper_api_config');
+            if (savedPaperApi) {
+                const parsed = JSON.parse(savedPaperApi);
+                setPaperApi(parsed);
+                setLocalPaperUrl(parsed.baseUrl || '');
+                setLocalPaperKey(parsed.apiKey || '');
+                setLocalPaperModel(parsed.model || '');
+            }
+            const savedPaperPrompt = localStorage.getItem('study_paper_translation_prompt');
+            if (savedPaperPrompt && savedPaperPrompt.trim()) {
+                setPaperPrompt(savedPaperPrompt.trim());
+            }
+
+            const savedZotero = getZoteroConfig();
+            setZoteroUserId(savedZotero.userId || '');
+            setZoteroApiKey(savedZotero.apiKey || '');
+            setZoteroCollectionKey(savedZotero.collectionKey || '');
         } catch (e) { console.error('Failed to load study settings', e); }
     }, []);
 
@@ -409,6 +455,26 @@ const StudyApp: React.FC = () => {
             loadCourses();
         }
     }, [mode]);
+
+    // 监听外部跳转指定的文献 (桌面小组件或聊天卡片拉起)
+    useEffect(() => {
+        const targetPaperId = sessionStorage.getItem('study_target_paper');
+        if (targetPaperId) {
+            sessionStorage.removeItem('study_target_paper');
+            DB.getPaperById(targetPaperId).then(paper => {
+                if (paper) {
+                    setActivePaper(paper);
+                    setMode('paper_reader');
+                }
+            });
+        }
+    }, []);
+
+    const handlePaperAskTutor = (snippet: string, defaultPrompt?: string) => {
+        setUserQuestion(defaultPrompt || `请向我解读以下文献内容：\n"${snippet.slice(0, 300)}"`);
+        setMode('classroom');
+        setClassroomState('q_and_a');
+    };
 
     // Typewriter effect Logic
     useEffect(() => {
@@ -446,11 +512,14 @@ const StudyApp: React.FC = () => {
         setCourses(list.sort((a,b) => b.createdAt - a.createdAt));
     };
 
-    const saveStudyApi = () => {
+    const saveStudyApi = (override?: { url?: string; apiKey?: string; model?: string }) => {
+        const u = override?.url !== undefined ? override.url : localStudyUrl;
+        const k = override?.apiKey !== undefined ? override.apiKey : localStudyKey;
+        const m = override?.model !== undefined ? override.model : localStudyModel;
         const cfg: Partial<APIConfig> = {};
-        if (localStudyUrl.trim()) cfg.baseUrl = localStudyUrl.trim();
-        if (localStudyKey.trim()) cfg.apiKey = localStudyKey.trim();
-        if (localStudyModel.trim()) cfg.model = localStudyModel.trim();
+        if (u.trim()) cfg.baseUrl = u.trim();
+        if (k.trim()) cfg.apiKey = k.trim();
+        if (m.trim()) cfg.model = m.trim();
         setStudyApi(cfg);
         localStorage.setItem('study_api_config', JSON.stringify(cfg));
         trackEvent('保存自习室独立 API 线路');
@@ -488,6 +557,106 @@ const StudyApp: React.FC = () => {
 
     const deletePreset = (id: string) => {
         savePresets(tutorPresets.filter(p => p.id !== id));
+    };
+
+    const savePaperApi = (override?: { url?: string; apiKey?: string; model?: string }) => {
+        const u = override?.url !== undefined ? override.url : localPaperUrl;
+        const k = override?.apiKey !== undefined ? override.apiKey : localPaperKey;
+        const m = override?.model !== undefined ? override.model : localPaperModel;
+        const cfg: Partial<APIConfig> = {};
+        if (u.trim()) cfg.baseUrl = u.trim();
+        if (k.trim()) cfg.apiKey = k.trim();
+        if (m.trim()) cfg.model = m.trim();
+        setPaperApi(cfg);
+        localStorage.setItem('study_paper_api_config', JSON.stringify(cfg));
+        trackEvent('保存自习室独立 API 线路');
+        addToast('文献翻译 API 已保存', 'success');
+    };
+
+    const clearPaperApi = () => {
+        setPaperApi({});
+        setLocalPaperUrl('');
+        setLocalPaperKey('');
+        setLocalPaperModel('');
+        localStorage.removeItem('study_paper_api_config');
+        addToast('已恢复继承自习室/全局 API', 'info');
+    };
+
+    const handleSavePaperPrompt = () => {
+        if (!paperPrompt.trim()) return;
+        localStorage.setItem('study_paper_translation_prompt', paperPrompt.trim());
+        addToast('文献翻译提示词已保存', 'success');
+    };
+
+    const handleResetPaperPrompt = () => {
+        if (confirm('确定要恢复默认的顶级学术期刊翻译提示词吗？')) {
+            setPaperPrompt(DEFAULT_PAPER_TRANSLATION_PROMPT);
+            localStorage.removeItem('study_paper_translation_prompt');
+            addToast('已恢复默认学术提示词', 'info');
+        }
+    };
+
+    const handleSaveStudyPreset = () => {
+        const name = newStudyPresetName.trim();
+        if (!name) return;
+        addApiPreset(name, {
+            baseUrl: localStudyUrl,
+            apiKey: localStudyKey,
+            model: localStudyModel,
+        });
+        setNewStudyPresetName('');
+        setShowStudySavePreset(false);
+        addToast(`预设「${name}」已保存`, 'success');
+    };
+
+    const handleSavePaperPreset = () => {
+        const name = newPaperPresetName.trim();
+        if (!name) return;
+        addApiPreset(name, {
+            baseUrl: localPaperUrl,
+            apiKey: localPaperKey,
+            model: localPaperModel,
+        });
+        setNewPaperPresetName('');
+        setShowPaperSavePreset(false);
+        addToast(`预设「${name}」已保存`, 'success');
+    };
+
+    // --- Zotero Config Handlers ---
+
+    const handleSaveZoteroConfig = () => {
+        saveZoteroConfig({
+            userId: zoteroUserId.trim(),
+            apiKey: zoteroApiKey.trim(),
+            collectionKey: zoteroCollectionKey.trim() || undefined
+        });
+        trackEvent('保存 Zotero 凭据配置');
+        addToast('Zotero 配置已保存', 'success');
+    };
+
+    const handleClearZoteroConfig = () => {
+        setZoteroUserId('');
+        setZoteroApiKey('');
+        setZoteroCollectionKey('');
+        setZoteroTestResult(null);
+        saveZoteroConfig({ userId: '', apiKey: '' });
+        addToast('已清除 Zotero 配置', 'info');
+    };
+
+    const handleTestZotero = async () => {
+        handleSaveZoteroConfig();
+        setIsTestingZotero(true);
+        setZoteroTestResult(null);
+        try {
+            const res = await testZoteroConnection({
+                userId: zoteroUserId.trim(),
+                apiKey: zoteroApiKey.trim(),
+                collectionKey: zoteroCollectionKey.trim() || undefined
+            });
+            setZoteroTestResult(res);
+        } finally {
+            setIsTestingZotero(false);
+        }
     };
 
     // --- PDF Processing ---
@@ -1275,6 +1444,41 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
 
     // --- Render ---
 
+    // PAPER READER VIEW
+    if (mode === 'paper_reader' && activePaper) {
+        return (
+            <PaperReader
+                paper={activePaper}
+                onBack={() => {
+                    setBookshelfTab('papers');
+                    setMode('bookshelf');
+                }}
+                onAskTutor={handlePaperAskTutor}
+                katexRenderer={katexRenderer}
+                apiConfig={effectiveApi}
+                onUpdatePaper={(updated) => setActivePaper(updated)}
+                onOpenZoteroSettings={() => {
+                    setShowStudySettings(true);
+                    setStudySettingsTab('zotero');
+                }}
+            />
+        );
+    }
+
+    // PAPER SHELF VIEW
+    if (mode === 'paper_shelf') {
+        return (
+            <PaperShelf
+                onSelectPaper={(p) => {
+                    setActivePaper(p);
+                    setMode('paper_reader');
+                }}
+                apiConfig={effectiveApi}
+                onBackToCourses={() => setMode('bookshelf')}
+            />
+        );
+    }
+
     // PRACTICE BOOK VIEW
     if (mode === 'practice_book') {
         return (
@@ -1594,6 +1798,24 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         </button>
                         <span className="font-bold text-slate-800 text-lg tracking-wide">自习室</span>
                         <div className="flex gap-1">
+                            <button
+                                onClick={() => {
+                                    if (bookshelfTab === 'papers') {
+                                        setBookshelfTab('courses');
+                                    } else {
+                                        trackEvent('打开文献晨读');
+                                        setBookshelfTab('papers');
+                                    }
+                                }}
+                                className={`p-2 rounded-full active:scale-90 transition-transform ${
+                                    bookshelfTab === 'papers'
+                                        ? 'bg-emerald-100/80 text-emerald-800'
+                                        : 'hover:bg-black/5 text-slate-500'
+                                }`}
+                                title={bookshelfTab === 'papers' ? '返回我的课程' : '学术文献晨读'}
+                            >
+                                <Newspaper size={20} />
+                            </button>
                             <button onClick={() => { trackEvent('打开练习册'); loadQuizzes(); setMode('practice_book'); }} className="p-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform" title="练习册">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-5 h-5 text-slate-500"><path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 0 0 2.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 0 0-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75 2.25 2.25 0 0 0-.1-.664m-5.8 0A2.251 2.251 0 0 1 13.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25ZM6.75 12h.008v.008H6.75V12Zm0 3h.008v.008H6.75V15Zm0 3h.008v.008H6.75V18Z" /></svg>
                             </button>
@@ -1607,7 +1829,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
 
                 <div className="p-6 flex-1 overflow-y-auto no-scrollbar">
                     {/* Character Selector */}
-                    <div className="mb-8">
+                    <div className="mb-6">
                         <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">当前助教</h3>
                         {/* 分组筛选（没建分组时不渲染），横向头像列表太挤，单独放一行 */}
                         <CharacterGroupFilterBar characters={characters} groups={characterGroups}
@@ -1624,45 +1846,87 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         </div>
                     </div>
 
-                    <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">我的课程</h3>
-                    
-                    <div className="grid grid-cols-2 gap-4">
-                        <button onClick={() => fileInputRef.current?.click()} className="aspect-[3/4] rounded-r-xl rounded-l-sm border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-2 text-slate-400 hover:border-emerald-400 hover:text-emerald-500 transition-colors bg-white">
-                            {isProcessing ? (
-                                <div className="text-center px-2">
-                                    <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
-                                    <span className="text-[10px]">{processStatus}</span>
-                                </div>
-                            ) : (
-                                <>
-                                    <span className="text-3xl">+</span>
-                                    <span className="text-xs font-bold">导入 PDF</span>
-                                </>
-                            )}
+                    {/* 书架双 Tab：我的课程 vs 学术文献晨读 */}
+                    <div className="flex bg-slate-200/60 p-1 rounded-2xl mb-5 gap-1">
+                        <button
+                            onClick={() => setBookshelfTab('courses')}
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                                bookshelfTab === 'courses'
+                                    ? 'bg-white text-slate-800 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            我的课程 {courses.length > 0 && `(${courses.length})`}
                         </button>
-                        <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" onChange={handleFileSelect} disabled={isProcessing} />
-
-                        {courses.map(course => (
-                            <div key={course.id} onClick={() => startSession(course)} className="aspect-[3/4] rounded-r-xl rounded-l-sm shadow-md relative group cursor-pointer overflow-hidden transition-transform active:scale-95" style={{ background: course.coverStyle }}>
-                                <div className="absolute left-0 top-0 bottom-0 w-2 bg-black/10"></div> {/* Spine */}
-                                <div className="p-4 flex flex-col h-full text-white relative z-10">
-                                    <div className="flex-1 font-serif font-bold text-lg leading-tight line-clamp-3 drop-shadow-md">{course.title}</div>
-                                    <div className="mt-2">
-                                        <div className="text-[10px] font-bold opacity-80 mb-1">进度 {course.totalProgress}%</div>
-                                        <div className="h-1 bg-white/30 rounded-full overflow-hidden">
-                                            <div className="h-full bg-white transition-all duration-500" style={{ width: `${course.totalProgress}%` }}></div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <button 
-                                    onClick={(e) => requestDeleteCourse(e, course)} 
-                                    className="absolute top-2 right-2 bg-black/20 hover:bg-red-500 text-white w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-all z-20"
-                                >
-                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                                </button>
-                            </div>
-                        ))}
+                        <button
+                            onClick={() => {
+                                setBookshelfTab('papers');
+                                trackEvent('打开文献晨读');
+                            }}
+                            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all ${
+                                bookshelfTab === 'papers'
+                                    ? 'bg-white text-emerald-700 shadow-xs'
+                                    : 'text-slate-500 hover:text-slate-800'
+                            }`}
+                        >
+                            学术文献晨读
+                        </button>
                     </div>
+
+                    {bookshelfTab === 'courses' ? (
+                        <div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <button onClick={() => fileInputRef.current?.click()} className="aspect-[3/4] rounded-r-xl rounded-l-sm border-2 border-dashed border-slate-300 flex flex-col items-center justify-center gap-2 text-slate-400 hover:border-emerald-400 hover:text-emerald-500 transition-colors bg-white">
+                                    {isProcessing ? (
+                                        <div className="text-center px-2">
+                                            <div className="w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin mx-auto mb-2"></div>
+                                            <span className="text-[10px]">{processStatus}</span>
+                                        </div>
+                                    ) : (
+                                        <>
+                                            <span className="text-3xl">+</span>
+                                            <span className="text-xs font-bold">导入 PDF</span>
+                                        </>
+                                    )}
+                                </button>
+                                <input type="file" ref={fileInputRef} className="hidden" accept=".pdf" onChange={handleFileSelect} disabled={isProcessing} />
+
+                                {courses.map(course => (
+                                    <div key={course.id} onClick={() => startSession(course)} className="aspect-[3/4] rounded-r-xl rounded-l-sm shadow-md relative group cursor-pointer overflow-hidden transition-transform active:scale-95" style={{ background: course.coverStyle }}>
+                                        <div className="absolute left-0 top-0 bottom-0 w-2 bg-black/10"></div> {/* Spine */}
+                                        <div className="p-4 flex flex-col h-full text-white relative z-10">
+                                            <div className="flex-1 font-serif font-bold text-lg leading-tight line-clamp-3 drop-shadow-md">{course.title}</div>
+                                            <div className="mt-2">
+                                                <div className="text-[10px] font-bold opacity-80 mb-1">进度 {course.totalProgress}%</div>
+                                                <div className="h-1 bg-white/30 rounded-full overflow-hidden">
+                                                    <div className="h-full bg-white transition-all duration-500" style={{ width: `${course.totalProgress}%` }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <button 
+                                            onClick={(e) => requestDeleteCourse(e, course)} 
+                                            className="absolute top-2 right-2 bg-black/20 hover:bg-red-500 text-white w-7 h-7 rounded-full flex items-center justify-center backdrop-blur-md transition-all z-20"
+                                        >
+                                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    ) : (
+                        <PaperShelf
+                            embedded={true}
+                            onSelectPaper={(p) => {
+                                setActivePaper(p);
+                                setMode('paper_reader');
+                            }}
+                            apiConfig={effectiveApi}
+                            onOpenZoteroSettings={() => {
+                                setShowStudySettings(true);
+                                setStudySettingsTab('zotero');
+                            }}
+                        />
+                    )}
                 </div>
 
                 <Modal isOpen={showImportModal} title="课程设置" onClose={() => setShowImportModal(false)} footer={<button onClick={confirmImport} className="w-full py-3 bg-emerald-500 text-white font-bold rounded-2xl">开始生成</button>}>
@@ -1696,58 +1960,466 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
 
                 {/* Study Room Settings Modal */}
                 <Modal isOpen={showStudySettings} title="自习室设置" onClose={() => setShowStudySettings(false)}>
-                    <div className="space-y-6">
-                        {/* Dedicated API Config */}
-                        <div>
-                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">专用 API（留空则使用全局设置）</h4>
-                            <div className="space-y-2">
-                                <input value={localStudyUrl} onChange={e => setLocalStudyUrl(e.target.value)} placeholder="API Base URL" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                <input value={localStudyKey} onChange={e => setLocalStudyKey(e.target.value)} placeholder="API Key" type="password" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                <input value={localStudyModel} onChange={e => setLocalStudyModel(e.target.value)} placeholder="模型名称 (e.g. gpt-4o)" className="w-full bg-slate-100 rounded-xl p-3 text-sm focus:outline-emerald-500" />
-                                <div className="flex gap-2">
-                                    <button onClick={saveStudyApi} className="flex-1 py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs">保存</button>
-                                    <button onClick={clearStudyApi} className="py-2.5 px-4 bg-slate-200 text-slate-500 font-bold rounded-xl text-xs">清除</button>
-                                </div>
-                                {(studyApi.baseUrl || studyApi.model) && (
-                                    <div className="text-[10px] text-emerald-600 bg-emerald-50 rounded-lg p-2">
-                                        当前使用专用 API: {studyApi.model || effectiveApi.model}
-                                    </div>
-                                )}
-                            </div>
+                    <div className="space-y-5">
+                        {/* 顶部分栏切换 */}
+                        <div className="flex bg-slate-100 p-1 rounded-xl">
+                            <button
+                                onClick={() => setStudySettingsTab('tutor')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                                    studySettingsTab === 'tutor'
+                                        ? 'bg-white text-slate-800 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                AI 助教与课堂
+                            </button>
+                            <button
+                                onClick={() => setStudySettingsTab('paper')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                                    studySettingsTab === 'paper'
+                                        ? 'bg-white text-emerald-600 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                学术文献翻译
+                            </button>
+                            <button
+                                onClick={() => setStudySettingsTab('zotero')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                                    studySettingsTab === 'zotero'
+                                        ? 'bg-white text-red-600 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                Zotero 绑定
+                            </button>
                         </div>
 
-                        {/* Tutor Prompt Presets */}
-                        <div>
-                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">提示词预设</h4>
-                            {tutorPresets.length > 0 && (
-                                <div className="space-y-2 mb-3">
-                                    {tutorPresets.map(p => (
-                                        <div key={p.id} className="bg-slate-50 rounded-xl p-3 flex items-start gap-2">
-                                            <div className="flex-1 min-w-0">
-                                                <div className="text-sm font-bold text-slate-700">{p.name}</div>
-                                                <div className="text-xs text-slate-400 truncate">{p.prompt}</div>
-                                            </div>
-                                            <button onClick={() => { setEditingPreset(p); setPresetName(p.name); setPresetPrompt(p.prompt); }} className="text-slate-400 hover:text-emerald-500 shrink-0 p-1">
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg>
-                                            </button>
-                                            <button onClick={() => deletePreset(p.id)} className="text-slate-400 hover:text-red-500 shrink-0 p-1">
-                                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                        {studySettingsTab === 'tutor' && (
+                            <>
+                                {/* Dedicated API Config */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">助教专用 API（留空则使用全局设置）</h4>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowStudySavePreset(!showStudySavePreset)}
+                                            className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full font-bold shadow-xs active:scale-95 transition-transform"
+                                        >
+                                            保存为预设
+                                        </button>
+                                    </div>
+
+                                    {showStudySavePreset && (
+                                        <div className="flex gap-2 mb-3">
+                                            <input
+                                                type="text"
+                                                value={newStudyPresetName}
+                                                onChange={e => setNewStudyPresetName(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && handleSaveStudyPreset()}
+                                                placeholder="预设名称..."
+                                                className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-emerald-500"
+                                                autoFocus
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveStudyPreset}
+                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95 transition-transform"
+                                            >
+                                                保存
                                             </button>
                                         </div>
-                                    ))}
+                                    )}
+
+                                    {/* Presets List */}
+                                    {apiPresets.length > 0 && (
+                                        <div className="mb-3">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">我的预设</label>
+                                            <div className="flex gap-2 flex-wrap">
+                                                {apiPresets.map(preset => (
+                                                    <button
+                                                        key={preset.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setLocalStudyUrl(preset.config.baseUrl || '');
+                                                            setLocalStudyKey(preset.config.apiKey || '');
+                                                            setLocalStudyModel(preset.config.model || '');
+                                                            addToast(`已载入预设: ${preset.name}`, 'info');
+                                                        }}
+                                                        className="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-1 shadow-xs text-xs font-medium text-slate-600 hover:text-emerald-600 hover:border-emerald-200 active:scale-95 transition-all"
+                                                    >
+                                                        {preset.name}
+                                                        <span className="ml-1.5 text-slate-400 font-mono text-[10px]">{preset.config.model}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        <input
+                                            value={localStudyUrl}
+                                            onChange={e => setLocalStudyUrl(e.target.value)}
+                                            placeholder="API Base URL (留空使用全局设置)"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <input
+                                            value={localStudyKey}
+                                            onChange={e => setLocalStudyKey(e.target.value)}
+                                            placeholder="API Key (留空使用全局设置)"
+                                            type="password"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <input
+                                            value={localStudyModel}
+                                            onChange={e => setLocalStudyModel(e.target.value)}
+                                            placeholder="模型名称 (如 gpt-4o, deepseek-chat)"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <div className="flex gap-2 pt-1">
+                                            <button
+                                                onClick={() => saveStudyApi()}
+                                                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs shadow-sm active:scale-95 transition"
+                                            >
+                                                保存配置
+                                            </button>
+                                            <button
+                                                onClick={clearStudyApi}
+                                                className="py-2.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-full text-xs active:scale-95 transition"
+                                            >
+                                                清除
+                                            </button>
+                                        </div>
+                                        {(studyApi.baseUrl || studyApi.model) && (
+                                            <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-xl p-2.5">
+                                                当前使用专用 API: {studyApi.model || effectiveApi.model}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                            )}
-                            <div className="space-y-2 bg-slate-100 rounded-xl p-3">
-                                <input value={presetName} onChange={e => setPresetName(e.target.value)} placeholder="预设名称（如：数学辅导）" className="w-full bg-white rounded-lg p-2.5 text-sm focus:outline-emerald-500" />
-                                <textarea value={presetPrompt} onChange={e => setPresetPrompt(e.target.value)} placeholder="提示词内容（如：请用中文讲解，多用简单的比喻...）" className="w-full bg-white rounded-lg p-2.5 text-sm focus:outline-emerald-500 resize-none h-24" />
-                                <button onClick={handleSavePreset} disabled={!presetName.trim() || !presetPrompt.trim()} className="w-full py-2.5 bg-emerald-500 text-white font-bold rounded-xl text-xs disabled:opacity-40">
-                                    {editingPreset ? '更新预设' : '添加预设'}
-                                </button>
-                                {editingPreset && (
-                                    <button onClick={() => { setEditingPreset(null); setPresetName(''); setPresetPrompt(''); }} className="w-full py-2 text-slate-400 text-xs">取消编辑</button>
-                                )}
+
+                                {/* Tutor Prompt Presets */}
+                                <div>
+                                    <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3">提示词预设</h4>
+                                    {tutorPresets.length > 0 && (
+                                        <div className="space-y-2 mb-3">
+                                            {tutorPresets.map(p => (
+                                                <div key={p.id} className="bg-slate-50 rounded-2xl p-3 flex items-start gap-2 border border-slate-100">
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-sm font-bold text-slate-700">{p.name}</div>
+                                                        <div className="text-xs text-slate-400 truncate">{p.prompt}</div>
+                                                    </div>
+                                                    <button onClick={() => { setEditingPreset(p); setPresetName(p.name); setPresetPrompt(p.prompt); }} className="text-slate-400 hover:text-emerald-500 shrink-0 p-1">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L6.832 19.82a4.5 4.5 0 0 1-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 0 1 1.13-1.897L16.863 4.487Z" /></svg>
+                                                    </button>
+                                                    <button onClick={() => deletePreset(p.id)} className="text-slate-400 hover:text-red-500 shrink-0 p-1">
+                                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor" className="w-4 h-4"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18 18 6M6 6l12 12" /></svg>
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                    <div className="space-y-2 bg-slate-100/70 rounded-2xl p-3 border border-slate-200/50">
+                                        <input value={presetName} onChange={e => setPresetName(e.target.value)} placeholder="预设名称（如：数学辅导）" className="w-full bg-white rounded-xl p-2.5 text-sm focus:outline-emerald-500 border border-slate-200/60" />
+                                        <textarea value={presetPrompt} onChange={e => setPresetPrompt(e.target.value)} placeholder="提示词内容（如：请用中文讲解，多用简单的比喻...）" className="w-full bg-white rounded-xl p-2.5 text-sm focus:outline-emerald-500 resize-none h-24 border border-slate-200/60" />
+                                        <button onClick={handleSavePreset} disabled={!presetName.trim() || !presetPrompt.trim()} className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs disabled:opacity-40 shadow-sm active:scale-95 transition">
+                                            {editingPreset ? '更新预设' : '添加预设'}
+                                        </button>
+                                        {editingPreset && (
+                                            <button onClick={() => { setEditingPreset(null); setPresetName(''); setPresetPrompt(''); }} className="w-full py-2 text-slate-400 text-xs">取消编辑</button>
+                                        )}
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {studySettingsTab === 'paper' && (
+                            <>
+                                {/* Paper Translation Dedicated API */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div>
+                                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">文献翻译专用 API</h4>
+                                            <span className="text-[10px] text-slate-400">留空则继承自习室/全局</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPaperSavePreset(!showPaperSavePreset)}
+                                            className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full font-bold shadow-xs active:scale-95 transition-transform"
+                                        >
+                                            保存为预设
+                                        </button>
+                                    </div>
+
+                                    {showPaperSavePreset && (
+                                        <div className="flex gap-2 mb-3">
+                                            <input
+                                                type="text"
+                                                value={newPaperPresetName}
+                                                onChange={e => setNewPaperPresetName(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && handleSavePaperPreset()}
+                                                placeholder="预设名称..."
+                                                className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-emerald-500"
+                                                autoFocus
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleSavePaperPreset}
+                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95 transition-transform"
+                                            >
+                                                保存
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Presets List */}
+                                    {apiPresets.length > 0 && (
+                                        <div className="mb-3">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">我的预设</label>
+                                            <div className="flex gap-2 flex-wrap">
+                                                {apiPresets.map(preset => (
+                                                    <button
+                                                        key={preset.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setLocalPaperUrl(preset.config.baseUrl || '');
+                                                            setLocalPaperKey(preset.config.apiKey || '');
+                                                            setLocalPaperModel(preset.config.model || '');
+                                                            addToast(`已载入预设: ${preset.name}`, 'info');
+                                                        }}
+                                                        className="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-1 shadow-xs text-xs font-medium text-slate-600 hover:text-emerald-600 hover:border-emerald-200 active:scale-95 transition-all"
+                                                    >
+                                                        {preset.name}
+                                                        <span className="ml-1.5 text-slate-400 font-mono text-[10px]">{preset.config.model}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        <input
+                                            value={localPaperUrl}
+                                            onChange={e => setLocalPaperUrl(e.target.value)}
+                                            placeholder="API Base URL (留空继承)"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <input
+                                            value={localPaperKey}
+                                            onChange={e => setLocalPaperKey(e.target.value)}
+                                            placeholder="API Key (留空继承)"
+                                            type="password"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <input
+                                            value={localPaperModel}
+                                            onChange={e => setLocalPaperModel(e.target.value)}
+                                            placeholder="模型名称 (如 deepseek-chat, gpt-4o)"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <div className="flex gap-2 pt-1">
+                                            <button
+                                                onClick={() => savePaperApi()}
+                                                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs shadow-sm active:scale-95 transition"
+                                            >
+                                                保存翻译 API
+                                            </button>
+                                            <button
+                                                onClick={clearPaperApi}
+                                                className="py-2.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-full text-xs active:scale-95 transition"
+                                            >
+                                                恢复继承
+                                            </button>
+                                        </div>
+                                        <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-xl p-2.5 flex items-center justify-between">
+                                            <span>
+                                                {paperApi.baseUrl || paperApi.model ? '已启用独立文献翻译 API' : '当前使用继承配置'}
+                                            </span>
+                                            <span className="font-mono font-bold">
+                                                生效模型: {paperApi.model || studyApi.model || apiConfig.model || '未设定'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Paper Translation Custom Prompt */}
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">文献翻译学术提示词</h4>
+                                        <button
+                                            onClick={handleResetPaperPrompt}
+                                            className="text-[10px] text-slate-400 hover:text-emerald-600 underline"
+                                        >
+                                            恢复默认提示词
+                                        </button>
+                                    </div>
+                                    <p className="text-[11px] text-slate-400 mb-2 leading-relaxed">
+                                        该提示词用于指导大模型进行段落双语精翻及百字晨读机理提炼，严格保护 LaTeX 公式与专业缩写。
+                                    </p>
+                                    <div className="space-y-2">
+                                        <textarea
+                                            value={paperPrompt}
+                                            onChange={e => setPaperPrompt(e.target.value)}
+                                            placeholder="输入文献翻译学术系统提示词..."
+                                            className="w-full bg-slate-100/80 rounded-2xl p-3 text-xs focus:outline-emerald-500 resize-none h-44 font-mono leading-relaxed border border-slate-200/60 focus:bg-white"
+                                        />
+                                        <button
+                                            onClick={handleSavePaperPrompt}
+                                            disabled={!paperPrompt.trim()}
+                                            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs disabled:opacity-40 shadow-sm active:scale-95 transition"
+                                        >
+                                            保存翻译提示词
+                                        </button>
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {studySettingsTab === 'zotero' && (
+                            <div className="space-y-4">
+                                {/* Zotero Web API 官方直连介绍 */}
+                                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-50/60 to-orange-50/40 border border-red-100/80 text-xs text-slate-600 leading-relaxed">
+                                    <div className="flex items-start gap-2">
+                                        <div className="w-5 h-5 rounded-md bg-red-600 text-white font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                                            Z
+                                        </div>
+                                        <div>
+                                            <p className="font-semibold text-slate-800 mb-0.5">直连 Zotero 官方 Web API v3</p>
+                                            <p className="text-[11px] text-slate-500">
+                                                在此绑定您的 Zotero 个人文库。配置后在文献阅读器或书架中轻触【Z】按钮，即可一键直接将文献（含标题、多作者结构化切分、DOI、期刊、摘要与关键词标签）推送到 Zotero 云端，无需每次重复输入。
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 凭据表单 */}
+                                <div className="space-y-3 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/70">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                            <span className="flex items-center gap-1">
+                                                <User size={13} className="text-slate-500" />
+                                                <span>Zotero User ID (用户 ID)</span>
+                                            </span>
+                                            <a
+                                                href="https://www.zotero.org/settings/keys"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[11px] text-red-600 hover:underline flex items-center gap-0.5"
+                                            >
+                                                <span>获取 ID / Key</span>
+                                                <ArrowSquareOut size={11} />
+                                            </a>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={zoteroUserId}
+                                            onChange={e => setZoteroUserId(e.target.value)}
+                                            placeholder="例如：18335034 (纯数字 ID)"
+                                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                            <span className="flex items-center gap-1">
+                                                <Key size={13} className="text-slate-500" />
+                                                <span>API Key (访问密钥)</span>
+                                            </span>
+                                            <span className="text-[10px] text-amber-600 font-medium">需勾选 Write 权限</span>
+                                        </label>
+                                        <div className="relative flex items-center">
+                                            <input
+                                                type={showZoteroApiKey ? 'text' : 'password'}
+                                                value={zoteroApiKey}
+                                                onChange={e => setZoteroApiKey(e.target.value)}
+                                                placeholder="粘贴您的 Zotero API Key"
+                                                className="w-full bg-white border border-slate-200 rounded-xl pl-3 pr-9 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowZoteroApiKey(!showZoteroApiKey)}
+                                                className="absolute right-2.5 text-slate-400 hover:text-slate-600"
+                                                title={showZoteroApiKey ? '隐藏密钥' : '显示密钥'}
+                                            >
+                                                {showZoteroApiKey ? <EyeSlash size={15} /> : <Eye size={15} />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                            <FolderSimple size={13} className="text-slate-500" />
+                                            <span>目标文库 Collection Key (选填，不填存入默认根目录)</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={zoteroCollectionKey}
+                                            onChange={e => setZoteroCollectionKey(e.target.value)}
+                                            placeholder="例如：PV2WRKJG (8位集合键值)"
+                                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between pt-1 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleTestZotero}
+                                            disabled={isTestingZotero || !zoteroUserId || !zoteroApiKey}
+                                            className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-xs font-medium text-slate-700 transition flex items-center gap-1.5 disabled:opacity-40 active:scale-95 shadow-2xs"
+                                        >
+                                            {isTestingZotero ? <SpinnerGap size={13} className="animate-spin text-red-600" /> : <ArrowClockwise size={13} />}
+                                            <span>测试 API 连接</span>
+                                        </button>
+
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleClearZoteroConfig}
+                                                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-medium text-slate-600 transition active:scale-95"
+                                            >
+                                                清除
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveZoteroConfig}
+                                                disabled={!zoteroUserId || !zoteroApiKey}
+                                                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition active:scale-95 shadow-xs disabled:opacity-40"
+                                            >
+                                                保存配置
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* 测试连接反馈 */}
+                                    {zoteroTestResult && (
+                                        <div
+                                            className={`p-2.5 rounded-xl text-xs flex items-start gap-1.5 ${
+                                                zoteroTestResult.success
+                                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                                            }`}
+                                        >
+                                            {zoteroTestResult.success ? (
+                                                <CheckCircle size={15} weight="fill" className="text-emerald-600 shrink-0 mt-0.5" />
+                                            ) : (
+                                                <WarningCircle size={15} weight="fill" className="text-rose-600 shrink-0 mt-0.5" />
+                                            )}
+                                            <span>{zoteroTestResult.message}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 当前状态指示 */}
+                                <div className="text-[10px] text-slate-500 bg-slate-100/70 border border-slate-200/60 rounded-xl p-2.5 flex items-center justify-between">
+                                    <span>
+                                        {zoteroUserId && zoteroApiKey ? '已绑定 Zotero 云端文库' : '尚未配置 Zotero 账号'}
+                                    </span>
+                                    <span className="font-mono font-bold text-slate-700">
+                                        {zoteroUserId ? `User ID: ${zoteroUserId}` : '未绑定'}
+                                    </span>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </div>
                 </Modal>
 

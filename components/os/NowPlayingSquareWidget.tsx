@@ -3,12 +3,13 @@
  * — 全局 Music Context 驱动，点击跳到 Music App。
  * — 填满父容器（由父的 aspect-square 约束成方形）。
  */
-import React from 'react';
-import { Play, Pause, SkipBack, SkipForward } from '@phosphor-icons/react';
+import React, { useRef } from 'react';
+import { Play, Pause, SkipBack, SkipForward, Disc, Sun, Moon } from '@phosphor-icons/react';
 import { isPaperWallpaper, useOS } from '../../context/OSContext';
 import { useMusic } from '../../context/MusicContext';
 import { AppID } from '../../types';
-import { useBlobRefUrl } from '../../utils/blobRef';
+import { processImageToBlob } from '../../utils/file';
+import { putImageBlob, useBlobRefUrl } from '../../utils/blobRef';
 
 const formatTime = (sec: number) => {
   if (!isFinite(sec) || sec < 0) sec = 0;
@@ -17,8 +18,19 @@ const formatTime = (sec: number) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentColor }) => {
-  const { openApp, theme } = useOS();
+interface NowPlayingSquareWidgetProps {
+  contentColor: string;
+  openApp?: (id: string) => void;
+  editing?: boolean;
+}
+
+const NowPlayingSquareWidget: React.FC<NowPlayingSquareWidgetProps> = ({
+  contentColor,
+  openApp: openAppProp,
+  editing = false,
+}) => {
+  const { openApp: osOpenApp, theme, updateTheme, addToast } = useOS();
+  const effectiveOpenApp = openAppProp ?? osOpenApp;
   const { current, playing, progress, duration, togglePlay, nextSong, prevSong } = useMusic();
   const acnh = theme.skin === 'animalcrossing'; // 动森：奶油卡片 + 薄荷进度
   const paper = theme.skin !== 'animalcrossing' && theme.skin !== 'mobilegame' && theme.skin !== 'tamagotchi' && isPaperWallpaper(theme.wallpaper);
@@ -26,15 +38,42 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
   const pct = duration > 0 ? (progress / duration) * 100 : 0;
   const hasSong = !!current;
 
-  // 用户自己上传的封面存的是 blobref 令牌，得解析成可渲染的地址；网易云那种 http 直链原样透传。
+  // 自定义黑胶贴纸优先于歌曲自带封面
+  const customStickerUrl = useBlobRefUrl(theme.customVinylSticker);
   const albumPic = useBlobRefUrl(current?.albumPic);
+  const displayCover = customStickerUrl || albumPic;
+
+  const stickerInputRef = useRef<HTMLInputElement>(null);
+
+  const handleStickerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const blob = await processImageToBlob(file, { maxWidth: 500, quality: 0.9 });
+      const ref = await putImageBlob(blob);
+      await updateTheme({ customVinylSticker: ref });
+      addToast?.('黑胶唱片贴纸已更新', 'success');
+    } catch (err: any) {
+      addToast?.(`更新贴纸失败: ${err.message}`, 'error');
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleClearSticker = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!theme.customVinylSticker) return;
+    await updateTheme({ customVinylSticker: undefined });
+    addToast?.('已恢复默认专辑封面', 'info');
+  };
+
   const title = current?.name || '抽一张来听';
   const artists = current?.artists || '— 轻触，进入';
   const statusText = !hasSong ? 'Standby' : (playing ? 'Now Playing' : 'Paused');
   const dotColor = paper ? (!hasSong ? '#a66f52' : '#788369') : (!hasSong ? '#fbbf24' : (playing ? '#4ade80' : '#fbbf24'));
 
   const stopProp = (e: React.MouseEvent) => { e.stopPropagation(); };
-  const handlePlay = (e: React.MouseEvent) => { e.stopPropagation(); if (hasSong) togglePlay(); else openApp(AppID.Music); };
+  const handlePlay = (e: React.MouseEvent) => { e.stopPropagation(); if (hasSong) togglePlay(); else if (!editing) effectiveOpenApp(AppID.Music); };
   const handleNext = (e: React.MouseEvent) => { e.stopPropagation(); if (hasSong) nextSong(); };
   const handlePrev = (e: React.MouseEvent) => { e.stopPropagation(); if (hasSong) prevSong(); };
 
@@ -42,10 +81,24 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
   if (acnh) {
     return (
       <div
-        onClick={() => openApp(AppID.Music)}
+        onClick={() => { if (!editing) effectiveOpenApp(AppID.Music); }}
         className="relative w-full h-full rounded-[1.75rem] overflow-hidden cursor-pointer animate-fade-in transition-transform active:scale-[0.98] flex flex-col items-center justify-between p-3"
         style={{ background: 'rgb(247,243,223)', border: '2px solid #e8e2d6', boxShadow: '0 6px 18px rgba(61,52,40,0.12)', color: '#725d42' }}
       >
+        <input ref={stickerInputRef} type="file" accept="image/*" className="hidden" onChange={handleStickerUpload} />
+
+        {/* 顶部快捷操作 */}
+        <div className="absolute top-2 right-2 flex items-center gap-1 z-20" onClick={stopProp}>
+          <button
+            title={theme.customVinylSticker ? "更换贴纸 (长按恢复)" : "自定义黑胶贴纸"}
+            onClick={() => { if (!editing) stickerInputRef.current?.click(); }}
+            onContextMenu={handleClearSticker}
+            className={`w-5 h-5 rounded-full flex items-center justify-center shadow-xs text-[10px] transition ${theme.customVinylSticker ? 'bg-[#19c8b9] text-white' : 'bg-white/70 hover:bg-white text-[#725d42]'}`}
+          >
+            <Disc size={11} />
+          </button>
+        </div>
+
         {/* 唱片 + 唱臂 */}
         <div className="relative mt-0.5" style={{ width: '54%', aspectRatio: '1 / 1' }}>
           <div className="absolute inset-0 rounded-full"
@@ -56,8 +109,8 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
             }}>
             <div className="absolute inset-[34%] rounded-full overflow-hidden flex items-center justify-center"
               style={{ background: '#F7CD67', boxShadow: '0 0 0 2px #e0b84a' }}>
-              {albumPic
-                ? <img src={albumPic} alt="" className="w-full h-full object-cover" />
+              {displayCover
+                ? <img src={displayCover} alt="" className="w-full h-full object-cover" />
                 : <span className="text-[11px] font-black text-[#7a5c1e]">♪</span>}
             </div>
             <div className="absolute left-1/2 top-1/2 w-1.5 h-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full" style={{ background: '#1f1813' }} />
@@ -147,7 +200,7 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
 
   return (
     <div
-      onClick={() => openApp(AppID.Music)}
+      onClick={() => { if (!editing) effectiveOpenApp(AppID.Music); }}
       className="relative w-full h-full rounded-[1.75rem] overflow-hidden cursor-pointer animate-fade-in group transition-transform active:scale-[0.98] flex flex-col justify-between"
       style={{
         background: palette.cardBg,
@@ -157,11 +210,42 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
         color: palette.textColor,
       }}
     >
+      <input ref={stickerInputRef} type="file" accept="image/*" className="hidden" onChange={handleStickerUpload} />
+
+      {/* 顶部快捷操作 */}
+      <div className="absolute top-2 right-2 flex items-center gap-1 z-20" onClick={stopProp}>
+        {!paper && (
+          <button
+            data-action="widget-action"
+            title={light ? "切换为深色系" : "切换为浅色系"}
+            onClick={() => {
+              updateTheme({ nowPlayingWidgetLight: !light });
+            }}
+            className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] transition active:scale-90 cursor-pointer ${
+              light ? 'bg-black/10 hover:bg-black/20 text-slate-700' : 'bg-white/20 hover:bg-white/40 text-white'
+            }`}
+          >
+            {light ? <Moon size={11} weight="fill" /> : <Sun size={11} weight="fill" />}
+          </button>
+        )}
+        <button
+          data-action="widget-action"
+          title={theme.customVinylSticker ? "更换贴纸 (右键恢复)" : "自定义黑胶贴纸"}
+          onClick={() => { if (!editing) stickerInputRef.current?.click(); }}
+          onContextMenu={handleClearSticker}
+          className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] transition cursor-pointer ${
+            theme.customVinylSticker ? 'bg-purple-500 text-white' : light ? 'bg-black/10 hover:bg-black/20 text-slate-700' : 'bg-white/20 hover:bg-white/40 text-white'
+          }`}
+        >
+          <Disc size={11} />
+        </button>
+      </div>
+
       {/* 背景封面（不再实时 blur — 改用低透明度覆盖） */}
-      {albumPic ? (
+      {displayCover ? (
         <div className="absolute inset-0 pointer-events-none"
           style={{
-            backgroundImage: `url(${albumPic})`,
+            backgroundImage: `url(${displayCover})`,
             backgroundSize: 'cover',
             backgroundPosition: 'center',
             transform: 'scale(1.1)',
@@ -174,24 +258,23 @@ const NowPlayingSquareWidget: React.FC<{ contentColor: string }> = ({ contentCol
         />
       )}
 
-      {/* 顶部：封面 + 文字 */}
-      <div className="relative flex items-center gap-2 z-10 min-w-0">
+      {/* 顶部：黑胶封面 + 文字 */}
+      <div className="relative flex items-center gap-2 z-10 min-w-0 pr-12">
         <div
-          className="w-9 h-9 shrink-0 rounded-lg overflow-hidden relative"
+          className="w-10 h-10 shrink-0 rounded-full overflow-hidden relative border border-white/25 shadow-md flex items-center justify-center"
           style={{
-            background: palette.thumbBg,
-            border: palette.thumbBorder,
-            boxShadow: paper ? '0 3px 9px rgba(91,72,51,0.10)' : light ? '0 2px 8px rgba(80,70,120,0.14)' : '0 2px 8px rgba(0,0,0,0.25)',
+            background: '#18141e',
+            animation: playing ? 'spin 6s linear infinite' : 'none',
           }}
         >
-          {albumPic ? (
-            <img src={albumPic} alt="" className="w-full h-full object-cover"
-              style={{ animation: playing ? 'spin 14s linear infinite' : 'none' }} />
+          {displayCover ? (
+            <img src={displayCover} alt="" className="w-full h-full object-cover" />
           ) : (
             <div className="w-full h-full flex items-center justify-center">
               <span className="text-[10px] font-bold opacity-50" style={{ letterSpacing: '0.15em' }}>♪</span>
             </div>
           )}
+          <div className="absolute left-1/2 top-1/2 w-2 h-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-black border border-white/30" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1 mb-0.5">

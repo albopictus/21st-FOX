@@ -13,6 +13,7 @@ interface AppIconProps {
   size?: 'sm' | 'md' | 'lg';
   hideLabel?: boolean;
   variant?: 'default' | 'minimal' | 'dock';
+  disabled?: boolean;
 }
 
 // 动森（NookPhone）风格瓦片配色 —— 直接用 animal-island-ui 的应用色板（精确 hex）。
@@ -23,7 +24,7 @@ const NOOK_TILE_COLORS: Record<string, string> = {
   cyan: '#82D5BB', blue: '#889DF0', slate: '#9A835A',
 };
 
-const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md', hideLabel = false, variant = 'default' }) => {
+const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md', hideLabel = false, variant = 'default', disabled = false }) => {
   const { customIcons, theme } = useOS();
   const IconComponent = Icons[app.icon] || Icons.Settings;
   const customIconUrl = useBlobRefUrl(customIcons[app.id]);
@@ -32,6 +33,15 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
   const preserveCustomOutline = !!customIconUrl && theme.preserveCustomIconOutlines === true;
   // 动森皮肤下标签用深棕色，普通皮肤沿用主题 contentColor。
   const contentColor = isNook ? '#725d42' : (theme.contentColor || '#ffffff');
+
+  const handleClick = (e: React.MouseEvent) => {
+    if (disabled) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    onClick();
+  };
 
   // Standard sizes
   const sizeClasses =
@@ -44,7 +54,8 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
     const tileColor = NOOK_TILE_COLORS[app.color] || NOOK_TILE_COLORS.slate;
     return (
       <button
-        onClick={onClick}
+        onClick={handleClick}
+        aria-disabled={disabled}
         onPointerDown={() => preloadApp(app.id)}
         className="flex flex-col items-center gap-1.5 group relative active:scale-95 transition-transform duration-200"
         style={{ WebkitTapHighlightColor: 'transparent' }}
@@ -72,7 +83,8 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
 
   return (
     <button
-      onClick={onClick}
+      onClick={handleClick}
+      aria-disabled={disabled}
       onPointerDown={() => preloadApp(app.id)}
       className="flex flex-col items-center gap-1.5 group relative active:scale-95 transition-transform duration-200"
       style={{ WebkitTapHighlightColor: 'transparent' }}
@@ -127,11 +139,11 @@ const AppIcon: React.FC<AppIconProps> = React.memo(({ app, onClick, size = 'md',
   );
 }, (prev, next) => {
     // Custom comparison to prevent re-render unless specific props change
-    // We don't check 'onClick' deeply assuming it's stable or we want to ignore function ref changes
     return prev.app.id === next.app.id && 
            prev.size === next.size && 
            prev.hideLabel === next.hideLabel &&
-           prev.variant === next.variant;
+           prev.variant === next.variant &&
+           prev.disabled === next.disabled;
 });
 
 export default AppIcon;

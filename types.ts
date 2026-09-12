@@ -104,6 +104,81 @@ export interface JournalAppearance {
   customCss?: string;
 }
 
+/** 桌面自由小组件类型定义 */
+export type DesktopWidgetKind =
+  | 'music'
+  | 'memo'
+  | 'image'
+  | 'calendar'
+  | 'anniversary'
+  | 'quad_apps';
+
+export type DesktopWidgetSize = '2x2' | '4x2';
+
+export interface DesktopWidgetInstance {
+  id: string;
+  kind: DesktopWidgetKind;
+  size: DesktopWidgetSize;
+  title?: string;
+  config?: Record<string, any>;
+}
+
+export interface DesktopCustomPage {
+  id: string;
+  widgets?: DesktopWidgetInstance[];
+  appIds?: string[];
+}
+
+/* ─────────────────────────────────────────────────────────────
+ * 自由网格桌面（Android 式）—— 每页是固定格子矩阵，App 与小组件都按
+ * (x,y,w,h) 摆在格子上，允许任意留空。取代旧的 launcherAppOrder /
+ * launcherCustomPages / launcherMinusOne* / launcherPinwheelOrder。
+ * 详见 utils/desktopGrid.ts。
+ * ───────────────────────────────────────────────────────────── */
+
+/** 网格条目类型。'app' 用 refId 存 AppID；clock/charCard/schedule 是默认锁定的三块。 */
+export type GridItemKind =
+  | 'app'
+  | 'clock'
+  | 'charCard'
+  | 'schedule'
+  | 'music'
+  | 'image'
+  | 'calendar'
+  | 'anniversary'
+  | 'memo'
+  | 'quad_apps'
+  | 'study_paper';
+
+/** 网格上的一个条目。x/y 是左上角格子坐标（0 起），w/h 是横竖占用格数。 */
+export interface PlacedItem {
+  id: string;
+  kind: GridItemKind;
+  /** kind==='app' 时为 AppID；其余类型忽略。 */
+  refId?: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** 锁定后不可拖动 / 改大小 / 删除；编辑态点徽标切换。默认预设给 clock/charCard/schedule 打 true。 */
+  locked?: boolean;
+  title?: string;
+  config?: Record<string, any>;
+}
+
+export interface DesktopPage {
+  id: string;
+  items: PlacedItem[];
+  /**
+   * 页面规格：'windmill' / 'standard' 目前行数一致，只做语义区分；
+   * 'home' 是主屏表头（时钟+角色卡）专属标记——主屏不再靠"固定在第 1 页"这个下标
+   * 认出来，而是靠这个标记，这样用户可以在主屏左右两侧自由插页，主屏挪到哪个
+   * 下标都不会跟丢表头。没有这个标记的旧数据仍然按下标 1 兜底识别（见
+   * desktopGrid.ts 的 findHomeIndex / rowsForScreen）。
+   */
+  layout?: 'windmill' | 'standard' | 'home';
+}
+
 export interface OSTheme {
   hue: number;
   saturation: number;
@@ -131,12 +206,40 @@ export interface OSTheme {
   launcherWidgets?: Record<string, string>; // slots: 'tl' | 'tr' | 'wide' | 'dsq' (legacy 'bl' / 'br' are banned)
   /** 默认桌面长按编辑后的 App / Dock / 第二页风车组件顺序。 */
   launcherAppOrder?: string[];
+  /** 每页桌面 App ID 列表。例如 page 0 (第1页), page 1 (第2页风车), page 2+ (自定义页)。 */
+  launcherPageApps?: string[][];
   launcherDockOrder?: string[];
   launcherPinwheelOrder?: Array<'music' | 'appsA' | 'appsB' | 'image'>;
+  /** 黑胶音乐小组件自定义中心旋转贴纸。未设置时显示当前歌曲封面。 */
+  customVinylSticker?: string;
+  /** 负一屏（-1屏）小组件列表。未设置时默认装载日历与纪念日组件。 */
+  launcherMinusOneWidgets?: DesktopWidgetInstance[];
+  /** 负一屏（-1屏）App ID 列表（独立于主桌面的 app 池，4×6 共 24 槽）。 */
+  launcherMinusOneApps?: string[];
+  /** 自定义新增桌面页面（Page 2+）。 */
+  launcherCustomPages?: DesktopCustomPage[];
+  /**
+   * 自由网格桌面（Android 式）。存在即为已迁移，Launcher 只读这一份；
+   * 不存在时由 migrateLegacyLauncher 从上面那些旧字段算一次并落库。
+   * 页序：[0] = 负一屏，[1] = 主屏，[2+] = 后续页。见 utils/desktopGrid.ts。
+   */
+  launcherPages?: DesktopPage[];
+  /** 开机 / 冷启动时落在哪一页（存 DesktopPage.id，加删页不错位）。未设置 = 时钟那页（pages[1]）。 */
+  launcherStartPageId?: string;
+  /** 桌面已隐藏/删除的 App ID 列表。可在小组件/应用库中重新添加回桌面。 */
+  launcherHiddenApps?: string[];
   /** 自定义透明图标是否保留原始轮廓并移除系统圆角底框。默认 false。 */
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
   nowPlayingWidgetLight?: boolean;
+  /** 小组件背景透明度配置（0-100）。 */
+  widgetOpacity?: {
+    schedule?: number;
+    calendar?: number;
+    memo?: number;
+    quad_apps?: number;
+    [key: string]: number | undefined;
+  };
   /** 日程卡片统一皮肤：桌面、全屏、房间与聊天内同步。 */
   scheduleCardAppearance?: ScheduleCardAppearance;
   /** 交换日记 App 全局皮肤与自定义 CSS。 */
@@ -1215,7 +1318,7 @@ export interface NovelBook {
 // =====================================================================
 
 /** 虚拟世界里的房间。 */
-export type VRRoomId = 'library' | 'music' | 'guestbook' | 'gym' | 'postoffice' | 'theater' | 'signal' | 'cafe';
+export type VRRoomId = 'library' | 'music' | 'guestbook' | 'gym' | 'postoffice' | 'theater' | 'signal' | 'sar' | 'cafe';
 
 /** 全局小说库里的一本书（所有角色共享原文，各自留批注、各自书签）。 */
 export interface VRWorldNovel {
@@ -1263,9 +1366,41 @@ export interface VRNovelAnnotation {
 }
 
 /** 角色在虚拟世界里的个人状态（挂在 CharacterProfile.vrState）。 */
+export interface SARModuleRuntimeState {
+    version: 1;
+    /** 一次装载的稳定标识；消息 metadata 用它把同一轮外显串起来。 */
+    runId: string;
+    moduleId: string;
+    moduleTitle: string;
+    effectLabel: string;
+    description: string;
+    target: 'character' | 'user';
+    source: 'user' | 'character';
+    sourceCharacterId?: string;
+    sourceCharacterName?: string;
+    /** 只保存装载时用户明确填写的字面配置；不得把它当作额外指令执行。 */
+    configuration?: {
+        keyword: string;
+    };
+    /** active 阶段还可影响多少次成功的前台交互。 */
+    remainingTurns: number;
+    totalTurns: number;
+    /** 模块结束后的反惯性提示；3 → 强提示，2/1 → 轻提醒。 */
+    afterglowTurns: number;
+    phase: 'active' | 'afterglow';
+    /** 提前结束同样进入解除提示期，不直接删除事件，也不重置恢复轮次。 */
+    endReason?: 'manual';
+    installedAt: number;
+}
+
 export interface VRWorldCharState {
-    /** 是否启用该角色的自主登入（独立于主动发消息 proactiveConfig） */
+    /** 游戏内自定义称号；与角色姓名、人格及临时模块分开。 */
+    title?: string;
+    titleRevision?: string;
+    /** 是否接入彼方；接入后知道游戏设定，也可由用户邀请参与。 */
     enabled: boolean;
+    /** manual 仅响应用户邀请；scheduled 定时活动。旧存档缺省仍按 scheduled。 */
+    activityMode?: 'manual' | 'scheduled';
     /** 自主登入间隔（分钟，30 对齐；默认 120 = 2h） */
     intervalMinutes: number;
     /**
@@ -1281,6 +1416,10 @@ export interface VRWorldCharState {
     currentRoom?: VRRoomId;
     /** 最近一次活动时间戳（UI / 调度展示用） */
     lastActiveAt?: number;
+    /** SAR 临时模块。真实人格不改，只改变前台对话的外显层。 */
+    sarModule?: SARModuleRuntimeState;
+    /** 最近一次 SAR 自由活动，供活动室和模块触发判断展示。 */
+    sarActivity?: 'cabinet' | 'module-shop' | 'fishing' | 'market' | 'garden';
     /** 该角色专属 API 覆盖（用户可单独为「彼方」活动配 api）；不设则回落全局 apiConfig。 */
     api?: { baseUrl: string; apiKey: string; model: string };
     /**
@@ -1302,7 +1441,28 @@ export interface VRWorldCharState {
 }
 
 /** 注入聊天的 vr_card 消息的 metadata 结构。 */
+export interface SARCharacterCabinetNoteMeta {
+    id: string;
+    actorId: string;
+    actorName: string;
+    targetId: string;
+    targetName: string;
+    targetKind: 'user' | 'character' | 'wanderer';
+    variantId: string;
+    variantTitle: string;
+    storyId: string;
+    storyTitle: string;
+    title: string;
+    story: string;
+    notes: string;
+    highlight: string;
+    createdAt: number;
+}
+
 export interface VRCardMeta {
+  marketActivity?: boolean;
+  marketEventId?: string;
+  privateWords?: string;
     vrCard: true;
     room: VRRoomId;
     /** 活动概述（steam 提示式，UI 标题） */
@@ -1351,6 +1511,28 @@ export interface VRCardMeta {
     bookletTitle?: string;
     /** 用户参与时留给角色的耳语（不进诗，只随卡片进聊天/记忆） */
     signalWhisper?: string;
+    // --- SAR 活动空间：角色自主扭蛋随笔 ---
+    /** 角色自己抽取两枚芯片、给另一位玩家使用后留下的完整柜中随笔。 */
+    sarCabinetNote?: SARCharacterCabinetNoteMeta;
+    /** 角色自主逛模块商店时购买/装载的记录。 */
+    sarModuleShop?: {
+        moduleId: string;
+        moduleTitle: string;
+        usedOnUser: boolean;
+    };
+    /** 角色在彼方水域的真实程序判定结果；模型只负责反应与去向选择。 */
+    fishing?: {
+        catchId: string;
+        speciesId: string;
+        speciesName: string;
+        sizeCm: number;
+        quality: 1 | 2 | 3;
+        weatherLabel: string;
+        weatherSource: 'real' | 'simulated';
+        decision: 'keep' | 'guestbook' | 'dm' | 'market' | 'release' | 'sell';
+        sale?: { amount: number; at: number; replyIndex: number; reply: string; expression: string; sellerWords?: string };
+        exactWords?: string;
+    };
 }
 
 // ============================================================
@@ -1750,6 +1932,7 @@ export interface VRMusicQueueItem {
 
 /** 留言簿（共享版聊墙）的一条留言。 */
 export interface VRGuestbookMessage {
+    kind?: 'collection-unlock';
     id: string;
     /** 'user' = 用户本人，其余为 charId */
     authorId: string;
@@ -3232,6 +3415,8 @@ export interface ReceivedGiftRecord {
 }
 
 export interface UserVRState {
+    title?: string;
+    titleRevision?: string;
     /** 是否接入彼方（登出后不再向角色注入"用户在彼方"提示） */
     enabled: boolean;
     /** 用户此刻把自己挂在哪个房间 */
@@ -3240,6 +3425,10 @@ export interface UserVRState {
     activity?: string;
     /** 最近一次更新时间 */
     updatedAt?: number;
+    /** 默认关闭；开启后，在 SAR 中的角色才可以反向给用户装载模块。 */
+    allowCharacterModules?: boolean;
+    /** 角色装在用户身上的临时模块（5 次成功交互 + 3 次退场稳定）。 */
+    sarModule?: SARModuleRuntimeState;
     /** 用户在彼方里的 chibi 形象（同角色 chibi 结构，来自 mode="user" 的捏人器） */
     chibi?: {
         img: string;
@@ -3779,6 +3968,66 @@ export interface QuizSession {
     gradedAt?: number;
 }
 
+// --- STUDY PAPER (ACADEMIC MORNING READING) TYPES ---
+export type PaperBlockType = 'heading' | 'paragraph' | 'figure';
+
+export interface PaperHeadingBlock {
+    id: string;
+    type: 'heading';
+    level: 1 | 2 | 3;
+    text: string;
+    textZh?: string;
+}
+
+export interface PaperParagraphBlock {
+    id: string;
+    type: 'paragraph';
+    text: string;
+    textZh?: string;
+}
+
+export interface PaperFigureBlock {
+    id: string;
+    type: 'figure';
+    label?: string;
+    caption?: string;
+    captionZh?: string;
+    imageUrl: string;
+    thumbUrl?: string;
+    width?: number;
+    height?: number;
+}
+
+export type PaperBlock = PaperHeadingBlock | PaperParagraphBlock | PaperFigureBlock;
+
+export interface StudyPaper {
+    id: string;
+    pmcid: string;
+    doi?: string;
+    title: string;
+    titleZh?: string;
+    journalTitle?: string;
+    pubDate?: string;
+    pubType?: string;
+    authorString?: string;
+    keywords?: string[];
+    summary100?: string;
+    abstract?: string;
+    blocks: PaperBlock[];
+    fetchedAt: number;
+    translatedAt?: number;
+    readProgress?: number;
+    isFavorite?: boolean;
+    hasPDF?: boolean;
+    pdfUrl?: string;
+}
+
+export interface PaperTypographyConfig {
+    fontFamily: 'sans' | 'serif' | 'mono' | 'dyslexic';
+    fontSize: 'sm' | 'base' | 'lg' | 'xl';
+    bionicReading: boolean;
+}
+
 export type GameTheme = 'fantasy' | 'cyber' | 'horror' | 'modern';
 
 export interface GameActionOption {
@@ -3836,17 +4085,31 @@ export interface GameSession {
     lastPlayedAt: number;
 }
 
-export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'schedule_card' | 'memo_card' | 'gift';
+export type MessageType = 'text' | 'image' | 'emoji' | 'voice' | 'collaboration_file' | 'interaction' | 'transfer' | 'system' | 'social_card' | 'chat_forward' | 'xhs_card' | 'score_card' | 'music_card' | 'mcd_card' | 'luckin_card' | 'html_card' | 'news_card' | 'vr_card' | 'trpg_card' | 'novel_card' | 'world_card' | 'sim_card' | 'phone_card' | 'webpage_card' | 'theater_card' | 'room_card' | 'life_card' | 'group_topic_card' | 'schedule_card' | 'memo_card' | 'gift' | 'paper_card';
+
+/**
+ * 撤回标记（metadata.retracted）。撤回后 `Message.content` 会被就地改写成「给 AI 看的那句」：
+ *   - by='user'      → `[用户撤回了一条消息]`（AI 只知道撤回了，看不到原文）
+ *   - by='assistant' → `[你撤回了刚发出的消息，原内容：「…」]`（AI 知道撤回了 + 原文）
+ * 所有 AI 上下文读取口都直接吃改写后的 content，因此天然安全，无需额外过滤。
+ * 原文只留在这里，供 UI 折叠气泡「查看原文」和 5 秒内撤销用。
+ */
+export interface RetractedMeta {
+    by: 'user' | 'assistant';
+    originalContent: string;
+    originalType: MessageType;
+    at: number;
+}
 
 export interface Message {
     id: number;
-    charId: string; 
-    groupId?: string; 
+    charId: string;
+    groupId?: string;
     role: 'user' | 'assistant' | 'system';
     type: MessageType;
     content: string;
     timestamp: number;
-    metadata?: any; 
+    metadata?: any;
     replyTo?: {
         id: number;
         content: string;
@@ -3929,10 +4192,22 @@ export interface FullBackupData {
     worldEpisodes?: WorldEpisode[];            // 家园·演绎历史
     vrPostOffice?: Record<string, string>;     // 邮局本机配置：身份 deviceId / 后端地址（存 localStorage）
     vrSignal?: Record<string, string>;         // 信号坠落处本机记录：句子归属「你·角色」+ 反复用清单（存 localStorage）
+    /** SAR 公告/卡池/推演/模块商店记录。旧备份没有该字段；导入旧主历史时应清掉当前设备上的 SAR 进度，避免串档。 */
+    sarLocalState?: {
+        version: 1;
+        club?: unknown;
+        gacha?: unknown;
+        simulations?: unknown;
+        moduleShop?: unknown;
+        fishingMarket?: unknown;
+        fishingMarketRaw?: string;
+        preferences?: Record<string, string>;
+    };
     worldHomeLocal?: Record<string, string>;   // 家园本机配置：全局 API + 文风收藏（存 localStorage）
     luckinLocal?: Record<string, string>;      // 瑞幸：token + 启用状态（存 localStorage）
     mcdLocal?: Record<string, string>;         // 麦当劳：token + 启用状态（存 localStorage）
     mcpLocal?: Record<string, string>;         // 通用 MCP：用户自配的服务器列表（存 localStorage）
+    chatInputPreferences?: import('./utils/chatInputPreferences').ChatInputPreferences;
     desktopSkinLocal?: Record<string, string>; // 桌面皮肤偏好：电子宠物/手游风的界面配色 + 看板 banner（存 localStorage；看板图令牌导出时解析为 data URL）
     songs?: SongSheet[]; // Songwriting app data
     

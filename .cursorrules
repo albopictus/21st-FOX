@@ -1,0 +1,8 @@
+# Cursor Rules & AI Assistant Guidelines
+
+## ⚠️ 绝对禁令：Git 分支推送红线（最高优先级规则）
+
+1. **绝对禁止未经用户明确同意私自往 `meow` 和 `main` 分支推送任何内容！**
+2. **严禁自动执行 `git push <remote> meow` 或 `git push <remote> main`。**
+3. 代码只能在独立的特性分支（如 `feat/*`、`fix/*`）上开发和测试。
+4. **任何涉及上传或远程推送的操作，必须在执行前明确向用户询问并获得许可！** 用户没点头前，绝不能上传。

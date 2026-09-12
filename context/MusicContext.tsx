@@ -372,6 +372,7 @@ interface MusicContextType {
   localAlbumSongs: Song[];
   addLocalSong: (song: Song) => void;
   removeLocalSong: (songId: number) => void;
+  importLocalAudio: (file: File) => Promise<Song>;
   // 实时重录状态 — 让音乐 App 即使在切到其他界面也能看到"正在重录"提示
   regeneratingId: number | null;
   regeneratingStatus: string;
@@ -784,6 +785,28 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
   }, [toast]);
 
+  const importLocalAudio = useCallback(async (file: File): Promise<Song> => {
+    const assetKey = `local-audio-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await DB.saveAssetRaw(assetKey, file);
+    const name = file.name.replace(/\.[^/.]+$/, '') || '本地音乐';
+    const song: Song = {
+      id: Date.now() + Math.floor(Math.random() * 10000),
+      name,
+      artists: '本地音频',
+      album: '本地导入',
+      albumPic: '',
+      duration: 0,
+      fee: 0,
+      local: true,
+      localAssetKey: assetKey,
+      localMimeType: file.type || 'audio/mpeg',
+    };
+    addLocalSong(song);
+    await playSong(song);
+    toast(`已导入并开始播放: ${name}`, 'success');
+    return song;
+  }, [addLocalSong, playSong, toast]);
+
   // 下一首 / 上一首
   const nextSong = useCallback(() => {
     const q = queueRef.current; if (!q.length) return;
@@ -993,7 +1016,7 @@ export const MusicProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     listeningTogetherWith, addListeningPartner, removeListeningPartner, clearListeningPartners,
     recentTrackChange,
     toast, setToastHandler,
-    localAlbumSongs, addLocalSong, removeLocalSong,
+    localAlbumSongs, addLocalSong, removeLocalSong, importLocalAudio,
     regeneratingId, regeneratingStatus, markRegenerating,
   };
 
