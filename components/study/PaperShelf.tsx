@@ -13,6 +13,7 @@ interface PaperShelfProps {
     apiConfig: APIConfig;
     onBackToCourses?: () => void;
     embedded?: boolean;
+    onOpenZoteroSettings?: () => void;
 }
 
 const DEFAULT_KEYWORDS = [
@@ -31,6 +32,7 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     apiConfig,
     onBackToCourses,
     embedded = false,
+    onOpenZoteroSettings,
 }) => {
     const [papers, setPapers] = useState<StudyPaper[]>([]);
     const [searchKeyword, setSearchKeyword] = useState('');
@@ -923,6 +925,7 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                 isOpen={Boolean(zoteroTargetPaper)}
                 paper={zoteroTargetPaper}
                 onClose={() => setZoteroTargetPaper(null)}
+                onOpenSettings={onOpenZoteroSettings}
             />
         </div>
     );

@@ -5,9 +5,7 @@
 import type { StudyPaper } from '../types';
 
 export interface ZoteroConfig {
-    targetType?: 'user' | 'group'; // 'user' 为个人文库，'group' 为群组协同文库
     userId: string;
-    groupId?: string;
     apiKey: string;
     collectionKey?: string;
 }
@@ -32,16 +30,14 @@ export function getZoteroConfig(): ZoteroConfig {
             const parsed = JSON.parse(saved);
             if (parsed && typeof parsed === 'object') {
                 return {
-                    targetType: parsed.targetType === 'group' ? 'group' : 'user',
                     userId: String(parsed.userId || '').trim(),
-                    groupId: String(parsed.groupId || '').trim(),
                     apiKey: String(parsed.apiKey || '').trim(),
                     collectionKey: String(parsed.collectionKey || '').trim() || undefined
                 };
             }
         }
     } catch {}
-    return { targetType: 'user', userId: '', groupId: '', apiKey: '' };
+    return { userId: '', apiKey: '' };
 }
 
 /**
@@ -50,9 +46,7 @@ export function getZoteroConfig(): ZoteroConfig {
 export function saveZoteroConfig(config: ZoteroConfig): void {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify({
-            targetType: config.targetType === 'group' ? 'group' : 'user',
             userId: config.userId.trim(),
-            groupId: config.groupId?.trim() || '',
             apiKey: config.apiKey.trim(),
             collectionKey: config.collectionKey?.trim() || undefined
         }));
@@ -132,45 +126,28 @@ function generateRandomHex32(): string {
  * 测试 Zotero API 连接是否畅通
  */
 export async function testZoteroConnection(config: ZoteroConfig): Promise<{ success: boolean; message: string; username?: string }> {
-    const isGroup = config.targetType === 'group';
-    const targetId = (isGroup ? config.groupId : config.userId)?.trim() || '';
+    const userId = config.userId.trim();
     const apiKey = config.apiKey.trim();
-
-    if (!targetId || !apiKey) {
-        return {
-            success: false,
-            message: isGroup ? '请填写完整的 Group ID 与 API Key' : '请填写完整的 User ID 与 API Key'
-        };
+    if (!userId || !apiKey) {
+        return { success: false, message: '请填写完整的 User ID 与 API Key' };
     }
-
-    const endpoint = isGroup
-        ? `https://api.zotero.org/groups/${encodeURIComponent(targetId)}/items?limit=1`
-        : `https://api.zotero.org/users/${encodeURIComponent(targetId)}/items?limit=1`;
-
     try {
-        const res = await fetch(endpoint, {
+        const res = await fetch(`https://api.zotero.org/users/${encodeURIComponent(userId)}/items?limit=1`, {
             headers: {
                 'Zotero-API-Version': '3',
                 'Zotero-API-Key': apiKey
             }
         });
         if (res.status === 401 || res.status === 403) {
-            return {
-                success: false,
-                message: isGroup
-                    ? '授权失败：API Key 无效或无权访问该 Group ID 群组文库（请在 API Key 设置中勾选该群组的 Read/Write 写入权限）'
-                    : '授权失败：API Key 无效或无权访问该 User ID 的文库'
-            };
+            return { success: false, message: '授权失败：API Key 无效或无权访问该 User ID 的文库' };
         }
         if (!res.ok) {
             return { success: false, message: `连接异常: HTTP ${res.status}` };
         }
         return {
             success: true,
-            message: isGroup
-                ? `Zotero 群组连接成功！群组文库 (${targetId}) 访问正常。`
-                : `Zotero 个人文库连接成功！文库访问正常。`,
-            username: targetId
+            message: 'Zotero 连接成功！文库访问正常。',
+            username: userId
         };
     } catch (e: any) {
         return { success: false, message: `网络连接异常: ${e.message || '请检查网络连接'}` };
@@ -178,17 +155,16 @@ export async function testZoteroConnection(config: ZoteroConfig): Promise<{ succ
 }
 
 /**
- * 同步文献至 Zotero 官方云端个人文库或群组文库
+ * 同步文献至 Zotero 官方云端个人文库
  */
 export async function syncPaperToZotero(paper: StudyPaper, config: ZoteroConfig): Promise<ZoteroSyncResult> {
-    const isGroup = config.targetType === 'group';
-    const targetId = (isGroup ? config.groupId : config.userId)?.trim() || '';
+    const userId = config.userId.trim();
     const apiKey = config.apiKey.trim();
 
-    if (!targetId || !apiKey) {
+    if (!userId || !apiKey) {
         return {
             success: false,
-            message: isGroup ? '请先在下方填写目标群组 Group ID 与 API Key' : '请先在下方填写您的 Zotero User ID 与 API Key'
+            message: '请先在下方填写您的 Zotero User ID 与 API Key'
         };
     }
 
@@ -231,9 +207,7 @@ export async function syncPaperToZotero(paper: StudyPaper, config: ZoteroConfig)
         itemData.collections = [config.collectionKey.trim()];
     }
 
-    const endpoint = isGroup
-        ? `https://api.zotero.org/groups/${encodeURIComponent(targetId)}/items`
-        : `https://api.zotero.org/users/${encodeURIComponent(targetId)}/items`;
+    const endpoint = `https://api.zotero.org/users/${encodeURIComponent(userId)}/items`;
 
     try {
         const res = await fetch(endpoint, {
@@ -250,9 +224,7 @@ export async function syncPaperToZotero(paper: StudyPaper, config: ZoteroConfig)
         if (res.status === 403 || res.status === 401) {
             return {
                 success: false,
-                message: isGroup
-                    ? `Zotero 授权失败 (HTTP ${res.status})：请检查 API Key 是否正确，并确认在 Zotero 官网密钥设置中将该群组权限设为 "Read/Write"。`
-                    : `Zotero 授权失败 (HTTP ${res.status})：请检查 User ID 与 API Key 是否正确，并确认赋予了 "Allow library write access" 权限。`
+                message: 'Zotero 授权失败 (HTTP ' + res.status + ')：请检查您的 User ID 与 API Key 是否正确，并确认赋予了 "Allow library write access" 权限。'
             };
         }
 
@@ -281,21 +253,12 @@ export async function syncPaperToZotero(paper: StudyPaper, config: ZoteroConfig)
             || (Array.isArray(data?.success) ? data.success[0] : undefined);
 
         if (itemKey && typeof itemKey === 'string') {
-            const webUrl = isGroup
-                ? `https://www.zotero.org/groups/${targetId}/items/${itemKey}`
-                : `https://www.zotero.org/users/${targetId}/items/${itemKey}`;
-            const clientUri = isGroup
-                ? `zotero://select/groups/${targetId}/items/${itemKey}`
-                : `zotero://select/library/items/${itemKey}`;
-
             return {
                 success: true,
                 itemKey,
-                message: isGroup
-                    ? `已成功同步保存至 Zotero 群组文库 (Group ${targetId})！`
-                    : '已成功同步保存至您的 Zotero 个人文库！',
-                webUrl,
-                clientUri
+                message: '已成功同步保存至您的 Zotero 个人文库！',
+                webUrl: `https://www.zotero.org/users/${userId}/items/${itemKey}`,
+                clientUri: `zotero://select/library/items/${itemKey}`
             };
         }
 

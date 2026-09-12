@@ -22,6 +22,7 @@ interface PaperReaderProps {
     katexRenderer?: { renderToString: (latex: string, options: any) => string } | null;
     apiConfig: APIConfig;
     onUpdatePaper: (updated: StudyPaper) => void;
+    onOpenZoteroSettings?: () => void;
 }
 
 export const PaperReader: React.FC<PaperReaderProps> = ({
@@ -30,7 +31,8 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
     onAskTutor,
     katexRenderer,
     apiConfig,
-    onUpdatePaper
+    onUpdatePaper,
+    onOpenZoteroSettings
 }) => {
     // 排版与字体状态（持久化存储）
     const [typography, setTypography] = useState<PaperTypographyConfig>(getSavedTypography);
@@ -715,6 +717,7 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                 isOpen={showZoteroModal}
                 paper={paper}
                 onClose={() => setShowZoteroModal(false)}
+                onOpenSettings={onOpenZoteroSettings}
             />
         </div>
     );

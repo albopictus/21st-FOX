@@ -7,7 +7,7 @@ import { ContextBuilder } from '../utils/context';
 import Modal from '../components/os/Modal';
 import { safeResponseJson, extractJson } from '../utils/safeApi';
 import { injectMemoryPalace } from '../utils/memoryPalace/pipeline';
-import { Notepad, Check, X, CheckCircle, XCircle, Hand, Newspaper, Sparkle, ArrowRight } from '@phosphor-icons/react';
+import { Notepad, Check, X, CheckCircle, XCircle, Hand, Newspaper, Sparkle, ArrowRight, User, Key, FolderSimple, ArrowSquareOut, Eye, EyeSlash, SpinnerGap, ArrowClockwise, WarningCircle } from '@phosphor-icons/react';
 import { CharacterGroupFilterBar, filterCharactersByGroup, GROUP_FILTER_ALL } from '../components/character/CharacterGroupFilter';
 import TokenImg from '../components/os/TokenImg';
 import { trackEvent } from '../utils/analytics';
@@ -15,6 +15,7 @@ import { extractPdfText, isPdfFile } from '../utils/pdfText';
 import { PaperShelf } from '../components/study/PaperShelf';
 import { PaperReader } from '../components/study/PaperReader';
 import { DEFAULT_PAPER_TRANSLATION_PROMPT } from '../utils/paperTranslator';
+import { getZoteroConfig, saveZoteroConfig, testZoteroConnection } from '../utils/zotero';
 
 type KatexLike = {
     renderToString: (latex: string, options: any) => string;
@@ -341,7 +342,15 @@ const StudyApp: React.FC = () => {
 
     // Study Room Settings Modal State
     const [showStudySettings, setShowStudySettings] = useState(false);
-    const [studySettingsTab, setStudySettingsTab] = useState<'tutor' | 'paper'>('tutor');
+    const [studySettingsTab, setStudySettingsTab] = useState<'tutor' | 'paper' | 'zotero'>('tutor');
+
+    // Zotero Web API 绑定配置
+    const [zoteroUserId, setZoteroUserId] = useState('');
+    const [zoteroApiKey, setZoteroApiKey] = useState('');
+    const [zoteroCollectionKey, setZoteroCollectionKey] = useState('');
+    const [showZoteroApiKey, setShowZoteroApiKey] = useState(false);
+    const [isTestingZotero, setIsTestingZotero] = useState(false);
+    const [zoteroTestResult, setZoteroTestResult] = useState<{ success: boolean; message: string } | null>(null);
 
     // Study-specific API config (overrides main apiConfig when set)
     const [studyApi, setStudyApi] = useState<Partial<APIConfig>>({});
@@ -432,6 +441,11 @@ const StudyApp: React.FC = () => {
             if (savedPaperPrompt && savedPaperPrompt.trim()) {
                 setPaperPrompt(savedPaperPrompt.trim());
             }
+
+            const savedZotero = getZoteroConfig();
+            setZoteroUserId(savedZotero.userId || '');
+            setZoteroApiKey(savedZotero.apiKey || '');
+            setZoteroCollectionKey(savedZotero.collectionKey || '');
         } catch (e) { console.error('Failed to load study settings', e); }
     }, []);
 
@@ -606,6 +620,43 @@ const StudyApp: React.FC = () => {
         setNewPaperPresetName('');
         setShowPaperSavePreset(false);
         addToast(`预设「${name}」已保存`, 'success');
+    };
+
+    // --- Zotero Config Handlers ---
+
+    const handleSaveZoteroConfig = () => {
+        saveZoteroConfig({
+            userId: zoteroUserId.trim(),
+            apiKey: zoteroApiKey.trim(),
+            collectionKey: zoteroCollectionKey.trim() || undefined
+        });
+        trackEvent('保存 Zotero 凭据配置');
+        addToast('Zotero 配置已保存', 'success');
+    };
+
+    const handleClearZoteroConfig = () => {
+        setZoteroUserId('');
+        setZoteroApiKey('');
+        setZoteroCollectionKey('');
+        setZoteroTestResult(null);
+        saveZoteroConfig({ userId: '', apiKey: '' });
+        addToast('已清除 Zotero 配置', 'info');
+    };
+
+    const handleTestZotero = async () => {
+        handleSaveZoteroConfig();
+        setIsTestingZotero(true);
+        setZoteroTestResult(null);
+        try {
+            const res = await testZoteroConnection({
+                userId: zoteroUserId.trim(),
+                apiKey: zoteroApiKey.trim(),
+                collectionKey: zoteroCollectionKey.trim() || undefined
+            });
+            setZoteroTestResult(res);
+        } finally {
+            setIsTestingZotero(false);
+        }
     };
 
     // --- PDF Processing ---
@@ -1406,6 +1457,10 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 katexRenderer={katexRenderer}
                 apiConfig={effectiveApi}
                 onUpdatePaper={(updated) => setActivePaper(updated)}
+                onOpenZoteroSettings={() => {
+                    setShowStudySettings(true);
+                    setStudySettingsTab('zotero');
+                }}
             />
         );
     }
@@ -1866,6 +1921,10 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                 setMode('paper_reader');
                             }}
                             apiConfig={effectiveApi}
+                            onOpenZoteroSettings={() => {
+                                setShowStudySettings(true);
+                                setStudySettingsTab('zotero');
+                            }}
                         />
                     )}
                 </div>
@@ -1924,9 +1983,19 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                             >
                                 学术文献翻译
                             </button>
+                            <button
+                                onClick={() => setStudySettingsTab('zotero')}
+                                className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${
+                                    studySettingsTab === 'zotero'
+                                        ? 'bg-white text-red-600 shadow-sm'
+                                        : 'text-slate-500 hover:text-slate-800'
+                                }`}
+                            >
+                                Zotero 绑定
+                            </button>
                         </div>
 
-                        {studySettingsTab === 'tutor' ? (
+                        {studySettingsTab === 'tutor' && (
                             <>
                                 {/* Dedicated API Config */}
                                 <div>
@@ -2062,7 +2131,9 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                     </div>
                                 </div>
                             </>
-                        ) : (
+                        )}
+
+                        {studySettingsTab === 'paper' && (
                             <>
                                 {/* Paper Translation Dedicated API */}
                                 <div>
@@ -2202,6 +2273,152 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                                     </div>
                                 </div>
                             </>
+                        )}
+
+                        {studySettingsTab === 'zotero' && (
+                            <div className="space-y-4">
+                                {/* Zotero Web API 官方直连介绍 */}
+                                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-50/60 to-orange-50/40 border border-red-100/80 text-xs text-slate-600 leading-relaxed">
+                                    <div className="flex items-start gap-2">
+                                        <div className="w-5 h-5 rounded-md bg-red-600 text-white font-bold text-[11px] flex items-center justify-center shrink-0 mt-0.5 shadow-2xs">
+                                            Z
+                                        </div>
+                                        <div>
+                                            <p className="font-semibold text-slate-800 mb-0.5">直连 Zotero 官方 Web API v3</p>
+                                            <p className="text-[11px] text-slate-500">
+                                                在此绑定您的 Zotero 个人文库。配置后在文献阅读器或书架中轻触【Z】按钮，即可一键直接将文献（含标题、多作者结构化切分、DOI、期刊、摘要与关键词标签）推送到 Zotero 云端，无需每次重复输入。
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* 凭据表单 */}
+                                <div className="space-y-3 bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/70">
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                            <span className="flex items-center gap-1">
+                                                <User size={13} className="text-slate-500" />
+                                                <span>Zotero User ID (用户 ID)</span>
+                                            </span>
+                                            <a
+                                                href="https://www.zotero.org/settings/keys"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-[11px] text-red-600 hover:underline flex items-center gap-0.5"
+                                            >
+                                                <span>获取 ID / Key</span>
+                                                <ArrowSquareOut size={11} />
+                                            </a>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={zoteroUserId}
+                                            onChange={e => setZoteroUserId(e.target.value)}
+                                            placeholder="例如：18335034 (纯数字 ID)"
+                                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
+                                        />
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                                            <span className="flex items-center gap-1">
+                                                <Key size={13} className="text-slate-500" />
+                                                <span>API Key (访问密钥)</span>
+                                            </span>
+                                            <span className="text-[10px] text-amber-600 font-medium">需勾选 Write 权限</span>
+                                        </label>
+                                        <div className="relative flex items-center">
+                                            <input
+                                                type={showZoteroApiKey ? 'text' : 'password'}
+                                                value={zoteroApiKey}
+                                                onChange={e => setZoteroApiKey(e.target.value)}
+                                                placeholder="粘贴您的 Zotero API Key"
+                                                className="w-full bg-white border border-slate-200 rounded-xl pl-3 pr-9 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() => setShowZoteroApiKey(!showZoteroApiKey)}
+                                                className="absolute right-2.5 text-slate-400 hover:text-slate-600"
+                                                title={showZoteroApiKey ? '隐藏密钥' : '显示密钥'}
+                                            >
+                                                {showZoteroApiKey ? <EyeSlash size={15} /> : <Eye size={15} />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-1">
+                                        <label className="text-xs font-medium text-slate-600 flex items-center gap-1">
+                                            <FolderSimple size={13} className="text-slate-500" />
+                                            <span>目标文库 Collection Key (选填，不填存入默认根目录)</span>
+                                        </label>
+                                        <input
+                                            type="text"
+                                            value={zoteroCollectionKey}
+                                            onChange={e => setZoteroCollectionKey(e.target.value)}
+                                            placeholder="例如：PV2WRKJG (8位集合键值)"
+                                            className="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-red-500 font-mono"
+                                        />
+                                    </div>
+
+                                    <div className="flex items-center justify-between pt-1 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={handleTestZotero}
+                                            disabled={isTestingZotero || !zoteroUserId || !zoteroApiKey}
+                                            className="px-3.5 py-2 rounded-xl border border-slate-200 bg-white hover:bg-slate-100 text-xs font-medium text-slate-700 transition flex items-center gap-1.5 disabled:opacity-40 active:scale-95 shadow-2xs"
+                                        >
+                                            {isTestingZotero ? <SpinnerGap size={13} className="animate-spin text-red-600" /> : <ArrowClockwise size={13} />}
+                                            <span>测试 API 连接</span>
+                                        </button>
+
+                                        <div className="flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={handleClearZoteroConfig}
+                                                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-xs font-medium text-slate-600 transition active:scale-95"
+                                            >
+                                                清除
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveZoteroConfig}
+                                                disabled={!zoteroUserId || !zoteroApiKey}
+                                                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold transition active:scale-95 shadow-xs disabled:opacity-40"
+                                            >
+                                                保存配置
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* 测试连接反馈 */}
+                                    {zoteroTestResult && (
+                                        <div
+                                            className={`p-2.5 rounded-xl text-xs flex items-start gap-1.5 ${
+                                                zoteroTestResult.success
+                                                    ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                                                    : 'bg-rose-50 text-rose-800 border border-rose-200'
+                                            }`}
+                                        >
+                                            {zoteroTestResult.success ? (
+                                                <CheckCircle size={15} weight="fill" className="text-emerald-600 shrink-0 mt-0.5" />
+                                            ) : (
+                                                <WarningCircle size={15} weight="fill" className="text-rose-600 shrink-0 mt-0.5" />
+                                            )}
+                                            <span>{zoteroTestResult.message}</span>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* 当前状态指示 */}
+                                <div className="text-[10px] text-slate-500 bg-slate-100/70 border border-slate-200/60 rounded-xl p-2.5 flex items-center justify-between">
+                                    <span>
+                                        {zoteroUserId && zoteroApiKey ? '已绑定 Zotero 云端文库' : '尚未配置 Zotero 账号'}
+                                    </span>
+                                    <span className="font-mono font-bold text-slate-700">
+                                        {zoteroUserId ? `User ID: ${zoteroUserId}` : '未绑定'}
+                                    </span>
+                                </div>
+                            </div>
                         )}
                     </div>
                 </Modal>
