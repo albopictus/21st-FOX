@@ -545,6 +545,7 @@ let _lastPageIndex = -1;
 
 const Launcher: React.FC = () => {
   const { openApp, characters, activeCharacterId, theme, updateTheme, lastMsgTimestamp, isDataLoaded, unreadMessages } = useOS();
+  const isDesktop = useIsDesktopMode();
 
   // 小组件数据（本地缓存，避免 context 抖动）
   const [widgetChar, setWidgetChar] = useState<CharacterProfile | null>(null);
@@ -1826,6 +1827,36 @@ const Launcher: React.FC = () => {
     if (pi < 0) return;
     setQuadManagerTarget({ pageIndex: pi, itemId: item.id, slotIndex });
   }, []);
+
+  // 电脑模式：全局方向键翻页（←/→）。见 desktop-adaptation-plan.md 模块 3。
+  // 防冲突范围：
+  // - 焦点在输入框/textarea/select/contenteditable 时不接管，文本光标优先；
+  // - 中文输入法组词中（isComposing）不接管，拼音选字要用方向键翻候选词；
+  // - 按了 Alt/Ctrl/Cmd 等修饰键不接管，避免拦掉浏览器自己的前进后退等系统手势；
+  // - 编辑态或任何弹层（组件库/图片选择/四宫格管理/加页菜单/见面全屏）打开时不
+  //   接管，这些弹层自己的方向键交互（如果以后加）优先；
+  // - 元素标了 [data-no-arrow-nav] 视为自行声明"这里方向键归我管"，同样放行。
+  useEffect(() => {
+    if (!isDesktop) return;
+    const overlayOpen = layoutEditing || galleryOpen || scheduleViewerOpen || !!imagePicker || !!quadManagerTarget || addPageMenu !== null;
+    if (overlayOpen) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+      if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
+      const target = e.target;
+      if (target instanceof HTMLElement) {
+        if (target.isContentEditable) return;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') return;
+        if (target.closest('[data-no-arrow-nav]')) return;
+      }
+      e.preventDefault();
+      jumpToPage(activePageIndexRef.current + (e.key === 'ArrowLeft' ? -1 : 1));
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isDesktop, layoutEditing, galleryOpen, scheduleViewerOpen, imagePicker, quadManagerTarget, addPageMenu, jumpToPage]);
 
   const handleRemoveQuadApp = useCallback((pageIndex: number, itemId: string, slotIndex: number) => {
     const page = pagesRef.current[pageIndex];
