@@ -1,6 +1,7 @@
 import React from 'react';
 import { Newspaper, Sparkle, ArrowRight, BookOpen } from '@phosphor-icons/react';
 import type { Message, AppID } from '../../types';
+import { PaperImage } from '../study/PaperImage';
 
 interface PaperCardProps {
     message: Message;
@@ -79,7 +80,7 @@ export const PaperCard: React.FC<PaperCardProps> = ({ message, openApp }) => {
             {/* 配图缩略（如有） */}
             {imageUrl && (
                 <div className="mx-3.5 my-2 h-24 rounded-lg overflow-hidden bg-black/50 border border-white/10 flex items-center justify-center">
-                    <img
+                    <PaperImage
                         src={imageUrl}
                         alt="Paper Figure"
                         className="max-h-full max-w-full object-contain"

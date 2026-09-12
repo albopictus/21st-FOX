@@ -18,46 +18,7 @@ import { DEFAULT_PAPER_TRANSLATION_PROMPT } from '../utils/paperTranslator';
 import { usePaperTranslation, paperTranslationStore } from '../utils/paperTranslationStore';
 import { getZoteroConfig, saveZoteroConfig, testZoteroConnection } from '../utils/zotero';
 
-type KatexLike = {
-    renderToString: (latex: string, options: any) => string;
-};
-
-let katexPromise: Promise<KatexLike> | null = null;
-
-const loadScript = (src: string): Promise<void> => new Promise((resolve, reject) => {
-    const existing = document.querySelector(`script[data-src=\"${src}\"]`) as HTMLScriptElement | null;
-    if (existing) {
-        if ((existing as any).dataset.loaded === 'true') {
-            resolve();
-            return;
-        }
-        existing.addEventListener('load', () => resolve(), { once: true });
-        existing.addEventListener('error', () => reject(new Error(`load failed: ${src}`)), { once: true });
-        return;
-    }
-
-    const script = document.createElement('script');
-    script.src = src;
-    script.async = true;
-    script.dataset.src = src;
-    script.onload = () => {
-        script.dataset.loaded = 'true';
-        resolve();
-    };
-    script.onerror = () => reject(new Error(`load failed: ${src}`));
-    document.head.appendChild(script);
-});
-
-const loadKatex = async (): Promise<KatexLike> => {
-    if (!katexPromise) {
-        katexPromise = loadScript('https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js').then(() => {
-            const katex = (window as any).katex as KatexLike | undefined;
-            if (!katex) throw new Error('KaTeX 加载失败');
-            return katex;
-        });
-    }
-    return katexPromise;
-};
+import { loadKatex, KatexLike } from '../utils/katexLoader';
 
 // --- Styles ---
 const GRADIENTS = [
@@ -78,8 +39,9 @@ const BlackboardRenderer: React.FC<{ text: string, isTyping?: boolean, katexRend
         try {
             // Clean up common latex issues from LLM
             const cleanLatex = latex
-                .replace(/\\\[/g, '') // Remove \[
-                .replace(/\\\]/g, ''); // Remove \]
+                .replace(/^(\$\$|\\\[|\$|\\\()/, '')
+                .replace(/(\$\$|\\\]|\$|\\\))$/, '')
+                .trim();
 
             const html = katexRenderer?.renderToString(cleanLatex, {
                 displayMode: displayMode,
@@ -96,18 +58,16 @@ const BlackboardRenderer: React.FC<{ text: string, isTyping?: boolean, katexRend
         }
     };
 
-    // Inline Parser for Bold, Italic, Code, Inline Math ($...$)
+    // Inline Parser for Bold, Italic, Code, Inline Math ($...$ or \(...\))
     const parseInline = (line: string): React.ReactNode[] => {
-        // Regex logic:
-        // 1. $...$ (Inline Math)
-        // 2. **...** (Bold)
-        // 3. *...* (Italic)
-        // 4. `...` (Code)
-        const tokenRegex = /(\$[^$]+?\$|\*\*[^*]+?\*\*|\*[^*]+?\*|`[^`]+?`)/g;
+        const tokenRegex = /(\$[^$]+?\$|\\\([\s\S]+?\\\)|(?:\*\*)[^*]+?(?:\*\*)|(?:\*)[^*]+?(?:\*)|`[^`]+?`)/g;
         
         return line.split(tokenRegex).map((part, i) => {
             if (part.startsWith('$') && part.endsWith('$')) {
                 return <span key={i}>{renderMath(part.slice(1, -1), false)}</span>;
+            }
+            if (part.startsWith('\\(') && part.endsWith('\\)')) {
+                return <span key={i}>{renderMath(part.slice(2, -2), false)}</span>;
             }
             if (part.startsWith('**') && part.endsWith('**')) {
                 return <strong key={i} className="text-emerald-300 font-bold mx-0.5">{part.slice(2, -2)}</strong>;
@@ -261,10 +221,9 @@ const BlackboardRenderer: React.FC<{ text: string, isTyping?: boolean, katexRend
         return `\n__BLOCK_CODE_${storedCode.length - 1}__\n`; // Add newlines to ensure it separates
     });
 
-    // 2. Extract Block Math ($$ ... $$)
-    // Note: LLMs sometimes output \[ ... \] or $$ ... $$. We try to catch $$...$$ mainly.
-    processedText = processedText.replace(/\$\$[\s\S]*?\$\$/g, (match) => {
-        const content = match.slice(2, -2).trim(); 
+    // 2. Extract Block Math ($$ ... $$ and \[ ... \])
+    processedText = processedText.replace(/(?:\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\])/g, (_match, m1, m2) => {
+        const content = (m1 !== undefined ? m1 : m2 || '').trim(); 
         storedMath.push(content);
         return `\n__BLOCK_MATH_${storedMath.length - 1}__\n`;
     });

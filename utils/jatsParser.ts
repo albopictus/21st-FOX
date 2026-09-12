@@ -64,15 +64,20 @@ function cleanInlineXml(node: Element): string {
 function resolveFigureImageUrl(xmlText: string, href: string, pmcidClean: string): { imageUrl: string; thumbUrl?: string } {
     if (!href) return { imageUrl: '' };
 
+    const cleanFileName = href.replace(/^.*\//, ''); // 仅保留文件名
+    const baseName = cleanFileName.replace(/\.[^/.]+$/, ''); // 去掉扩展名，如 Fig1.jpg -> Fig1
+    const escapedFileName = cleanFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escapedBaseName = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
     // 1. 尝试匹配 XML 中内置的 NCBI Cloud PMC processing instruction:
     // 例：<?image-cloudpmc-urn urn:cdn:blobs/4f77/13522008/ef45731aaa14/10544_2026_843_Fig1_HTML.webp?>
-    const cleanFileName = href.replace(/^.*\//, ''); // 仅保留文件名
-    const escapedFileName = cleanFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
-    const regexFull = new RegExp(`<\\?image-cloudpmc-urn\\s+(urn:cdn:blobs\\/[^?]*${escapedFileName})\\?>`, 'i');
+    // 绝大多数 JATS XML 的 xlink:href 没有后缀，或缩略图带有 _thumb 修饰，
+    // 因此正则支持在 baseName 前后允许任意字符与后缀。
+    const pattern = `[^?]*?(?:${escapedFileName}|${escapedBaseName})[^?]*`;
+    const regexFull = new RegExp(`<\\?image-cloudpmc-urn\\s+(urn:cdn:blobs\\/${pattern})\\?>`, 'i');
     const matchFull = xmlText.match(regexFull);
 
-    const regexThumb = new RegExp(`<\\?thumb-cloudpmc-urn\\s+(urn:cdn:blobs\\/[^?]*)\\?>`, 'i');
+    const regexThumb = new RegExp(`<\\?thumb-cloudpmc-urn\\s+(urn:cdn:blobs\\/${pattern})\\?>`, 'i');
     const matchThumb = xmlText.match(regexThumb);
 
     if (matchFull && matchFull[1]) {
@@ -84,7 +89,11 @@ function resolveFigureImageUrl(xmlText: string, href: string, pmcidClean: string
     }
 
     // 2. Fallback: 官方 PMC 标准 blob 规则
-    const fallbackUrl = `https://cdn.ncbi.nlm.nih.gov/pmc/articles/${pmcidClean.startsWith('PMC') ? pmcidClean : 'PMC' + pmcidClean}/bin/${cleanFileName}`;
+    // 若原名无后缀，自动补 .jpg（PMC 标准图片归档默认格式，避免 404）
+    const hasExt = /\.[a-zA-Z0-9]{3,4}$/i.test(cleanFileName);
+    const targetFileName = hasExt ? cleanFileName : `${cleanFileName}.jpg`;
+    const cleanId = pmcidClean.startsWith('PMC') ? pmcidClean : 'PMC' + pmcidClean;
+    const fallbackUrl = `https://cdn.ncbi.nlm.nih.gov/pmc/articles/${cleanId}/bin/${targetFileName}`;
     return { imageUrl: fallbackUrl };
 }
 

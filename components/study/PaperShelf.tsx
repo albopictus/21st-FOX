@@ -6,6 +6,7 @@ import { searchEuropePmcArticles, fetchAndParseStudyPaper, EuropePmcArticleSumma
 import { downloadPaperPdf } from '../../utils/paperDownload';
 import { getDailyDiscoveryPaper, DailyPaperDiscovery } from '../../utils/dailyPaper';
 import { ZoteroExportModal } from './ZoteroExportModal';
+import { PaperImage } from './PaperImage';
 import Modal from '../os/Modal';
 
 interface PaperShelfProps {
@@ -559,7 +560,7 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                 {/* 图配缩略图 */}
                                                 {figureBlock?.imageUrl && (
                                                     <div className="h-28 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex items-center justify-center p-1">
-                                                        <img
+                                                        <PaperImage
                                                             src={figureBlock.imageUrl}
                                                             alt="Figure thumbnail"
                                                             className="max-h-full max-w-full object-contain rounded"

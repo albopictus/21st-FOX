@@ -3,6 +3,7 @@
  */
 
 import type { StudyPaper } from '../types';
+import { shareOrDownloadFile } from './shareExport';
 
 export interface ZoteroConfig {
     userId: string;
@@ -411,17 +412,12 @@ export function generateApaCitation(paper: StudyPaper): string {
 }
 
 /**
- * 触发文件下载（如 .ris 或 .bib）
+ * 触发文件导出或下载（如 .ris 或 .bib），统一适配移动端系统分享与桌面端下载
  */
 export function downloadTextFile(filename: string, content: string, mimeType: string = 'text/plain;charset=utf-8'): void {
-    const blob = new Blob([content], { type: mimeType });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.rel = 'noopener noreferrer';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    void shareOrDownloadFile({
+        fileName: filename,
+        content,
+        mimeType,
+    });
 }

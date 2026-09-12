@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, CaretUp, CaretDown, MagnifyingGlassPlus, MagnifyingGlassMinus, ArrowCounterClockwise } from '@phosphor-icons/react';
 import type { PaperFigureBlock } from '../../types';
+import { PaperImage } from './PaperImage';
 
 interface PaperFigureModalProps {
     figure: PaperFigureBlock | null;
@@ -160,9 +161,10 @@ export const PaperFigureModal: React.FC<PaperFigureModalProps> = ({ figure, onCl
                 onTouchEnd={handleTouchEnd}
                 onDoubleClick={handleDoubleClick}
             >
-                <img
+                <PaperImage
                     src={figure.imageUrl}
                     alt={figure.label || 'Figure'}
+                    fallbackLabel={figure.label}
                     className="max-w-[95%] max-h-[85%] object-contain transition-transform duration-75 ease-out shadow-2xl rounded-xl"
                     style={{
                         transform: `translate(${translate.x}px, ${translate.y}px) scale(${scale})`,

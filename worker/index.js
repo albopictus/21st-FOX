@@ -1,8 +1,13 @@
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1";
-// 「自习室 → 学术文献晨读」检索/抓全文这两个接口直连的两个域名（无鉴权公开只读 API）。
-// 只放行这两个域名，别的一律拒绝——这是白名单而不是黑名单，比 /fetch-webpage 那种
-// 拦内网地址的黑名单写法更安全，反正合法用途就这两个域名。
-const EUROPEPMC_ALLOWED_HOSTS = new Set(["www.ebi.ac.uk", "eutils.ncbi.nlm.nih.gov"]);
+// 「自习室 → 学术文献晨读」检索/抓全文/文献插图直连的开放域名（只读公开资源）。
+// 放行 EBI、NCBI E-utilities 与 PMC 插图 CDN、Europe PMC 域名。
+const EUROPEPMC_ALLOWED_HOSTS = new Set([
+  "www.ebi.ac.uk",
+  "eutils.ncbi.nlm.nih.gov",
+  "cdn.ncbi.nlm.nih.gov",
+  "www.ncbi.nlm.nih.gov",
+  "europepmc.org",
+]);
 const FEISHU_BASE = "https://open.feishu.cn/open-apis";
 const XHS_BASE = "https://edith.xiaohongshu.com";
 const XHS_MEDIA_HOST_CANDIDATES = [
@@ -2783,15 +2788,17 @@ export default {
       try {
         const upstream = await fetch(target.toString(), {
           method: 'GET',
-          headers: { 'Accept': request.headers.get('accept') || 'application/json' },
+          headers: { 'Accept': request.headers.get('accept') || '*/*' },
           signal: controller.signal,
         });
-        // 全文 JATS XML 有的挺大，留够余量；检索结果是小 JSON，远用不到这个上限。
+        // 全文 JATS XML 与图表图片留够余量（上限 8MB）
         const body = await readBodyCapped(upstream, 8 * 1024 * 1024);
+        const upstreamContentType = upstream.headers.get('content-type') || 'application/octet-stream';
         return new Response(body, {
           status: upstream.status,
           headers: {
-            'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+            'Content-Type': upstreamContentType,
+            'Cache-Control': 'public, max-age=86400',
             ...corsHeaders(origin),
           },
         });

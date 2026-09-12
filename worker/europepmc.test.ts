@@ -53,6 +53,22 @@ describe('Worker /europepmc 代理', () => {
         expect(await res.text()).toBe('<xml/>');
     });
 
+    it('转发白名单内的 PMC 插图 CDN (cdn.ncbi.nlm.nih.gov) 图片', async () => {
+        const dummyImage = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+        const upstreamFetch = vi.fn().mockResolvedValue(new Response(dummyImage, {
+            status: 200,
+            headers: { 'Content-Type': 'image/jpeg' },
+        }));
+        vi.stubGlobal('fetch', upstreamFetch);
+
+        const res = await call('https://cdn.ncbi.nlm.nih.gov/pmc/articles/PMC1234567/bin/Fig1.jpg');
+
+        expect(upstreamFetch).toHaveBeenCalledTimes(1);
+        expect(res.status).toBe(200);
+        expect(res.headers.get('Content-Type')).toBe('image/jpeg');
+        expect(res.headers.get('Cache-Control')).toContain('public');
+    });
+
     it('不在白名单里的域名一律拒绝——不是任意 URL 的转发跳板', async () => {
         const upstreamFetch = vi.fn();
         vi.stubGlobal('fetch', upstreamFetch);

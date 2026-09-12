@@ -14,6 +14,8 @@ import {
 } from '../../utils/paperTypography';
 import { applyBionicReading } from '../../utils/bionicReading';
 import { ZoteroExportModal } from './ZoteroExportModal';
+import { PaperImage } from './PaperImage';
+import { useKatex } from '../../utils/katexLoader';
 import Modal from '../os/Modal';
 
 interface PaperReaderProps {
@@ -39,6 +41,8 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
     const [typography, setTypography] = useState<PaperTypographyConfig>(getSavedTypography);
     const [showTypographyModal, setShowTypographyModal] = useState(false);
     const [showZoteroModal, setShowZoteroModal] = useState(false);
+    const dynamicKatex = useKatex();
+    const activeKatex = katexRenderer || dynamicKatex;
 
     const updateTypography = (patch: Partial<PaperTypographyConfig>) => {
         setTypography(prev => {
@@ -160,33 +164,69 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
         }
     };
 
-    // 辅助渲染 KaTeX 公式与行内样式（支持 Bionic Reading 英文仿生阅读）
+    // 辅助渲染 KaTeX 公式（支持行内与块级数学公式）与样式（支持 Bionic Reading 英文仿生阅读）
     const renderInlineContent = (content: string, isEnglishText: boolean = false) => {
         if (!content) return null;
 
-        // 识别 $...$ 行内数学公式
-        const parts = content.split(/(\$[^$]+?\$)/g);
+        // 识别数学公式: $$...$$, \[...\], $...$, \(...\)
+        const mathPattern = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^$]+?\$|\\\([\s\S]+?\\\))/g;
+        const parts = content.split(mathPattern);
+
         return parts.map((part, index) => {
-            if (part.startsWith('$') && part.endsWith('$') && part.length > 2) {
-                const latex = part.slice(1, -1).trim();
-                if (katexRenderer) {
+            if (!part) return null;
+
+            const isDisplayMath =
+                (part.startsWith('$$') && part.endsWith('$$') && part.length >= 4) ||
+                (part.startsWith('\\[') && part.endsWith('\\]') && part.length >= 4);
+
+            const isInlineMath =
+                (part.startsWith('$') && part.endsWith('$') && part.length > 2 && !isDisplayMath) ||
+                (part.startsWith('\\(') && part.endsWith('\\)') && part.length >= 4);
+
+            if (isDisplayMath || isInlineMath) {
+                const rawLatex = isDisplayMath
+                    ? part.replace(/^(\$\$|\\\[)/, '').replace(/(\$\$|\\\])$/, '').trim()
+                    : part.replace(/^(\$|\\\()/, '').replace(/(\$|\\\))$/, '').trim();
+
+                if (activeKatex) {
                     try {
-                        const html = katexRenderer.renderToString(latex, {
-                            displayMode: false,
+                        const html = activeKatex.renderToString(rawLatex, {
+                            displayMode: isDisplayMath,
                             throwOnError: false,
                             output: 'html'
                         });
-                        return <span key={index} dangerouslySetInnerHTML={{ __html: html }} className="inline-block mx-1 font-mono text-emerald-800 font-semibold" />;
-                    } catch (e) {
-                        return <span key={index} className="text-emerald-800 font-mono text-xs font-semibold">{part}</span>;
+                        if (isDisplayMath) {
+                            return (
+                                <div
+                                    key={index}
+                                    dangerouslySetInnerHTML={{ __html: html }}
+                                    className="my-3 max-w-full overflow-x-auto text-center py-2 px-1 text-emerald-950 select-all"
+                                />
+                            );
+                        }
+                        return (
+                            <span
+                                key={index}
+                                dangerouslySetInnerHTML={{ __html: html }}
+                                className="inline-block mx-1 font-mono text-emerald-800 font-semibold align-baseline max-w-full overflow-x-auto select-all"
+                            />
+                        );
+                    } catch {
+                        // KaTeX 解析异常时平滑退化
                     }
                 }
-                return <span key={index} className="text-emerald-800 font-mono text-xs font-semibold">{part}</span>;
+                return (
+                    <span key={index} className="text-emerald-800 font-mono text-xs font-semibold px-1 py-0.5 bg-emerald-50/50 rounded">
+                        {part}
+                    </span>
+                );
             }
+
             if (isEnglishText && typography.bionicReading) {
                 const bionicHtml = applyBionicReading(part);
                 return <span key={index} dangerouslySetInnerHTML={{ __html: bionicHtml }} />;
             }
+
             return <span key={index}>{part}</span>;
         });
     };
@@ -541,9 +581,10 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                                         className="rounded-2xl overflow-hidden border border-slate-200/90 bg-white cursor-pointer group relative shadow-sm hover:border-emerald-300 transition-all"
                                     >
                                         <div className="relative flex items-center justify-center p-4 max-h-[380px] overflow-hidden bg-slate-50/50">
-                                            <img
+                                            <PaperImage
                                                 src={fig.imageUrl}
                                                 alt={fig.label || 'Paper figure'}
+                                                fallbackLabel={fig.label}
                                                 className="max-h-[340px] w-auto object-contain rounded transition duration-200 group-hover:scale-[1.01]"
                                                 loading="lazy"
                                             />

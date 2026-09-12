@@ -3,6 +3,7 @@ import { Newspaper, Sparkle, ArrowRight, BookOpen } from '@phosphor-icons/react'
 import type { PlacedItem, StudyPaper } from '../../../types';
 import type { WidgetRenderContext } from '../desktopWidgetRegistry';
 import { DB } from '../../../utils/db';
+import { PaperImage } from '../../study/PaperImage';
 
 interface StudyPaperWidgetProps {
     item: PlacedItem;
@@ -76,7 +77,7 @@ export const StudyPaperWidget: React.FC<StudyPaperWidgetProps> = ({ item, ctx })
                     <div className="flex-1 flex gap-3 items-center my-1 overflow-hidden">
                         {figureBlock?.imageUrl ? (
                             <div className="w-24 h-full rounded-lg overflow-hidden bg-black/40 border border-white/10 flex-shrink-0 flex items-center justify-center">
-                                <img
+                                <PaperImage
                                     src={figureBlock.imageUrl}
                                     alt="Thumbnail"
                                     className="max-h-full max-w-full object-contain"
