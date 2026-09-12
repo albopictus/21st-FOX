@@ -119,7 +119,11 @@ export const defaultRealtimeConfig: RealtimeConfig = {
 };
 
 // 缓存
-let weatherCache: { data: WeatherData | null; timestamp: number } = { data: null, timestamp: 0 };
+// 天气缓存按城市名分开存：以前是单槽全局变量，角色 A 查完北京、角色 B 紧接着查东京会
+// 直接读到 A 那份缓存——城市对不上，角色说的天气跟 ta 自己的地区没关系。
+// 见 buildFullContext 调用方（chatPrompts.ts）现在会按角色的 customWeatherCity 覆盖
+// config.weatherCity，一旦出现多个不同城市并发查询，共享单槽就必然串。
+const weatherCacheByCity = new Map<string, { data: WeatherData | null; timestamp: number }>();
 let newsCache: { data: NewsItem[]; timestamp: number } = { data: [], timestamp: 0 };
 
 
@@ -129,25 +133,28 @@ export const RealtimeContextManager = {
      * 获取天气信息。填了 OpenWeatherMap key 优先走 OWM，失败或没填 key 时回落免费的 Open-Meteo。
      */
     fetchWeather: async (config: RealtimeConfig): Promise<WeatherData | null> => {
-        if (!config.weatherEnabled || !config.weatherCity) {
+        const city = config.weatherCity?.trim();
+        if (!config.weatherEnabled || !city) {
             return null;
         }
 
         const now = Date.now();
         const cacheMs = config.cacheMinutes * 60 * 1000;
+        const cacheKey = city.toLowerCase();
 
-        // 检查缓存
-        if (weatherCache.data && (now - weatherCache.timestamp) < cacheMs) {
-            return weatherCache.data;
+        // 检查缓存（按城市分槽，不同城市互不影响）
+        const cached = weatherCacheByCity.get(cacheKey);
+        if (cached?.data && (now - cached.timestamp) < cacheMs) {
+            return cached.data;
         }
 
-        const weather = await fetchWeatherWithFallback(config.weatherCity, config.weatherApiKey);
+        const weather = await fetchWeatherWithFallback(city, config.weatherApiKey);
         if (!weather) {
             return null;
         }
 
         // 更新缓存
-        weatherCache = { data: weather, timestamp: now };
+        weatherCacheByCity.set(cacheKey, { data: weather, timestamp: now });
 
         return weather;
     },
@@ -458,7 +465,7 @@ export const RealtimeContextManager = {
      * 清除缓存
      */
     clearCache: () => {
-        weatherCache = { data: null, timestamp: 0 };
+        weatherCacheByCity.clear();
         newsCache = { data: [], timestamp: 0 };
         clearGeocodeCache();
     },

@@ -1416,7 +1416,7 @@ ${isInitialGeneration ? `
                            <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 space-y-4">
                                <div>
                                    <label className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest block">时间感知 & 时区</label>
-                                   <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">下面三个开关相互独立、可任意组合。改完即时生效（下一条回复起算）。</p>
+                                   <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">下面四个开关相互独立、可任意组合。改完即时生效（下一条回复起算）。</p>
                                </div>
 
                                {/* 1. 聊天 · 时间感知强化 */}
@@ -1463,7 +1463,33 @@ ${isInitialGeneration ? `
                                    )}
                                </div>
 
-                               {/* 3. 线下时间感知（约会 / 见面 App） */}
+                               {/* 3. 自定义天气地区：不开的话所有角色共用「实时感知」里配的那一个城市，
+                                   设定在异国的角色也会报同一份天气，跟自定义时区一样容易出现「人设和数据打架」 */}
+                               <div className="border-t border-slate-100 pt-3">
+                                   <div className="flex items-center justify-between gap-3">
+                                       <div className="min-w-0">
+                                           <p className="text-xs font-bold text-slate-700">自定义天气地区</p>
+                                           <p className="text-[10px] text-slate-400 mt-0.5 leading-relaxed">默认关（跟随「设置 → 实时感知」里配的城市）。开启后这个角色用下面填的城市查天气，不用改全局配置——适合和自定义时区搭配使用。要不要查天气仍由「实时感知」总开关决定，那边关了这里也不生效。</p>
+                                       </div>
+                                       <button
+                                           onClick={() => handleChange('customWeatherEnabled', !formData.customWeatherEnabled)}
+                                           className={`w-12 h-7 rounded-full transition-colors relative shrink-0 ${formData.customWeatherEnabled ? 'bg-primary' : 'bg-slate-200'}`}
+                                       >
+                                           <div className={`absolute top-0.5 w-6 h-6 bg-white rounded-full shadow-md transition-transform ${formData.customWeatherEnabled ? 'translate-x-5' : 'translate-x-0.5'}`}></div>
+                                       </button>
+                                   </div>
+                                   {formData.customWeatherEnabled && (
+                                       <input
+                                           type="text"
+                                           value={formData.customWeatherCity || ''}
+                                           onChange={(e) => handleChange('customWeatherCity', e.target.value)}
+                                           placeholder="角色所在城市，如 东京 / Tokyo"
+                                           className="mt-3 w-full bg-slate-50 rounded-2xl px-3 py-2.5 text-xs border border-slate-200 outline-none focus:ring-1 focus:ring-primary/30"
+                                       />
+                                   )}
+                               </div>
+
+                               {/* 4. 线下时间感知（约会 / 见面 App） */}
                                <div className="border-t border-slate-100 pt-3">
                                    <div className="flex items-center justify-between gap-3">
                                        <div className="min-w-0">

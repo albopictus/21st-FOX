@@ -256,3 +256,29 @@ describe('SAR public introduction', () => {
         expect(await build(baseChar({ vrState: { enabled: false } }), false)).not.toContain('凯恩和艾文是来自另一个世界的玩家');
     });
 });
+
+// 回归守卫：全局「实时感知」只配了一个天气城市，之前所有角色不分设定都查这一个城市——
+// 设定在纽约的角色也报着北京的天气。角色开了「自定义天气地区」后应该用自己的城市查，
+// 且不影响没开这个开关的角色（仍然用全局那个）。
+describe('自定义天气地区：角色可以覆盖全局天气城市', () => {
+    it('开了自定义天气地区时，fetchWeather 收到的是角色自己的城市，不是全局配置的那个', async () => {
+        await build(baseChar({ customWeatherEnabled: true, customWeatherCity: '东京' }), false);
+
+        const calledWith = vi.mocked(RealtimeContextManager.fetchWeather).mock.calls.at(-1)?.[0] as any;
+        expect(calledWith?.weatherCity).toBe('东京');
+    });
+
+    it('没开自定义天气地区时，沿用全局配置的城市（向后兼容）', async () => {
+        await build(baseChar(), false);
+
+        const calledWith = vi.mocked(RealtimeContextManager.fetchWeather).mock.calls.at(-1)?.[0] as any;
+        expect(calledWith?.weatherCity).toBe(realtimeConfig.weatherCity);
+    });
+
+    it('开了开关但没填城市（留空）：视同未开启，沿用全局配置', async () => {
+        await build(baseChar({ customWeatherEnabled: true, customWeatherCity: '  ' }), false);
+
+        const calledWith = vi.mocked(RealtimeContextManager.fetchWeather).mock.calls.at(-1)?.[0] as any;
+        expect(calledWith?.weatherCity).toBe(realtimeConfig.weatherCity);
+    });
+});

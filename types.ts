@@ -3116,6 +3116,13 @@ export interface CharacterProfile {
   customTimezoneEnabled?: boolean;
   customTimezone?: string; // IANA 时区 id，如 'Asia/Tokyo'
 
+  // 自定义天气地区：全局「实时感知」里的天气城市只有一个，角色各自设定的地区跟它对不上时，
+  // 所有角色会一起报同一个城市的天气——设定在纽约的角色也说着北京的天气。开启后用这里的
+  // 城市名覆盖全局配置查天气，其余（要不要查、用哪个 API key）仍归全局「实时感知」开关管，
+  // 关掉全局天气开关时这里设了也不会查。与「自定义时区」独立，但通常一起开更符合角色设定。
+  customWeatherEnabled?: boolean;
+  customWeatherCity?: string; // 城市名（如 "东京"、"Tokyo"），传给和全局一样的天气 API
+
   // 线下时间感知（约会 / 见面 App）：开启（默认）时向见面 system prompt 注入「当前真实时间」。
   // 关掉后见面场景不再注入时间，让剧情脱离现实时间线。独立开关。
   dateTimeAwarenessEnabled?: boolean;

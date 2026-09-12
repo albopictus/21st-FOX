@@ -348,6 +348,13 @@ export const ChatPrompts = {
         const charTz = resolveCharTimeZone(char);
         const charNow = nowInTimeZone(charTz);
         const today = getLocalDateKey(charNow);
+        // 自定义天气地区：全局「实时感知」的天气城市只有一个，角色开了自己的地区就用它覆盖——
+        // 否则所有角色会一起报同一个城市的天气，跟各自的人设（时区/所在地）对不上。
+        // 要不要查天气、走哪个 key 仍归全局开关（config.weatherEnabled）管，这里只换城市名，
+        // 查询本身照样走同一个主天气 API（fetchWeatherWithFallback：有 OWM key 走 OWM，否则 Open-Meteo）。
+        const effectiveRealtimeConfig = (char.customWeatherEnabled && char.customWeatherCity?.trim())
+            ? { ...config, weatherCity: char.customWeatherCity.trim() }
+            : config;
 
         // 1. 实时世界信息（天气/新闻/时间）
         //
@@ -370,7 +377,7 @@ export const ChatPrompts = {
                 if (config.weatherEnabled || config.newsEnabled) {
                     // 时间行跟着角色的「时间感知」开关走：关掉的角色不该从天气块里读到
                     // 「当前真实时间」，那是这个开关本来要挡住的东西。
-                    const realtimeContext = await RealtimeContextManager.buildFullContext(config, charTz, {
+                    const realtimeContext = await RealtimeContextManager.buildFullContext(effectiveRealtimeConfig, charTz, {
                         includeTime: char.timeAwarenessEnabled !== false,
                     });
                     return `\n${realtimeContext}\n`;
