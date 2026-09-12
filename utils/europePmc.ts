@@ -14,6 +14,7 @@ export interface EuropePmcArticleSummary {
     pubDate?: string;
     doi?: string;
     abstractText?: string;
+    keywords?: string[];
     isOpenAccess?: string;
     hasFT?: string;
     pubType?: string;
@@ -23,11 +24,16 @@ export interface EuropePmcArticleSummary {
 }
 
 /**
- * 检索欧洲生物信息研究所（Europe PMC）的开放获取全文文献（支持普通关键词与 DOI 精确反查）
+ * 检索欧洲生物信息研究所（Europe PMC）的文献（支持普通关键词、DOI 精确反查、以及开放获取 / 全文献切换）
  * @param query 学科关键词或标准 DOI（如 "CRISPR", "10.1038/s41586-024-xxxx"）
- * @param limit 返回条数，默认 10
+ * @param limit 返回条数，默认 8
+ * @param options.openAccessOnly 是否仅限开放获取全文文献，默认 false（可检索包括 Nature/Science/Cell 等全学科顶刊摘要与元数据）
  */
-export async function searchEuropePmcArticles(query: string, limit: number = 8): Promise<EuropePmcArticleSummary[]> {
+export async function searchEuropePmcArticles(
+    query: string,
+    limit: number = 8,
+    options?: { openAccessOnly?: boolean }
+): Promise<EuropePmcArticleSummary[]> {
     const trimmed = query.trim() || 'bioengineering';
 
     // 识别输入是否为标准 DOI（如 10.1038/... 或 doi: 10.xxxx/...）
@@ -37,11 +43,14 @@ export async function searchEuropePmcArticles(query: string, limit: number = 8):
     let queryString: string;
     if (isDoi && doiMatch) {
         const cleanDoi = doiMatch[1];
-        // DOI 精准检索：放宽必须具备 XML 全文限制，以便精准定位该 DOI 并在元数据中展示 PDF
+        // DOI 精准检索：支持任意期刊与文献
         queryString = `(DOI:"${cleanDoi}" OR "${cleanDoi}")`;
-    } else {
-        // 普通学科关键词检索：限制开放获取与全文/PDF
+    } else if (options?.openAccessOnly) {
+        // 仅限开放获取与结构化全文
         queryString = `OPEN_ACCESS:Y AND (HAS_FT:Y OR HAS_PDF:Y) AND (${trimmed})`;
+    } else {
+        // 全文献探索模式：收录全球 4000+ 万篇学术文献（含 Nature/Science/Cell/PNAS 等顶刊最新摘要、机理与作者关键词）
+        queryString = `(${trimmed})`;
     }
 
     const url = `${BASE_URL}/search?query=${encodeURIComponent(queryString)}&format=json&pageSize=${limit}&resultType=core`;
@@ -80,9 +89,39 @@ export async function searchEuropePmcArticles(query: string, limit: number = 8):
 
         const cleanPmcid = item.pmcid || (item.source === 'PMC' ? `PMC${item.id}` : undefined);
         const hasPdf = item.hasPDF === 'Y' || Boolean(cleanPmcid);
-        const pdfUrl = cleanPmcid
-            ? `https://europepmc.org/backend/ptpmcrender.fcgi?accid=${cleanPmcid.toUpperCase()}&blobtype=pdf`
-            : (item.fullTextUrlList?.fullTextUrl?.find((u: any) => u.documentStyle === 'pdf')?.url || undefined);
+
+        // 提取原文献自带的作者关键词
+        const extractedKeywords: string[] = [];
+        if (item.keywordList?.keyword) {
+            const rawKws = Array.isArray(item.keywordList.keyword) ? item.keywordList.keyword : [item.keywordList.keyword];
+            rawKws.forEach((k: any) => {
+                const s = String(k || '').replace(/^[•\s\-_]+/, '').trim();
+                if (s && !extractedKeywords.includes(s)) extractedKeywords.push(s);
+            });
+        }
+        // 若缺少作者关键词，选用 MeSH 专业学术主题词补充
+        if (extractedKeywords.length === 0 && item.meshHeadingList?.meshHeading) {
+            const headings = Array.isArray(item.meshHeadingList.meshHeading)
+                ? item.meshHeadingList.meshHeading
+                : [item.meshHeadingList.meshHeading];
+            headings.forEach((h: any) => {
+                const name = h?.descriptorName ? String(h.descriptorName).trim() : '';
+                if (name && !extractedKeywords.includes(name)) extractedKeywords.push(name);
+            });
+        }
+
+        // 优先获取 fullTextUrlList 中的官方 PDF 直链，若无则使用官方现代化 PDF 渲染地址，杜绝旧 ptpmcrender.fcgi 520 报错
+        const fullTextList = Array.isArray(item.fullTextUrlList?.fullTextUrl)
+            ? item.fullTextUrlList.fullTextUrl
+            : (item.fullTextUrlList?.fullTextUrl ? [item.fullTextUrlList.fullTextUrl] : []);
+        const directPdfObj = fullTextList.find((u: any) => u.documentStyle === 'pdf');
+
+        let pdfUrl: string | undefined = undefined;
+        if (directPdfObj?.url && !directPdfObj.url.includes('ptpmcrender.fcgi')) {
+            pdfUrl = directPdfObj.url;
+        } else if (cleanPmcid) {
+            pdfUrl = `https://europepmc.org/articles/${cleanPmcid.toUpperCase()}?pdf=render`;
+        }
 
         return {
             id: item.id,
@@ -95,6 +134,7 @@ export async function searchEuropePmcArticles(query: string, limit: number = 8):
             pubDate,
             doi: item.doi,
             abstractText: cleanAbstract || undefined,
+            keywords: extractedKeywords.length > 0 ? extractedKeywords : undefined,
             isOpenAccess: item.isOpenAccess,
             hasFT: item.hasFT,
             pubType: pubTypes || undefined,
@@ -102,7 +142,7 @@ export async function searchEuropePmcArticles(query: string, limit: number = 8):
             hasPDF: hasPdf,
             pdfUrl
         };
-    }).filter(item => Boolean(item.pmcid || item.hasPDF || isDoi));
+    }).filter(item => Boolean(item.title && (item.pmcid || item.doi || item.abstractText || item.hasPDF)));
 }
 
 /**
@@ -156,14 +196,28 @@ export async function fetchAndParseStudyPaper(
     keywords: string[] = [],
     summaryFallback?: Partial<EuropePmcArticleSummary>
 ): Promise<StudyPaper> {
-    const cleanId = pmcid.toUpperCase().startsWith('PMC') ? pmcid.toUpperCase() : `PMC${pmcid}`;
-    const pdfUrl = summaryFallback?.pdfUrl || (cleanId ? `https://europepmc.org/backend/ptpmcrender.fcgi?accid=${cleanId}&blobtype=pdf` : undefined);
+    const rawId = pmcid.trim();
+    const isPmc = rawId.toUpperCase().startsWith('PMC') || Boolean(summaryFallback?.pmcid);
+    const cleanId = isPmc
+        ? (rawId.toUpperCase().startsWith('PMC') ? rawId.toUpperCase() : `PMC${rawId}`)
+        : rawId;
+
+    const pdfUrl = summaryFallback?.pdfUrl || (isPmc ? `https://europepmc.org/articles/${cleanId}?pdf=render` : undefined);
+    const combinedKeywords = (summaryFallback?.keywords && summaryFallback.keywords.length > 0)
+        ? summaryFallback.keywords
+        : keywords;
 
     let xml = '';
-    try {
-        xml = await fetchEuropePmcFullTextXml(cleanId);
-    } catch (err) {
-        // 如果 XML 获取失败（例如官方未收录 JATS XML，或只有 PDF/纯摘要），降级生成摘要阅读块，让用户可以顺畅研读摘要并一键下载原版 PDF
+    if (isPmc) {
+        try {
+            xml = await fetchEuropePmcFullTextXml(cleanId);
+        } catch (err) {
+            console.warn(`无法获取 ${cleanId} 的 JATS XML 全文，自动降级为摘要阅读模式:`, err);
+        }
+    }
+
+    // 如果未获取到 JATS XML 全文（例如官方仅收录纯摘要、或属于 closed-access 顶刊），降级生成摘要阅读块，让用户可以顺畅研读摘要并一键下载原版 PDF
+    if (!xml) {
         if (summaryFallback?.abstractText || summaryFallback?.title) {
             return {
                 id: cleanId,
@@ -174,7 +228,7 @@ export async function fetchAndParseStudyPaper(
                 pubDate: summaryFallback.pubDate || summaryFallback.pubYear,
                 pubType: summaryFallback.pubType,
                 authorString: summaryFallback.authorString,
-                keywords,
+                keywords: combinedKeywords,
                 abstract: summaryFallback.abstractText,
                 blocks: [
                     {
@@ -186,7 +240,7 @@ export async function fetchAndParseStudyPaper(
                     {
                         id: 'abstract_content',
                         type: 'paragraph',
-                        text: summaryFallback.abstractText || '该文献暂未收录开放 JATS XML 结构化全文，可点击上方「下载原版 PDF」保存官方完整版。'
+                        text: summaryFallback.abstractText || '该文献暂未收录开放 JATS XML 结构化全文，可前往出版社官网或通过 DOI 阅读完整正文。'
                     }
                 ],
                 fetchedAt: Date.now(),
@@ -196,10 +250,11 @@ export async function fetchAndParseStudyPaper(
                 pdfUrl
             };
         }
-        throw err;
+        throw new Error(`获取文献失败 (${cleanId}): 未找到该文献的有效全文或摘要`);
     }
 
     const parsed = parseJatsXml(xml, cleanId);
+    const finalKeywords = (parsed.keywords && parsed.keywords.length > 0) ? parsed.keywords : combinedKeywords;
 
     const paper: StudyPaper = {
         id: cleanId,
@@ -210,7 +265,7 @@ export async function fetchAndParseStudyPaper(
         pubDate: parsed.pubDate || summaryFallback?.pubDate,
         pubType: summaryFallback?.pubType,
         authorString: parsed.authors.slice(0, 5).join(', ') + (parsed.authors.length > 5 ? ' et al.' : '') || summaryFallback?.authorString,
-        keywords,
+        keywords: finalKeywords,
         abstract: parsed.abstractText || summaryFallback?.abstractText,
         blocks: parsed.blocks,
         fetchedAt: Date.now(),

@@ -2,13 +2,17 @@
  * 学术文献 PDF 下载工具
  */
 
-export function getPaperPdfUrl(pmcid?: string, rawPdfUrl?: string): string | null {
-    if (rawPdfUrl && rawPdfUrl.startsWith('http')) {
+export function getPaperPdfUrl(pmcid?: string, rawPdfUrl?: string, doi?: string): string | null {
+    if (rawPdfUrl && rawPdfUrl.startsWith('http') && !rawPdfUrl.includes('ptpmcrender.fcgi')) {
         return rawPdfUrl;
     }
     if (pmcid) {
         const cleanId = pmcid.toUpperCase().startsWith('PMC') ? pmcid.toUpperCase() : `PMC${pmcid}`;
-        return `https://europepmc.org/backend/ptpmcrender.fcgi?accid=${cleanId}&blobtype=pdf`;
+        // 采用官方现代化 Web PDF 视图，彻底摒弃已报废的 ptpmcrender.fcgi CGI 脚本
+        return `https://europepmc.org/articles/${cleanId}?pdf=render`;
+    }
+    if (doi) {
+        return `https://doi.org/${doi}`;
     }
     return null;
 }
@@ -20,7 +24,7 @@ export function downloadPaperPdf(options: {
     pubYear?: string;
     doi?: string;
 }): boolean {
-    const url = getPaperPdfUrl(options.pmcid, options.pdfUrl);
+    const url = getPaperPdfUrl(options.pmcid, options.pdfUrl, options.doi);
     if (!url) {
         alert('该文献未收录开放获取的官方原版 PDF 直链');
         return false;

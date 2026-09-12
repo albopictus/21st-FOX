@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, X, Check, CalendarBlank, Article, CaretDown, CaretUp, Info, ArrowClockwise } from '@phosphor-icons/react';
+import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, X, Check, CalendarBlank, Article, CaretDown, CaretUp, Info, ArrowClockwise, ArrowSquareOut } from '@phosphor-icons/react';
 import type { StudyPaper, APIConfig } from '../../types';
 import { DB } from '../../utils/db';
 import { searchEuropePmcArticles, fetchAndParseStudyPaper, EuropePmcArticleSummary } from '../../utils/europePmc';
@@ -40,9 +40,13 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     const [activeTab, setActiveTab] = useState<'my_papers' | 'discover'>('my_papers');
     const [expandedAbstractIds, setExpandedAbstractIds] = useState<Set<string>>(new Set());
 
+    // 检索范围过滤：'all' 全球顶刊 (包含 Nature/Science/Cell 等摘要与元数据) | 'oa' 仅限开放获取全文
+    const [oaFilter, setOaFilter] = useState<'all' | 'oa'>('all');
+
     // 今日学术偶遇（每日随机高分文献与灵感）
     const [dailyDiscovery, setDailyDiscovery] = useState<DailyPaperDiscovery | null>(null);
     const [isDailyLoading, setIsDailyLoading] = useState(false);
+    const [isDailyExpanded, setIsDailyExpanded] = useState(false);
 
     const toggleAbstract = (id: string, e?: React.MouseEvent) => {
         if (e) e.stopPropagation();
@@ -128,12 +132,13 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
         }
     };
 
-    const handleSearch = async (keyword?: string) => {
+    const handleSearch = async (keyword?: string, overrideOa?: 'all' | 'oa') => {
         const kw = keyword || searchKeyword;
         if (!kw.trim()) return;
+        const targetOa = overrideOa !== undefined ? overrideOa : oaFilter;
         try {
             setIsSearching(true);
-            const res = await searchEuropePmcArticles(kw, 8);
+            const res = await searchEuropePmcArticles(kw, 8, { openAccessOnly: targetOa === 'oa' });
             setSearchResults(res);
             setActiveTab('discover');
         } catch (e: any) {
@@ -357,10 +362,45 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                     )}
                                 </div>
 
+                                {/* 原文献自带作者关键词 */}
+                                {dailyDiscovery.paper.keywords && dailyDiscovery.paper.keywords.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mb-2.5">
+                                        {dailyDiscovery.paper.keywords.slice(0, 6).map((kwd, i) => (
+                                            <button
+                                                key={i}
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setSearchKeyword(kwd);
+                                                    handleSearch(kwd);
+                                                }}
+                                                className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100/80 hover:bg-amber-200 text-amber-900 font-medium border border-amber-200/70 cursor-pointer transition active:scale-95 flex items-center gap-0.5 shadow-2xs"
+                                                title={`点击检索此关键词: ${kwd}`}
+                                            >
+                                                <span>#{kwd}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+
+                                {/* 摘要展示：支持展开全部摘要，杜绝截断切行问题 */}
                                 {dailyDiscovery.paper.abstractText && (
-                                    <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed bg-white/80 p-2.5 rounded-xl border border-amber-100/80 mb-3 text-justify">
-                                        {dailyDiscovery.paper.abstractText}
-                                    </p>
+                                    <div className="bg-white/85 p-3 rounded-xl border border-amber-100/90 mb-3 text-justify shadow-2xs">
+                                        <p className={`text-xs text-slate-600 leading-relaxed font-sans ${isDailyExpanded ? '' : 'line-clamp-3'}`}>
+                                            {dailyDiscovery.paper.abstractText}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                setIsDailyExpanded(!isDailyExpanded);
+                                            }}
+                                            className="text-[11px] text-amber-700 hover:text-amber-900 font-semibold mt-1.5 inline-flex items-center gap-1 cursor-pointer transition active:scale-95"
+                                        >
+                                            <span>{isDailyExpanded ? '收起全部摘要' : '展开全部摘要'}</span>
+                                            <CaretDown size={12} weight="bold" className={`transition-transform duration-200 ${isDailyExpanded ? 'rotate-180' : ''}`} />
+                                        </button>
+                                    </div>
                                 )}
 
                                 <div className="flex items-center justify-between pt-1">
@@ -377,7 +417,7 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                         <span>开启今日研读</span>
                                     </button>
 
-                                    {dailyDiscovery.paper.hasPDF && (
+                                    {dailyDiscovery.paper.hasPDF ? (
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
@@ -395,7 +435,19 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                             <DownloadSimple size={13} />
                                             <span>下载 PDF</span>
                                         </button>
-                                    )}
+                                    ) : dailyDiscovery.paper.doi ? (
+                                        <a
+                                            href={`https://doi.org/${dailyDiscovery.paper.doi}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-xs font-medium text-slate-600 hover:text-slate-800 flex items-center gap-1 active:scale-95 transition shadow-2xs"
+                                            title="前往官网 DOI 出版页"
+                                        >
+                                            <ArrowSquareOut size={13} />
+                                            <span>出版商官网</span>
+                                        </a>
+                                    ) : null}
                                 </div>
                             </div>
                         )}
@@ -457,6 +509,20 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                         </span>
                                                     )}
                                                 </div>
+
+                                                {/* 文献关键词 */}
+                                                {paper.keywords && paper.keywords.length > 0 && (
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {paper.keywords.slice(0, 4).map((kwd, i) => (
+                                                            <span
+                                                                key={i}
+                                                                className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 font-medium"
+                                                            >
+                                                                #{kwd}
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
 
                                                 {/* 百字晨读机理摘要预览 */}
                                                 {paper.summary100 && (
@@ -527,10 +593,43 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                 ) : (
                     /* 检索结果展示区 */
                     <div className="space-y-3 pb-20">
+                        {/* 检索范围与 OA 过滤 */}
+                        <div className="flex items-center justify-between px-1 text-xs text-slate-500">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[11px] text-slate-400 font-medium">范围:</span>
+                                <button
+                                    onClick={() => {
+                                        setOaFilter('all');
+                                        if (searchKeyword) handleSearch(searchKeyword, 'all');
+                                    }}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 ${
+                                        oaFilter === 'all'
+                                            ? 'bg-slate-800 text-white shadow-2xs'
+                                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                                    }`}
+                                >
+                                    全部国际文献 (含Nature/Cell等)
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setOaFilter('oa');
+                                        if (searchKeyword) handleSearch(searchKeyword, 'oa');
+                                    }}
+                                    className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 ${
+                                        oaFilter === 'oa'
+                                            ? 'bg-emerald-700 text-white shadow-2xs'
+                                            : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                                    }`}
+                                >
+                                    仅限开放获取 (OA 全文)
+                                </button>
+                            </div>
+                        </div>
+
                         {searchResults.length === 0 ? (
                             <div className="text-center py-20 text-slate-400 text-xs space-y-1">
                                 <p className="font-semibold text-slate-500">暂无检索结果</p>
-                                <p>请在上方搜索框输入学科关键词检索 Europe PMC 开放获取前沿</p>
+                                <p>请在上方搜索框输入学科关键词检索 Europe PMC 学术前沿</p>
                             </div>
                         ) : (
                             searchResults.map(res => {
@@ -587,6 +686,27 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                 )}
                                             </div>
 
+                                            {/* 作者自带关键词 */}
+                                            {res.keywords && res.keywords.length > 0 && (
+                                                <div className="flex flex-wrap gap-1 pt-0.5">
+                                                    {res.keywords.slice(0, 5).map((kwd, i) => (
+                                                        <button
+                                                            key={i}
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setSearchKeyword(kwd);
+                                                                handleSearch(kwd);
+                                                            }}
+                                                            className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 hover:bg-emerald-50 text-slate-600 hover:text-emerald-800 font-medium border border-slate-200/50 cursor-pointer transition active:scale-95"
+                                                            title={`点击检索此关键词: ${kwd}`}
+                                                        >
+                                                            #{kwd}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
+
                                             {/* 点一下显示摘要按钮 */}
                                             {res.abstractText && (
                                                 <div className="pt-0.5">
@@ -627,13 +747,15 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                             <div className="text-[11px] text-slate-400 font-medium">
                                                 {res.isAbstractOnly ? (
                                                     <span className="text-amber-600/90 text-[10px]">⚠️ 该文为学术会议简报，正文主要为机理摘要</span>
+                                                ) : res.isOpenAccess === 'Y' ? (
+                                                    <span className="text-emerald-700 font-medium text-[10px] bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200/60">✓ 开放获取 (OA 全文)</span>
                                                 ) : (
-                                                    <span className="text-emerald-700/80 text-[10px]">✓ 包含全文 JATS XML</span>
+                                                    <span className="text-slate-600 font-medium text-[10px] bg-slate-100 px-2 py-0.5 rounded-full">国际期刊 · 摘要研读</span>
                                                 )}
                                             </div>
 
                                             <div className="flex items-center gap-2">
-                                                {res.hasPDF && (
+                                                {res.hasPDF ? (
                                                     <button
                                                         onClick={(e) => {
                                                             e.stopPropagation();
@@ -651,7 +773,19 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                         <DownloadSimple size={13} />
                                                         <span>下载 PDF</span>
                                                     </button>
-                                                )}
+                                                ) : res.doi ? (
+                                                    <a
+                                                        href={`https://doi.org/${res.doi}`}
+                                                        target="_blank"
+                                                        rel="noopener noreferrer"
+                                                        onClick={(e) => e.stopPropagation()}
+                                                        className="px-3 py-2 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-600 hover:text-slate-800 text-xs font-medium flex items-center gap-1 active:scale-95 transition shadow-2xs shrink-0"
+                                                        title="前往期刊官网 DOI 页面"
+                                                    >
+                                                        <ArrowSquareOut size={13} />
+                                                        <span>出版商官网</span>
+                                                    </a>
+                                                ) : null}
 
                                                 <button
                                                     onClick={() => handleFetchPaper(res)}
@@ -674,8 +808,8 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                         </>
                                                     ) : (
                                                         <>
-                                                            <DownloadSimple size={13} />
-                                                            <span>抓取全文并晨读</span>
+                                                            <Plus size={13} weight="bold" />
+                                                            <span>加入书架并研读</span>
                                                         </>
                                                     )}
                                                 </button>

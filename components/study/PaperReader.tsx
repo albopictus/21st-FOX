@@ -312,9 +312,15 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                 {/* 论文扉页白纸大卡片 */}
                 <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-slate-100 space-y-3.5">
                     <div className="flex items-center gap-2 flex-wrap">
-                        <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
-                            Open Access
-                        </span>
+                        {paper.pmcid && paper.blocks.some(b => b.type === 'heading' && b.text.toLowerCase() !== 'abstract') ? (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-200">
+                                Open Access
+                            </span>
+                        ) : (
+                            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700 border border-slate-200">
+                                Abstract & DOI
+                            </span>
+                        )}
                         {paper.pubDate && (
                             <span className="text-xs text-slate-500 font-mono flex items-center gap-1 bg-slate-100 px-2.5 py-0.5 rounded-full">
                                 <CalendarBlank size={12} className="text-slate-400" />
@@ -342,6 +348,21 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                         <p className="text-xs text-slate-500 font-sans leading-relaxed">
                             <span className="text-slate-400 font-medium">Authors: </span>{paper.authorString}
                         </p>
+                    )}
+
+                    {/* 文献原作者关键词 */}
+                    {paper.keywords && paper.keywords.length > 0 && (
+                        <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                            <span className="text-xs text-slate-400 font-medium">Keywords:</span>
+                            {paper.keywords.map((kwd, idx) => (
+                                <span
+                                    key={idx}
+                                    className="text-[11px] px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-medium font-sans"
+                                >
+                                    {kwd}
+                                </span>
+                            ))}
+                        </div>
                     )}
 
                     {/* 会议论文/仅收录摘要友好提示 */}

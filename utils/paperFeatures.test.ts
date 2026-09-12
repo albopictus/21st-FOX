@@ -3,6 +3,7 @@ import { formatBionicWord, applyBionicReading } from './bionicReading';
 import { getPaperPdfUrl } from './paperDownload';
 import { getTodayDateString } from './dailyPaper';
 import { getFontFamilyStyle, getFontSizeClasses } from './paperTypography';
+import { parseJatsXml } from './jatsParser';
 
 describe('Paper New Features Suite', () => {
     describe('Bionic Reading for ADHD', () => {
@@ -30,15 +31,24 @@ describe('Paper New Features Suite', () => {
     });
 
     describe('PDF Downloader', () => {
-        it('generates official Europe PMC PDF URL for PMC ID', () => {
+        it('generates modern official Europe PMC PDF URL for PMC ID to prevent 520 crash', () => {
             const url = getPaperPdfUrl('PMC10515152');
-            expect(url).toBe('https://europepmc.org/backend/ptpmcrender.fcgi?accid=PMC10515152&blobtype=pdf');
+            expect(url).toBe('https://europepmc.org/articles/PMC10515152?pdf=render');
         });
 
-        it('prefers raw PDF URL if valid http link is provided', () => {
+        it('prefers raw PDF URL if valid http link is provided and ignores deprecated ptpmcrender', () => {
             const raw = 'https://example.com/paper.pdf';
             const url = getPaperPdfUrl('PMC12345', raw);
             expect(url).toBe(raw);
+
+            const broken = 'https://europepmc.org/backend/ptpmcrender.fcgi?accid=PMC12345&blobtype=pdf';
+            const fixed = getPaperPdfUrl('PMC12345', broken);
+            expect(fixed).toBe('https://europepmc.org/articles/PMC12345?pdf=render');
+        });
+
+        it('falls back to DOI URL when no PMC or PDF is present', () => {
+            const doiUrl = getPaperPdfUrl(undefined, undefined, '10.1038/s41586-024-0001');
+            expect(doiUrl).toBe('https://doi.org/10.1038/s41586-024-0001');
         });
     });
 
@@ -63,6 +73,36 @@ describe('Paper New Features Suite', () => {
             expect(sm.text).toContain('text-[13px]');
             const xl = getFontSizeClasses('xl');
             expect(xl.text).toContain('text-lg');
+        });
+    });
+
+    describe('JATS XML Parser & Keywords', () => {
+        it('extracts author keywords from JATS XML kwd-group', () => {
+            const sampleXml = `
+                <article>
+                    <front>
+                        <article-meta>
+                            <title-group>
+                                <article-title>CRISPR-Cas9 Base Editing in Plants</article-title>
+                            </title-group>
+                            <kwd-group>
+                                <kwd>Genome Editing</kwd>
+                                <kwd>CRISPR-Cas9</kwd>
+                                <kwd>Synthetic Biology</kwd>
+                            </kwd-group>
+                        </article-meta>
+                    </front>
+                    <body>
+                        <sec>
+                            <title>Introduction</title>
+                            <p>Here is introductory text.</p>
+                        </sec>
+                    </body>
+                </article>
+            `;
+            const result = parseJatsXml(sampleXml, 'PMC999999');
+            expect(result.keywords).toEqual(['Genome Editing', 'CRISPR-Cas9', 'Synthetic Biology']);
+            expect(result.title).toBe('CRISPR-Cas9 Base Editing in Plants');
         });
     });
 });

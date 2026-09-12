@@ -7,6 +7,7 @@ export interface ParsedJatsResult {
     pubDate?: string;
     doi?: string;
     abstractText?: string;
+    keywords?: string[];
     blocks: PaperBlock[];
 }
 
@@ -91,6 +92,33 @@ function resolveFigureImageUrl(xmlText: string, href: string, pmcidClean: string
  * 解析 JATS XML 全文字符串为积木协议结构
  */
 export function parseJatsXml(xmlText: string, pmcid: string): ParsedJatsResult {
+    // 若在 Node / 非浏览器环境执行，启用轻量正则兜底解析
+    if (typeof DOMParser === 'undefined') {
+        const titleMatch = xmlText.match(/<article-title[^>]*>([\s\S]*?)<\/article-title>/i);
+        const title = titleMatch ? titleMatch[1].replace(/<[^>]+>/g, '').trim() : pmcid;
+
+        const kwdMatches = Array.from(xmlText.matchAll(/<kwd[^>]*>([\s\S]*?)<\/kwd>/gi));
+        const keywords = kwdMatches.map(m => m[1].replace(/<[^>]+>/g, '').trim()).filter(Boolean);
+
+        const abstractMatch = xmlText.match(/<abstract[^>]*>([\s\S]*?)<\/abstract>/i);
+        const abstractText = abstractMatch ? abstractMatch[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : undefined;
+
+        const doiMatch = xmlText.match(/<article-id\s+pub-id-type=["']doi["'][^>]*>([\s\S]*?)<\/article-id>/i);
+        const doi = doiMatch ? doiMatch[1].trim() : undefined;
+
+        return {
+            pmcid,
+            title,
+            authors: [],
+            abstractText,
+            keywords,
+            blocks: abstractText ? [
+                { id: 'block-1', type: 'heading', level: 2, text: 'Abstract / 论文摘要' },
+                { id: 'block-2', type: 'paragraph', text: abstractText }
+            ] : []
+        };
+    }
+
     const parser = new DOMParser();
     const doc = parser.parseFromString(xmlText, 'text/xml');
 
@@ -138,6 +166,14 @@ export function parseJatsXml(xmlText: string, pmcid: string): ParsedJatsResult {
             ? pList.map(p => cleanInlineXml(p)).join('\n\n')
             : cleanInlineXml(abstractEl);
     }
+
+    // 关键词
+    const keywords: string[] = [];
+    const kwdNodes = doc.querySelectorAll('front article-meta kwd-group kwd');
+    kwdNodes.forEach(k => {
+        const text = cleanInlineXml(k).trim();
+        if (text && !keywords.includes(text)) keywords.push(text);
+    });
 
     // 2. 剥离参考文献与噪声节点
     const noiseSelectors = ['back', 'ref-list', 'ack', 'app-group', 'fn-group', 'notes'];
@@ -247,6 +283,7 @@ export function parseJatsXml(xmlText: string, pmcid: string): ParsedJatsResult {
         pubDate,
         doi,
         abstractText,
+        keywords,
         blocks
     };
 }
