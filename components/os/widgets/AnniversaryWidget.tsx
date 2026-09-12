@@ -152,7 +152,7 @@ export const AnniversaryWidget: React.FC<AnniversaryWidgetProps> = ({
             pagedEvents.map((anni: any) => (
               <div
                 key={anni.id}
-                onClick={() => openApp('schedule')}
+                onClick={() => { if (!editing) openApp('schedule'); }}
                 className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-transform active:scale-[0.98] ${
                   acnh
                     ? 'bg-[#efe7d4] border border-[#e0d6c0]'
@@ -185,7 +185,7 @@ export const AnniversaryWidget: React.FC<AnniversaryWidgetProps> = ({
             ))
           ) : (
             <div
-              onClick={() => openApp('schedule')}
+              onClick={() => { if (!editing) openApp('schedule'); }}
               className="text-center opacity-30 text-xs py-8 cursor-pointer hover:opacity-50 transition"
               style={{ color: contentColor }}
             >

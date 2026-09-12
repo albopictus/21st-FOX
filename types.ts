@@ -231,6 +231,14 @@ export interface OSTheme {
   preserveCustomIconOutlines?: boolean;
   /** 默认皮肤桌面「正在播放」音乐卡片改用浅色系样式（新安装默认 true）。 */
   nowPlayingWidgetLight?: boolean;
+  /** 小组件背景透明度配置（0-100）。 */
+  widgetOpacity?: {
+    schedule?: number;
+    calendar?: number;
+    memo?: number;
+    quad_apps?: number;
+    [key: string]: number | undefined;
+  };
   /** 日程卡片统一皮肤：桌面、全屏、房间与聊天内同步。 */
   scheduleCardAppearance?: ScheduleCardAppearance;
   /** 交换日记 App 全局皮肤与自定义 CSS。 */
