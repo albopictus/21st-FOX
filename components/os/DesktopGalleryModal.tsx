@@ -1,15 +1,12 @@
 import React, { useState } from 'react';
 import {
   Clock, User, CalendarDots, CalendarHeart, MusicNotes, Image as ImageIcon,
-  Note, SquaresFour, AppWindow, X, Plus, SlidersHorizontal, Palette, Sun, Moon,
+  Note, SquaresFour, AppWindow, X, Plus,
 } from '@phosphor-icons/react';
-import { AppID, type GridItemKind } from '../../types';
+import type { GridItemKind } from '../../types';
 import { INSTALLED_APPS, DOCK_APPS } from '../../constants';
 import AppIcon from './AppIcon';
 import { GALLERY_KINDS, WIDGET_META, defaultSizeFor } from './desktopWidgetRegistry';
-import { useOS } from '../../context/OSContext';
-
-const OPACITY_SUPPORTED_KINDS: Set<GridItemKind> = new Set(['schedule', 'calendar', 'memo', 'quad_apps']);
 
 /**
  * 自由网格桌面 · 「添加组件 / 应用」弹窗。
@@ -69,7 +66,6 @@ export const DesktopGalleryModal: React.FC<DesktopGalleryModalProps> = ({
   acnh = false, paper = false, initialTab = 'widgets',
 }) => {
   const [activeTab, setActiveTab] = useState<'widgets' | 'apps'>(initialTab);
-  const { theme, updateTheme, openApp } = useOS();
   if (!isOpen) return null;
 
   const gridApps = INSTALLED_APPS.filter(a => !DOCK_APPS.includes(a.id));
@@ -82,7 +78,6 @@ export const DesktopGalleryModal: React.FC<DesktopGalleryModalProps> = ({
     ? 'bg-[#f5f0e6]/95 text-[#4a3e31] border border-[#ddd5c7]'
     : 'bg-white/85 dark:bg-neutral-900/85 text-slate-800 dark:text-neutral-100 border border-white/60 dark:border-white/10 backdrop-blur-2xl';
   const addBtnCls = acnh ? 'bg-[#19c8b9] text-white' : paper ? 'bg-[#788369] text-white' : 'bg-slate-900 hover:bg-black text-white dark:bg-white dark:text-neutral-900';
-  const sliderAccentCls = acnh ? 'accent-[#19c8b9]' : paper ? 'accent-[#788369]' : 'accent-slate-900 dark:accent-white';
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-0 sm:p-4 animate-fade-in select-none">
@@ -91,7 +86,7 @@ export const DesktopGalleryModal: React.FC<DesktopGalleryModalProps> = ({
       <div className={`relative w-full sm:max-w-md rounded-t-[2.25rem] sm:rounded-[2.25rem] max-h-[82vh] flex flex-col shadow-[0_24px_64px_rgba(0,0,0,0.22)] overflow-hidden animate-slide-up z-10 ${panelCls}`}>
         <div className="w-10 h-1 rounded-full bg-current/20 mx-auto mt-3 mb-1 shrink-0" />
 
-        <div className="px-5 pt-2 pb-3 flex items-start justify-between shrink-0">
+        <div className="px-5 pt-2 pb-3 flex items-center justify-between shrink-0">
           <div className="flex p-1 rounded-full bg-black/5 dark:bg-white/10 text-xs font-bold">
             <button
               onClick={() => setActiveTab('widgets')}
@@ -109,21 +104,9 @@ export const DesktopGalleryModal: React.FC<DesktopGalleryModalProps> = ({
               )}
             </button>
           </div>
-          <div className="flex flex-col items-center gap-1 shrink-0">
-            <button onClick={onClose} className="w-7 h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/10 hover:bg-black/10 active:scale-90 transition cursor-pointer" title="关闭">
-              <X size={14} weight="bold" />
-            </button>
-            <button
-              onClick={() => {
-                onClose();
-                openApp(AppID.Appearance);
-              }}
-              className="w-7 h-7 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/10 hover:bg-black/10 active:scale-90 transition cursor-pointer text-current/75 hover:text-current"
-              title="前往外观设置"
-            >
-              <Palette size={14} weight="bold" />
-            </button>
-          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center bg-black/5 dark:bg-white/10 hover:bg-black/10 active:scale-90 transition" title="关闭">
+            <X size={15} weight="bold" />
+          </button>
         </div>
 
         <div className="px-5 pb-1 text-[11px] opacity-50 shrink-0">{targetLabel}</div>
@@ -134,111 +117,29 @@ export const DesktopGalleryModal: React.FC<DesktopGalleryModalProps> = ({
               const meta = WIDGET_META[kind];
               const size = defaultSizeFor(kind);
               const taken = !!meta.singleton && existingKinds.has(kind);
-              const supportsOpacity = OPACITY_SUPPORTED_KINDS.has(kind);
-              const currentOpacity = theme.widgetOpacity?.[kind] ?? 100;
-
               return (
                 <div
                   key={kind}
-                  className={`group flex flex-col p-3 rounded-2xl transition-all ${
-                    taken && !supportsOpacity ? 'opacity-40' : ''
-                  } ${
+                  onClick={() => { if (!taken) { onAddWidget(kind); onClose(); } }}
+                  className={`group flex items-center gap-3.5 p-3 rounded-2xl transition-all ${taken ? 'opacity-40' : 'cursor-pointer active:scale-[0.98]'} ${
                     acnh ? 'bg-white/80 border border-[#e8e2d6]' : paper ? 'bg-white/70 border border-[#5b4833]/10' : 'bg-white/60 dark:bg-white/5 border border-white/70 dark:border-white/10'
                   } shadow-xs`}
                 >
-                  <div
-                    onClick={() => { if (!taken) { onAddWidget(kind); onClose(); } }}
-                    className={`flex items-center gap-3.5 ${taken ? 'cursor-default' : 'cursor-pointer active:scale-[0.99] transition-transform'}`}
-                  >
-                    <div className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center shadow-xs ${KIND_TINT[kind] || 'bg-slate-500/15 text-slate-500'}`}>
-                      {KIND_ICON[kind]}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-bold truncate">{meta.label}</span>
-                        <span className="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-current/10 opacity-70">{size.w} × {size.h}</span>
-                        {taken && <span className="text-[9px] font-bold opacity-70 px-1.5 py-0.5 rounded-md bg-current/10">已在桌面</span>}
-                      </div>
-                      <p className="text-[11px] opacity-65 line-clamp-1 mt-0.5">{meta.desc}</p>
-                    </div>
-                    {!taken && (
-                      <span className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-xs shadow-xs group-hover:scale-105 active:scale-95 transition ${addBtnCls}`}>
-                        <Plus size={14} weight="bold" />
-                      </span>
-                    )}
+                  <div className={`w-11 h-11 shrink-0 rounded-2xl flex items-center justify-center shadow-xs ${KIND_TINT[kind] || 'bg-slate-500/15 text-slate-500'}`}>
+                    {KIND_ICON[kind]}
                   </div>
-
-                  {supportsOpacity && (
-                    <div
-                      className="mt-2.5 pt-2 border-t border-current/10 flex items-center justify-between gap-3"
-                      onClick={e => e.stopPropagation()}
-                      onMouseDown={e => e.stopPropagation()}
-                      onTouchStart={e => e.stopPropagation()}
-                      onPointerDown={e => e.stopPropagation()}
-                    >
-                      <div className="flex items-center gap-1.5 text-[11px] font-medium opacity-70 shrink-0">
-                        <SlidersHorizontal size={13} weight="bold" />
-                        <span>透明度</span>
-                      </div>
-                      <div className="flex items-center gap-2.5 flex-1 max-w-[200px]">
-                        <input
-                          type="range"
-                          min="0"
-                          max="100"
-                          step="5"
-                          value={currentOpacity}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            updateTheme({
-                              widgetOpacity: {
-                                ...(theme.widgetOpacity || {}),
-                                [kind]: val,
-                              },
-                            });
-                          }}
-                          className={`w-full h-1.5 bg-black/10 dark:bg-white/20 rounded-full appearance-none cursor-pointer ${sliderAccentCls}`}
-                        />
-                        <span className="text-[11px] font-mono font-bold w-9 text-right shrink-0 opacity-80">
-                          {currentOpacity}%
-                        </span>
-                      </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-bold truncate">{meta.label}</span>
+                      <span className="px-1.5 py-0.5 rounded-md text-[9px] font-mono font-bold bg-current/10 opacity-70">{size.w} × {size.h}</span>
+                      {taken && <span className="text-[9px] opacity-70">已在桌面</span>}
                     </div>
-                  )}
-
-                  {kind === 'music' && !paper && (
-                    <div
-                      className="mt-2.5 pt-2 border-t border-current/10 flex items-center justify-between gap-3"
-                      onClick={e => e.stopPropagation()}
-                      onMouseDown={e => e.stopPropagation()}
-                      onTouchStart={e => e.stopPropagation()}
-                      onPointerDown={e => e.stopPropagation()}
-                    >
-                      <div className="flex items-center gap-1.5 text-[11px] font-medium opacity-70 shrink-0">
-                        {theme.nowPlayingWidgetLight ? <Sun size={13} weight="bold" /> : <Moon size={13} weight="bold" />}
-                        <span>配色风格</span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => updateTheme({ nowPlayingWidgetLight: !theme.nowPlayingWidgetLight })}
-                        className={`px-2.5 py-1 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                          theme.nowPlayingWidgetLight
-                            ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400'
-                            : 'bg-indigo-500/20 text-indigo-600 dark:text-indigo-400'
-                        }`}
-                      >
-                        {theme.nowPlayingWidgetLight ? (
-                          <>
-                            <Sun size={12} weight="fill" />
-                            <span>浅色</span>
-                          </>
-                        ) : (
-                          <>
-                            <Moon size={12} weight="fill" />
-                            <span>深色</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
+                    <p className="text-[11px] opacity-65 line-clamp-1 mt-0.5">{meta.desc}</p>
+                  </div>
+                  {!taken && (
+                    <span className={`w-7 h-7 shrink-0 rounded-full flex items-center justify-center text-xs shadow-xs group-hover:scale-105 active:scale-95 transition ${addBtnCls}`}>
+                      <Plus size={14} weight="bold" />
+                    </span>
                   )}
                 </div>
               );
