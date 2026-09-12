@@ -1416,7 +1416,7 @@ ${isInitialGeneration ? `
                            <div className="bg-white rounded-3xl p-4 shadow-sm border border-slate-100 space-y-4">
                                <div>
                                    <label className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest block">时间感知 & 时区</label>
-                                   <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">下面三个开关相互独立、可任意组合。改完即时生效（下一条回复起算）。</p>
+                                   <p className="text-[11px] text-slate-400 mt-1 leading-relaxed">下面四个开关相互独立、可任意组合。改完即时生效（下一条回复起算）。</p>
                                </div>
 
                                {/* 1. 聊天 · 时间感知强化 */}
