@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, Gear } from '@phosphor-icons/react';
+import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, Gear, X, Check } from '@phosphor-icons/react';
 import type { StudyPaper, APIConfig } from '../../types';
 import { DB } from '../../utils/db';
 import { searchEuropePmcArticles, fetchAndParseStudyPaper, EuropePmcArticleSummary } from '../../utils/europePmc';
@@ -11,7 +11,7 @@ interface PaperShelfProps {
     onOpenSettings?: () => void;
 }
 
-const PRESET_KEYWORDS = [
+const DEFAULT_KEYWORDS = [
     'CRISPR',
     'Neuroscience',
     'Optogenetics',
@@ -20,6 +20,7 @@ const PRESET_KEYWORDS = [
     'Synthetic Biology',
     'Immunotherapy'
 ];
+const TAGS_STORAGE_KEY = 'sully_study_paper_tags';
 
 export const PaperShelf: React.FC<PaperShelfProps> = ({
     onSelectPaper,
@@ -34,6 +35,57 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     const [isFetchingPaper, setIsFetchingPaper] = useState(false);
     const [fetchingPmcid, setFetchingPmcid] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'my_papers' | 'discover'>('my_papers');
+
+    // 自定义快捷标签
+    const [tags, setTags] = useState<string[]>(() => {
+        try {
+            const saved = localStorage.getItem(TAGS_STORAGE_KEY);
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+            }
+        } catch {}
+        return DEFAULT_KEYWORDS;
+    });
+    const [isManagingTags, setIsManagingTags] = useState(false);
+    const [isAddingTag, setIsAddingTag] = useState(false);
+    const [newTagText, setNewTagText] = useState('');
+
+    const saveTags = (newTags: string[]) => {
+        setTags(newTags);
+        try {
+            localStorage.setItem(TAGS_STORAGE_KEY, JSON.stringify(newTags));
+        } catch {}
+    };
+
+    const handleAddTag = () => {
+        const trimmed = newTagText.trim();
+        if (!trimmed) {
+            setIsAddingTag(false);
+            return;
+        }
+        if (tags.includes(trimmed)) {
+            setIsAddingTag(false);
+            setNewTagText('');
+            return;
+        }
+        const updated = [...tags, trimmed];
+        saveTags(updated);
+        setNewTagText('');
+        setIsAddingTag(false);
+    };
+
+    const handleDeleteTag = (e: React.MouseEvent, tagToDelete: string) => {
+        e.stopPropagation();
+        const updated = tags.filter(t => t !== tagToDelete);
+        saveTags(updated);
+    };
+
+    const handleResetTags = () => {
+        if (confirm('是否恢复默认学科标签？')) {
+            saveTags(DEFAULT_KEYWORDS);
+        }
+    };
 
     useEffect(() => {
         loadPapers();
@@ -147,21 +199,106 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                     </button>
                 </div>
 
-                {/* 推荐关键词胶囊 */}
+                {/* 快捷标签胶囊 */}
                 <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-2.5 pb-1">
-                    <span className="text-[10px] text-slate-500 flex-shrink-0 font-medium">推荐：</span>
-                    {PRESET_KEYWORDS.map(kw => (
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                        <span className="text-[10px] text-slate-500 font-medium">快捷标签：</span>
                         <button
+                            onClick={() => setIsManagingTags(!isManagingTags)}
+                            className={`text-[10px] px-1.5 py-0.5 rounded transition ${
+                                isManagingTags
+                                    ? 'bg-amber-500/20 text-amber-300 font-bold'
+                                    : 'text-slate-400 hover:text-slate-200'
+                            }`}
+                            title={isManagingTags ? "完成管理" : "管理快捷标签"}
+                        >
+                            {isManagingTags ? '完成' : '编辑'}
+                        </button>
+                        {isManagingTags && (
+                            <button
+                                onClick={handleResetTags}
+                                className="text-[9px] text-slate-500 hover:text-slate-400 underline ml-0.5"
+                                title="恢复默认标签"
+                            >
+                                重置
+                            </button>
+                        )}
+                    </div>
+
+                    {tags.map(kw => (
+                        <div
                             key={kw}
                             onClick={() => {
-                                setSearchKeyword(kw);
-                                handleSearch(kw);
+                                if (!isManagingTags) {
+                                    setSearchKeyword(kw);
+                                    handleSearch(kw);
+                                }
                             }}
-                            className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-white/10 text-[10px] text-slate-400 hover:text-emerald-300 transition flex-shrink-0 border border-white/5"
+                            className={`px-2 py-0.5 rounded-full text-[10px] transition flex-shrink-0 flex items-center gap-1 border ${
+                                isManagingTags
+                                    ? 'bg-amber-500/10 border-amber-500/30 text-amber-200 cursor-default'
+                                    : 'bg-white/5 hover:bg-white/10 text-slate-400 hover:text-emerald-300 border-white/5 cursor-pointer'
+                            }`}
                         >
-                            {kw}
-                        </button>
+                            <span>{kw}</span>
+                            {isManagingTags && (
+                                <button
+                                    onClick={(e) => handleDeleteTag(e, kw)}
+                                    className="w-3.5 h-3.5 rounded-full hover:bg-rose-500/40 text-slate-400 hover:text-rose-300 flex items-center justify-center transition -mr-0.5"
+                                    title={`删除标签 "${kw}"`}
+                                >
+                                    <X size={10} weight="bold" />
+                                </button>
+                            )}
+                        </div>
                     ))}
+
+                    {/* 添加新标签 */}
+                    {isAddingTag ? (
+                        <div className="flex items-center gap-1 flex-shrink-0 bg-white/10 border border-emerald-500/40 rounded-full px-2 py-0.5">
+                            <input
+                                type="text"
+                                autoFocus
+                                value={newTagText}
+                                onChange={e => setNewTagText(e.target.value)}
+                                onKeyDown={e => {
+                                    if (e.key === 'Enter') handleAddTag();
+                                    if (e.key === 'Escape') {
+                                        setIsAddingTag(false);
+                                        setNewTagText('');
+                                    }
+                                }}
+                                placeholder="新标签..."
+                                className="bg-transparent text-[10px] text-white outline-none w-16 placeholder-slate-500"
+                            />
+                            <button
+                                onClick={handleAddTag}
+                                className="text-emerald-400 hover:text-emerald-300 p-0.5"
+                                title="确认添加"
+                            >
+                                <Check size={12} weight="bold" />
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setIsAddingTag(false);
+                                    setNewTagText('');
+                                }}
+                                className="text-slate-400 hover:text-slate-200 p-0.5"
+                                title="取消"
+                            >
+                                <X size={12} />
+                            </button>
+                        </div>
+                    ) : (
+                        <button
+                            onClick={() => setIsAddingTag(true)}
+                            className="px-2 py-0.5 rounded-full bg-white/5 hover:bg-emerald-500/20 text-[10px] text-slate-400 hover:text-emerald-300 transition flex-shrink-0 border border-dashed border-white/20 hover:border-emerald-500/40 flex items-center gap-0.5"
+                            title="添加新标签"
+                        >
+                            <Plus size={10} weight="bold" />
+                            <span>添加</span>
+                        </button>
+                    )}
                 </div>
 
                 {/* 视图 Tab 切换 */}
@@ -198,12 +335,13 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                             <p className="text-sm">暂无本地文献，请通过上方搜索框输入关键词抓取</p>
                             <button
                                 onClick={() => {
-                                    setSearchKeyword('CRISPR');
-                                    handleSearch('CRISPR');
+                                    const defaultKw = tags[0] || 'CRISPR';
+                                    setSearchKeyword(defaultKw);
+                                    handleSearch(defaultKw);
                                 }}
                                 className="px-4 py-2 rounded-xl bg-emerald-600/80 hover:bg-emerald-500 text-white text-xs font-medium transition"
                             >
-                                快速抓取 CRISPR 前沿文献
+                                快速抓取 {tags[0] || 'CRISPR'} 前沿文献
                             </button>
                         </div>
                     ) : (
