@@ -1876,17 +1876,22 @@ const Launcher: React.FC = () => {
   // - 焦点在输入框/textarea/select/contenteditable 时不接管，文本光标优先；
   // - 中文输入法组词中（isComposing）不接管，拼音选字要用方向键翻候选词；
   // - 按了 Alt/Ctrl/Cmd 等修饰键不接管，避免拦掉浏览器自己的前进后退等系统手势；
-  // - 编辑态或任何弹层（组件库/图片选择/四宫格管理/加页菜单/见面全屏）打开时不
-  //   接管，这些弹层自己的方向键交互（如果以后加）优先；
+  // - 弹层（组件库/图片选择/四宫格管理/加页菜单/见面全屏）打开时不接管，这些弹层
+  //   自己的方向键交互（如果以后加）优先；
   // - 元素标了 [data-no-arrow-nav] 视为自行声明"这里方向键归我管"，同样放行。
+  // - 正在拖拽条目（gesture.current 非空）时不接管——拖到边缘自动翻页那套已经在管
+  //   了，这时候按方向键跟正在进行的拖拽手势抢页面会打架。
+  // 编辑态（layoutEditing）本身不再拦截：用户明确要求整理桌面时也能用方向键翻页，
+  // 不用非得把条目拖到屏幕边缘才能翻——只要没在真的拖东西，两套翻页机制不会撞车。
   useEffect(() => {
     if (!isDesktop) return;
-    const overlayOpen = layoutEditing || galleryOpen || scheduleViewerOpen || !!imagePicker || !!quadManagerTarget || addPageMenu !== null;
+    const overlayOpen = galleryOpen || scheduleViewerOpen || !!imagePicker || !!quadManagerTarget || addPageMenu !== null;
     if (overlayOpen) return;
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       if (e.isComposing || e.altKey || e.ctrlKey || e.metaKey) return;
+      if (gesture.current?.active) return;
       const target = e.target;
       if (target instanceof HTMLElement) {
         if (target.isContentEditable) return;
@@ -1899,7 +1904,7 @@ const Launcher: React.FC = () => {
 
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [isDesktop, layoutEditing, galleryOpen, scheduleViewerOpen, imagePicker, quadManagerTarget, addPageMenu, jumpToPage]);
+  }, [isDesktop, galleryOpen, scheduleViewerOpen, imagePicker, quadManagerTarget, addPageMenu, jumpToPage]);
 
   const handleRemoveQuadApp = useCallback((pageIndex: number, itemId: string, slotIndex: number) => {
     const page = pagesRef.current[pageIndex];
