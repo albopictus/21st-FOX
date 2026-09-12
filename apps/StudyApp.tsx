@@ -14,7 +14,6 @@ import { trackEvent } from '../utils/analytics';
 import { extractPdfText, isPdfFile } from '../utils/pdfText';
 import { PaperShelf } from '../components/study/PaperShelf';
 import { PaperReader } from '../components/study/PaperReader';
-import { StudyApiConfigSection } from '../components/study/StudyApiConfigSection';
 import { DEFAULT_PAPER_TRANSLATION_PROMPT } from '../utils/paperTranslator';
 
 type KatexLike = {
@@ -309,7 +308,7 @@ const BlackboardRenderer: React.FC<{ text: string, isTyping?: boolean, katexRend
 };
 
 const StudyApp: React.FC = () => {
-    const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateCharacter, characterGroups, apiPresets = [] } = useOS();
+    const { closeApp, characters, activeCharacterId, apiConfig, addToast, userProfile, updateCharacter, characterGroups, apiPresets = [], addApiPreset } = useOS();
     const [mode, setMode] = useState<'bookshelf' | 'classroom' | 'quiz' | 'quiz_review' | 'practice_book' | 'paper_shelf' | 'paper_reader'>('bookshelf');
     const [activePaper, setActivePaper] = useState<StudyPaper | null>(null);
     const [courses, setCourses] = useState<StudyCourse[]>([]);
@@ -348,6 +347,8 @@ const StudyApp: React.FC = () => {
     const [localStudyUrl, setLocalStudyUrl] = useState('');
     const [localStudyKey, setLocalStudyKey] = useState('');
     const [localStudyModel, setLocalStudyModel] = useState('');
+    const [showStudySavePreset, setShowStudySavePreset] = useState(false);
+    const [newStudyPresetName, setNewStudyPresetName] = useState('');
 
     // Tutor prompt presets
     const [tutorPresets, setTutorPresets] = useState<StudyTutorPreset[]>([]);
@@ -361,6 +362,8 @@ const StudyApp: React.FC = () => {
     const [localPaperKey, setLocalPaperKey] = useState('');
     const [localPaperModel, setLocalPaperModel] = useState('');
     const [paperPrompt, setPaperPrompt] = useState(DEFAULT_PAPER_TRANSLATION_PROMPT);
+    const [showPaperSavePreset, setShowPaperSavePreset] = useState(false);
+    const [newPaperPresetName, setNewPaperPresetName] = useState('');
 
     // Effective API config: study-specific overrides fall back to main config
     const effectiveApi: APIConfig = {
@@ -576,6 +579,32 @@ const StudyApp: React.FC = () => {
             localStorage.removeItem('study_paper_translation_prompt');
             addToast('已恢复默认学术提示词', 'info');
         }
+    };
+
+    const handleSaveStudyPreset = () => {
+        const name = newStudyPresetName.trim();
+        if (!name) return;
+        addApiPreset(name, {
+            baseUrl: localStudyUrl,
+            apiKey: localStudyKey,
+            model: localStudyModel,
+        });
+        setNewStudyPresetName('');
+        setShowStudySavePreset(false);
+        addToast(`预设「${name}」已保存`, 'success');
+    };
+
+    const handleSavePaperPreset = () => {
+        const name = newPaperPresetName.trim();
+        if (!name) return;
+        addApiPreset(name, {
+            baseUrl: localPaperUrl,
+            apiKey: localPaperKey,
+            model: localPaperModel,
+        });
+        setNewPaperPresetName('');
+        setShowPaperSavePreset(false);
+        addToast(`预设「${name}」已保存`, 'success');
     };
 
     // --- PDF Processing ---
@@ -1862,22 +1891,105 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         {studySettingsTab === 'tutor' ? (
                             <>
                                 {/* Dedicated API Config */}
-                                <StudyApiConfigSection
-                                    title="助教专用 API"
-                                    subtitle="留空则使用全局设置"
-                                    url={localStudyUrl}
-                                    apiKey={localStudyKey}
-                                    model={localStudyModel}
-                                    onChangeUrl={setLocalStudyUrl}
-                                    onChangeApiKey={setLocalStudyKey}
-                                    onChangeModel={setLocalStudyModel}
-                                    onSave={(cfg) => saveStudyApi(cfg)}
-                                    onClear={clearStudyApi}
-                                    saveLabel="保存助教 API"
-                                    clearLabel="清除"
-                                    isCustomized={!!(studyApi.baseUrl || studyApi.model)}
-                                    customizedText={`当前使用专用 API: ${studyApi.model || effectiveApi.model}`}
-                                />
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">助教专用 API（留空则使用全局设置）</h4>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowStudySavePreset(!showStudySavePreset)}
+                                            className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full font-bold shadow-xs active:scale-95 transition-transform"
+                                        >
+                                            保存为预设
+                                        </button>
+                                    </div>
+
+                                    {showStudySavePreset && (
+                                        <div className="flex gap-2 mb-3">
+                                            <input
+                                                type="text"
+                                                value={newStudyPresetName}
+                                                onChange={e => setNewStudyPresetName(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && handleSaveStudyPreset()}
+                                                placeholder="预设名称..."
+                                                className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-emerald-500"
+                                                autoFocus
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleSaveStudyPreset}
+                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95 transition-transform"
+                                            >
+                                                保存
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Presets List */}
+                                    {apiPresets.length > 0 && (
+                                        <div className="mb-3">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">我的预设</label>
+                                            <div className="flex gap-2 flex-wrap">
+                                                {apiPresets.map(preset => (
+                                                    <button
+                                                        key={preset.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setLocalStudyUrl(preset.config.baseUrl || '');
+                                                            setLocalStudyKey(preset.config.apiKey || '');
+                                                            setLocalStudyModel(preset.config.model || '');
+                                                            addToast(`已载入预设: ${preset.name}`, 'info');
+                                                        }}
+                                                        className="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-1 shadow-xs text-xs font-medium text-slate-600 hover:text-emerald-600 hover:border-emerald-200 active:scale-95 transition-all"
+                                                    >
+                                                        {preset.name}
+                                                        <span className="ml-1.5 text-slate-400 font-mono text-[10px]">{preset.config.model}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        <input
+                                            value={localStudyUrl}
+                                            onChange={e => setLocalStudyUrl(e.target.value)}
+                                            placeholder="API Base URL (留空使用全局设置)"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <input
+                                            value={localStudyKey}
+                                            onChange={e => setLocalStudyKey(e.target.value)}
+                                            placeholder="API Key (留空使用全局设置)"
+                                            type="password"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <input
+                                            value={localStudyModel}
+                                            onChange={e => setLocalStudyModel(e.target.value)}
+                                            placeholder="模型名称 (如 gpt-4o, deepseek-chat)"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <div className="flex gap-2 pt-1">
+                                            <button
+                                                onClick={() => saveStudyApi()}
+                                                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs shadow-sm active:scale-95 transition"
+                                            >
+                                                保存配置
+                                            </button>
+                                            <button
+                                                onClick={clearStudyApi}
+                                                className="py-2.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-full text-xs active:scale-95 transition"
+                                            >
+                                                清除
+                                            </button>
+                                        </div>
+                                        {(studyApi.baseUrl || studyApi.model) && (
+                                            <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-xl p-2.5">
+                                                当前使用专用 API: {studyApi.model || effectiveApi.model}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
 
                                 {/* Tutor Prompt Presets */}
                                 <div>
@@ -1915,26 +2027,111 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                         ) : (
                             <>
                                 {/* Paper Translation Dedicated API */}
-                                <StudyApiConfigSection
-                                    title="文献翻译专用 API"
-                                    subtitle="留空则继承自习室/全局"
-                                    url={localPaperUrl}
-                                    apiKey={localPaperKey}
-                                    model={localPaperModel}
-                                    onChangeUrl={setLocalPaperUrl}
-                                    onChangeApiKey={setLocalPaperKey}
-                                    onChangeModel={setLocalPaperModel}
-                                    onSave={(cfg) => savePaperApi(cfg)}
-                                    onClear={clearPaperApi}
-                                    saveLabel="保存翻译 API"
-                                    clearLabel="恢复继承"
-                                    isCustomized={true}
-                                    customizedText={
-                                        paperApi.baseUrl || paperApi.model
-                                            ? `已启用独立文献翻译 API · 生效模型: ${paperApi.model || studyApi.model || apiConfig.model || '未设定'}`
-                                            : `当前继承自习室/全局配置 · 生效模型: ${studyApi.model || apiConfig.model || '未设定'}`
-                                    }
-                                />
+                                <div>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div>
+                                            <h4 className="text-xs font-bold text-slate-500 uppercase tracking-widest">文献翻译专用 API</h4>
+                                            <span className="text-[10px] text-slate-400">留空则继承自习室/全局</span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowPaperSavePreset(!showPaperSavePreset)}
+                                            className="text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-600 px-3 py-1.5 rounded-full font-bold shadow-xs active:scale-95 transition-transform"
+                                        >
+                                            保存为预设
+                                        </button>
+                                    </div>
+
+                                    {showPaperSavePreset && (
+                                        <div className="flex gap-2 mb-3">
+                                            <input
+                                                type="text"
+                                                value={newPaperPresetName}
+                                                onChange={e => setNewPaperPresetName(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && handleSavePaperPreset()}
+                                                placeholder="预设名称..."
+                                                className="flex-1 bg-slate-100 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-emerald-500"
+                                                autoFocus
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleSavePaperPreset}
+                                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl active:scale-95 transition-transform"
+                                            >
+                                                保存
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {/* Presets List */}
+                                    {apiPresets.length > 0 && (
+                                        <div className="mb-3">
+                                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5 block pl-1">我的预设</label>
+                                            <div className="flex gap-2 flex-wrap">
+                                                {apiPresets.map(preset => (
+                                                    <button
+                                                        key={preset.id}
+                                                        type="button"
+                                                        onClick={() => {
+                                                            setLocalPaperUrl(preset.config.baseUrl || '');
+                                                            setLocalPaperKey(preset.config.apiKey || '');
+                                                            setLocalPaperModel(preset.config.model || '');
+                                                            addToast(`已载入预设: ${preset.name}`, 'info');
+                                                        }}
+                                                        className="flex items-center bg-white border border-slate-200 rounded-lg px-3 py-1 shadow-xs text-xs font-medium text-slate-600 hover:text-emerald-600 hover:border-emerald-200 active:scale-95 transition-all"
+                                                    >
+                                                        {preset.name}
+                                                        <span className="ml-1.5 text-slate-400 font-mono text-[10px]">{preset.config.model}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2">
+                                        <input
+                                            value={localPaperUrl}
+                                            onChange={e => setLocalPaperUrl(e.target.value)}
+                                            placeholder="API Base URL (留空继承)"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <input
+                                            value={localPaperKey}
+                                            onChange={e => setLocalPaperKey(e.target.value)}
+                                            placeholder="API Key (留空继承)"
+                                            type="password"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <input
+                                            value={localPaperModel}
+                                            onChange={e => setLocalPaperModel(e.target.value)}
+                                            placeholder="模型名称 (如 deepseek-chat, gpt-4o)"
+                                            className="w-full bg-slate-100 rounded-2xl p-3 text-sm focus:outline-emerald-500 border border-slate-200/60"
+                                        />
+                                        <div className="flex gap-2 pt-1">
+                                            <button
+                                                onClick={() => savePaperApi()}
+                                                className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-full text-xs shadow-sm active:scale-95 transition"
+                                            >
+                                                保存翻译 API
+                                            </button>
+                                            <button
+                                                onClick={clearPaperApi}
+                                                className="py-2.5 px-5 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold rounded-full text-xs active:scale-95 transition"
+                                            >
+                                                恢复继承
+                                            </button>
+                                        </div>
+                                        <div className="text-[10px] text-emerald-700 bg-emerald-50 border border-emerald-200/60 rounded-xl p-2.5 flex items-center justify-between">
+                                            <span>
+                                                {paperApi.baseUrl || paperApi.model ? '已启用独立文献翻译 API' : '当前使用继承配置'}
+                                            </span>
+                                            <span className="font-mono font-bold">
+                                                生效模型: {paperApi.model || studyApi.model || apiConfig.model || '未设定'}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
 
                                 {/* Paper Translation Custom Prompt */}
                                 <div>
