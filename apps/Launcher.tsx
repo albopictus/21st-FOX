@@ -40,6 +40,11 @@ const CompanionHome = React.lazy(() => import('../components/os/CompanionHome'))
 const PAGE_PAD_X = 24; // px-6
 const GRID_COL_GAP = 8;  // gap-x-2
 const GRID_ROW_GAP = 12; // 紧凑行距(12px)，对齐手机视口高度，防纵向撑满滚动
+// 格子边长绝对下限：AppIcon 的图标本体是写死的 56px（w-[3.5rem]，不跟着 cellPx
+// 缩放），加间距和文字标签，72px 是能完整放下不被裁切的最小值。低于这个数字，
+// 图标会被自己所在的格子裁切边界切掉一块，比"这一行/这一页放不下、干净整行
+// 隐藏"严重得多——所以这不是"越小越省空间"的调优旋钮，是渲染正确性的硬下限。
+const MIN_CELL_PX = 72;
 
 // 所有页面统一用这份公式算格子高度：横向 gap(GRID_COL_GAP) 和纵向 gap(GRID_ROW_GAP)
 // 不相等，如果格子高度直接照抄 cellPx，跨 2 格拼出来的组件（四宫格、相框、音乐组件……）
@@ -602,13 +607,15 @@ const Launcher: React.FC = () => {
       const cellCap = isDesktop ? 108 : 82;
       const w = Math.min(raw, widthCap);
       const inner = w - PAGE_PAD_X * 2 - GRID_COL_GAP * (GRID_COLS - 1);
-      // 72 原本是「尽量不要太小」的下限，是按手机最窄也有 375px 宽这个假设调的——
-      // 4 列 * 72px + 间距刚好卡在 375px 门槛内，手机上从没出过问题。但桌面模式
-      // 解除了宽度门槛后，浏览器窗口可以缩到任意窄，一旦窗口比这个门槛还窄，硬守
-      // 72 下限会让格子比容器实际能放的还宽，内容右侧被截断/点不到，比"格子小一
-      // 点不好看"严重得多。优先级倒过来：容器能放多大就多大，放不下就得收，48 只是
-      // 防止极端情况下格子缩成 0/负数的兜底，不是设计目标尺寸。
-      const widthBasedSize = Math.min(cellCap, Math.max(48, Math.floor(inner / GRID_COLS)));
+      // MIN_CELL_PX=72 不是随便定的：AppIcon 的图标本体是写死的 56px（w-[3.5rem]，
+      // 不跟着 cellPx 缩放，见 components/os/AppIcon.tsx），加上间距和文字标签，
+      // 72px 是能完整放下一枚图标+标签、不被格子裁切边界切掉的下限——之前手机端
+      // 用了这么多年没出过事，就是因为手机最窄也有 375px 宽，从没让格子低于这个
+      // 数字过。曾经尝试过把这个下限降到 48 来解决"窄窗口横向溢出"，结果 48px
+      // 的格子装不下 56px 的图标，图标被裁切掉一块——这是实测出的真教训：格子可以
+      // 因为放不下而整行整页地干净裁切（page 级 overflow-hidden），但不能小到让
+      // 图标本身在自己的格子里裁切变形，两种"装不下"的后果完全不是一个量级。
+      const widthBasedSize = Math.min(cellCap, Math.max(MIN_CELL_PX, Math.floor(inner / GRID_COLS)));
 
       // cellPx 一直只按宽度算，从没管过高度——手机上从没出过事，因为手机视口天生
       // 又窄又高，宽度算出来的格子边长顺手就在纵向也放得下。但桌面窗口可以被浏览器
@@ -626,7 +633,7 @@ const Launcher: React.FC = () => {
       // 「纵向最多能放下多大的 cellPx」，具体推导见 cellHeightFor 定义。
       const heightBasedSize = Math.floor((availableForGrid - rowGapTotal) / GRID_ROWS) + (GRID_ROW_GAP - GRID_COL_GAP) / 2;
 
-      const size = Math.max(48, Math.min(widthBasedSize, heightBasedSize));
+      const size = Math.max(MIN_CELL_PX, Math.min(widthBasedSize, heightBasedSize));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
