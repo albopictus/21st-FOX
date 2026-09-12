@@ -1,7 +1,71 @@
 import type { StudyPaper } from '../types';
 import { parseJatsXml } from './jatsParser';
+import { getProxyWorkerUrl } from './proxyWorker';
 
 const BASE_URL = 'https://www.ebi.ac.uk/europepmc/webservices/rest';
+
+// ─── 网络重试 ───
+// EBI（英国）/ NCBI（美国）这两个接口对国内移动网络（尤其蜂窝数据、弱 wifi）
+// 延迟高、丢包也多，桌面宽带上很少复现的"网络错误"在手机上几乎每检索几次就撞一回。
+// 原来一次 fetch 不成直接把 catch 抛给用户，这里给瞬时故障（超时、连接层失败、
+// 5xx/429）一次自动重试的机会——4xx 之类的客户端错误不重试，重试只会让用户多等，
+// 换不来不同的结果。
+const FETCH_TIMEOUT_MS = 12_000;
+const MAX_RETRIES = 2; // 一共最多尝试 3 次
+const RETRY_DELAYS_MS = [800, 1800];
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+        try {
+            const res = await fetch(url, { ...init, signal: controller.signal });
+            clearTimeout(timer);
+            // 5xx / 429 是接口那边的瞬时抖动，值得重试；其余状态码（含 4xx）原样交回调用方判断。
+            if ((res.status >= 500 || res.status === 429) && attempt < MAX_RETRIES) {
+                lastError = new Error(`HTTP ${res.status}`);
+                await sleep(RETRY_DELAYS_MS[attempt]);
+                continue;
+            }
+            return res;
+        } catch (e) {
+            clearTimeout(timer);
+            lastError = e;
+            if (attempt < MAX_RETRIES) {
+                await sleep(RETRY_DELAYS_MS[attempt]);
+                continue;
+            }
+        }
+    }
+    throw lastError instanceof Error ? lastError : new Error('网络请求失败');
+}
+
+/**
+ * 直连优先，直连失败（重试耗尽）再落到 Worker 代理兜底（`/europepmc`，见 worker/index.js）。
+ *
+ * 直连是快路径：多数网络环境下 EBI/NCBI 本来就能连通，走 Worker 纯粹多绕一跳，没必要
+ * 每次都走。只有直连的全部重试都失败才落到代理——常见成因是移动网络对这类跨境直连做
+ * DNS 劫持/连接重置，浏览器侧表现为 CORS 被拦或直接连不上，且是稳定复现（同一条网络
+ * 路径重试三次结果一样），跟其余联网功能（Notion/飞书/Brave 搜索……）一样，走 Worker
+ * 代理（跑在 Cloudflare 全球边缘）才能绕开这类劫持。
+ */
+async function fetchAcademicApi(url: string, init?: RequestInit): Promise<Response> {
+    try {
+        return await fetchWithRetry(url, init);
+    } catch (directError) {
+        try {
+            const proxyUrl = `${getProxyWorkerUrl()}/europepmc?target=${encodeURIComponent(url)}`;
+            return await fetchWithRetry(proxyUrl, init);
+        } catch {
+            // 两条路都走不通：把直连那次的错误抛出去，对用户/日志来说信息量更大
+            // （能看出是网络问题，不是代理这一跳本身配置错了）。
+            throw directError instanceof Error ? directError : new Error('网络请求失败');
+        }
+    }
+}
 
 export interface EuropePmcArticleSummary {
     id: string;
@@ -28,11 +92,15 @@ export interface EuropePmcArticleSummary {
  * @param query 学科关键词或标准 DOI（如 "CRISPR", "10.1038/s41586-024-xxxx"）
  * @param limit 返回条数，默认 8
  * @param options.openAccessOnly 是否仅限开放获取全文文献，默认 false（可检索包括 Nature/Science/Cell 等全学科顶刊摘要与元数据）
+ * @param options.yearsBack 只看最近 N 年发表的文献（如 3 = 近 3 年），不传或传 0/负数则不限年份
+ * @param options.excludeAbstractOnly 排除会议简报 / 快讯这类只有摘要没有正文的条目
+ *
+ * DOI 精确反查模式下忽略后面三项过滤——DOI 本身就是唯一定位，不该被年份/类型筛掉。
  */
 export async function searchEuropePmcArticles(
     query: string,
     limit: number = 8,
-    options?: { openAccessOnly?: boolean }
+    options?: { openAccessOnly?: boolean; yearsBack?: number; excludeAbstractOnly?: boolean }
 ): Promise<EuropePmcArticleSummary[]> {
     const trimmed = query.trim() || 'bioengineering';
 
@@ -45,17 +113,26 @@ export async function searchEuropePmcArticles(
         const cleanDoi = doiMatch[1];
         // DOI 精准检索：支持任意期刊与文献
         queryString = `(DOI:"${cleanDoi}" OR "${cleanDoi}")`;
-    } else if (options?.openAccessOnly) {
-        // 仅限开放获取与结构化全文
-        queryString = `OPEN_ACCESS:Y AND (HAS_FT:Y OR HAS_PDF:Y) AND (${trimmed})`;
     } else {
+        // 几个过滤条件互相独立、可以叠加：开放获取、年份范围、排除会议摘要都是各自一个
+        // AND 子句，缺哪个就不拼哪个——不是三选一。
+        const clauses: string[] = [];
+        if (options?.openAccessOnly) clauses.push('OPEN_ACCESS:Y AND (HAS_FT:Y OR HAS_PDF:Y)');
+        if (options?.yearsBack && options.yearsBack > 0) {
+            const fromYear = new Date().getFullYear() - options.yearsBack + 1;
+            clauses.push(`PUB_YEAR:[${fromYear} TO 3000]`);
+        }
+        if (options?.excludeAbstractOnly) clauses.push('NOT PUB_TYPE:"meeting-abstract"');
+
         // 全文献探索模式：收录全球 4000+ 万篇学术文献（含 Nature/Science/Cell/PNAS 等顶刊最新摘要、机理与作者关键词）
-        queryString = `(${trimmed})`;
+        queryString = clauses.length > 0
+            ? `${clauses.join(' AND ')} AND (${trimmed})`
+            : `(${trimmed})`;
     }
 
     const url = `${BASE_URL}/search?query=${encodeURIComponent(queryString)}&format=json&pageSize=${limit}&resultType=core`;
 
-    const res = await fetch(url, {
+    const res = await fetchAcademicApi(url, {
         headers: {
             'Accept': 'application/json'
         }
@@ -155,7 +232,7 @@ export async function fetchEuropePmcFullTextXml(pmcid: string): Promise<string> 
     // 1. 优先尝试 Europe PMC REST 端点
     try {
         const url = `${BASE_URL}/${cleanId}/fullTextXML`;
-        const res = await fetch(url, {
+        const res = await fetchAcademicApi(url, {
             headers: {
                 'Accept': 'application/xml, text/xml'
             }
@@ -174,7 +251,7 @@ export async function fetchEuropePmcFullTextXml(pmcid: string): Promise<string> 
     // 2. 备选方案：NCBI Entrez efetch
     try {
         const ncbiUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/efetch.fcgi?db=pmc&id=${numericId}&retmode=xml`;
-        const ncbiRes = await fetch(ncbiUrl);
+        const ncbiRes = await fetchAcademicApi(ncbiUrl);
         if (ncbiRes.ok) {
             const ncbiXml = await ncbiRes.text();
             if (ncbiXml && ncbiXml.length >= 50) {

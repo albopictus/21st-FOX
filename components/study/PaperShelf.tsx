@@ -45,6 +45,10 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
 
     // 检索范围过滤：'all' 全球顶刊 (包含 Nature/Science/Cell 等摘要与元数据) | 'oa' 仅限开放获取全文
     const [oaFilter, setOaFilter] = useState<'all' | 'oa'>('all');
+    // 发表年份过滤：0 = 不限，其余为「近 N 年」
+    const [yearsBack, setYearsBack] = useState<0 | 1 | 3 | 5>(0);
+    // 排除会议简报/快讯这类只有摘要没有正文的条目
+    const [excludeAbstractOnly, setExcludeAbstractOnly] = useState(false);
 
     // 今日学术偶遇（每日随机高分文献与灵感）
     const [dailyDiscovery, setDailyDiscovery] = useState<DailyPaperDiscovery | null>(null);
@@ -138,17 +142,32 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
         }
     };
 
-    const handleSearch = async (keyword?: string, overrideOa?: 'all' | 'oa') => {
+    // 每个过滤开关点击时都是「setState + 立即用新值重新检索」，不能等 setState 生效后再读
+    // state——那时读到的还是上一次的旧值（React 状态更新是异步的）。所以每个过滤维度都单独
+    // 开一个 override 口子，点哪个就把新值显式传进来，其余维度仍读当前 state。
+    const handleSearch = async (keyword?: string, overrides?: {
+        oa?: 'all' | 'oa';
+        yearsBack?: 0 | 1 | 3 | 5;
+        excludeAbstractOnly?: boolean;
+    }) => {
         const kw = keyword || searchKeyword;
         if (!kw.trim()) return;
-        const targetOa = overrideOa !== undefined ? overrideOa : oaFilter;
+        const targetOa = overrides?.oa !== undefined ? overrides.oa : oaFilter;
+        const targetYearsBack = overrides?.yearsBack !== undefined ? overrides.yearsBack : yearsBack;
+        const targetExcludeAbstractOnly = overrides?.excludeAbstractOnly !== undefined ? overrides.excludeAbstractOnly : excludeAbstractOnly;
         try {
             setIsSearching(true);
-            const res = await searchEuropePmcArticles(kw, 8, { openAccessOnly: targetOa === 'oa' });
+            const res = await searchEuropePmcArticles(kw, 8, {
+                openAccessOnly: targetOa === 'oa',
+                yearsBack: targetYearsBack || undefined,
+                excludeAbstractOnly: targetExcludeAbstractOnly,
+            });
             setSearchResults(res);
             setActiveTab('discover');
         } catch (e: any) {
-            alert(`检索文献失败: ${e.message || '网络连接超时'}`);
+            // 已经在 europePmc.ts 里自动重试过瞬时故障了，走到这里说明是真的连不上——
+            // 提示语跟着改一下，别让用户以为"再点一次就好"。
+            alert(`检索文献失败: ${e.message || '网络多次重试仍未连上，请稍后再试'}`);
         } finally {
             setIsSearching(false);
         }
@@ -617,7 +636,7 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                 <button
                                     onClick={() => {
                                         setOaFilter('all');
-                                        if (searchKeyword) handleSearch(searchKeyword, 'all');
+                                        if (searchKeyword) handleSearch(searchKeyword, { oa: 'all' });
                                     }}
                                     className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 ${
                                         oaFilter === 'all'
@@ -630,7 +649,7 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                 <button
                                     onClick={() => {
                                         setOaFilter('oa');
-                                        if (searchKeyword) handleSearch(searchKeyword, 'oa');
+                                        if (searchKeyword) handleSearch(searchKeyword, { oa: 'oa' });
                                     }}
                                     className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 ${
                                         oaFilter === 'oa'
@@ -641,6 +660,45 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                     仅限开放获取 (OA 全文)
                                 </button>
                             </div>
+                        </div>
+
+                        {/* 发表年份 + 排除会议摘要：跟上面「范围」独立叠加，不是互斥的三选一 */}
+                        <div className="flex items-center justify-between px-1 text-xs text-slate-500 flex-wrap gap-y-1.5">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[11px] text-slate-400 font-medium">年份:</span>
+                                {([0, 1, 3, 5] as const).map(yb => (
+                                    <button
+                                        key={yb}
+                                        onClick={() => {
+                                            setYearsBack(yb);
+                                            if (searchKeyword) handleSearch(searchKeyword, { yearsBack: yb });
+                                        }}
+                                        className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 ${
+                                            yearsBack === yb
+                                                ? 'bg-slate-800 text-white shadow-2xs'
+                                                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                                        }`}
+                                    >
+                                        {yb === 0 ? '不限' : `近${yb}年`}
+                                    </button>
+                                ))}
+                            </div>
+                            <button
+                                onClick={() => {
+                                    const next = !excludeAbstractOnly;
+                                    setExcludeAbstractOnly(next);
+                                    if (searchKeyword) handleSearch(searchKeyword, { excludeAbstractOnly: next });
+                                }}
+                                className={`px-2.5 py-1 rounded-full text-xs font-semibold transition active:scale-95 flex items-center gap-1 ${
+                                    excludeAbstractOnly
+                                        ? 'bg-emerald-700 text-white shadow-2xs'
+                                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200/80'
+                                }`}
+                                title="排除只有会议摘要、没有正文的条目"
+                            >
+                                {excludeAbstractOnly && <Check size={11} weight="bold" />}
+                                <span>排除会议摘要/快讯</span>
+                            </button>
                         </div>
 
                         {searchResults.length === 0 ? (

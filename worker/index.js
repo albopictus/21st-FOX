@@ -1,4 +1,8 @@
 const BRAVE_ENDPOINT = "https://api.search.brave.com/res/v1";
+// 「自习室 → 学术文献晨读」检索/抓全文这两个接口直连的两个域名（无鉴权公开只读 API）。
+// 只放行这两个域名，别的一律拒绝——这是白名单而不是黑名单，比 /fetch-webpage 那种
+// 拦内网地址的黑名单写法更安全，反正合法用途就这两个域名。
+const EUROPEPMC_ALLOWED_HOSTS = new Set(["www.ebi.ac.uk", "eutils.ncbi.nlm.nih.gov"]);
 const FEISHU_BASE = "https://open.feishu.cn/open-apis";
 const XHS_BASE = "https://edith.xiaohongshu.com";
 const XHS_MEDIA_HOST_CANDIDATES = [
@@ -2747,6 +2751,54 @@ export default {
         const aborted = e && e.name === 'AbortError';
         return jsonResponse(
           { error: aborted ? '抓取超时' : `抓取出错: ${String((e && e.message) || e)}` },
+          { status: aborted ? 504 : 502, origin }
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    // ========== Europe PMC / NCBI PMC 学术文献代理 ==========
+    // 检索与抓全文两个接口原来是浏览器直连 www.ebi.ac.uk（英国）/ eutils.ncbi.nlm.nih.gov
+    // （美国）——这个项目里唯一一处联网功能绕开了 Worker 代理，直连境外服务器。
+    // 部分网络（尤其国内移动数据）对这类直连做 DNS 劫持/连接重置，浏览器侧表现为
+    // 「CORS 被拦」或直接连不上，且不是偶发抖动、同一条路径反复重试也没用，
+    // 跟其余联网功能一样走 Worker 代理才能绕开。
+    // 客户端策略见 utils/europePmc.ts：直连优先（快、少绕一跳），直连失败再落到这里兜底。
+    if (url.pathname === '/europepmc') {
+      if (request.method !== 'GET') {
+        return jsonResponse({ error: 'Method not allowed. Use GET.' }, { status: 405, origin });
+      }
+      const rawTarget = url.searchParams.get('target') || '';
+      let target;
+      try { target = new URL(rawTarget); } catch {
+        return jsonResponse({ error: 'Missing or invalid target' }, { status: 400, origin });
+      }
+      if (target.protocol !== 'https:' || !EUROPEPMC_ALLOWED_HOSTS.has(target.hostname)) {
+        return jsonResponse({ error: '只允许转发到 Europe PMC / NCBI PMC 的公开接口' }, { status: 400, origin });
+      }
+
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      try {
+        const upstream = await fetch(target.toString(), {
+          method: 'GET',
+          headers: { 'Accept': request.headers.get('accept') || 'application/json' },
+          signal: controller.signal,
+        });
+        // 全文 JATS XML 有的挺大，留够余量；检索结果是小 JSON，远用不到这个上限。
+        const body = await readBodyCapped(upstream, 8 * 1024 * 1024);
+        return new Response(body, {
+          status: upstream.status,
+          headers: {
+            'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
+            ...corsHeaders(origin),
+          },
+        });
+      } catch (e) {
+        const aborted = e && e.name === 'AbortError';
+        return jsonResponse(
+          { error: aborted ? '上游接口超时' : `转发失败: ${String((e && e.message) || e)}` },
           { status: aborted ? 504 : 502, origin }
         );
       } finally {
