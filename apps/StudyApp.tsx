@@ -15,6 +15,7 @@ import { extractPdfText, isPdfFile } from '../utils/pdfText';
 import { PaperShelf } from '../components/study/PaperShelf';
 import { PaperReader } from '../components/study/PaperReader';
 import { DEFAULT_PAPER_TRANSLATION_PROMPT } from '../utils/paperTranslator';
+import { usePaperTranslation, paperTranslationStore } from '../utils/paperTranslationStore';
 import { getZoteroConfig, saveZoteroConfig, testZoteroConnection } from '../utils/zotero';
 
 type KatexLike = {
@@ -317,6 +318,30 @@ const StudyApp: React.FC = () => {
     const [activeCourse, setActiveCourse] = useState<StudyCourse | null>(null);
     const [selectedChar, setSelectedChar] = useState<CharacterProfile | null>(null);
     const [tutorGroupId, setTutorGroupId] = useState<string>(GROUP_FILTER_ALL); // 书架页「当前助教」的分组筛选
+
+    // 全局文献翻译状态与深链（支持从小小窝/桌面的指示条直接点击回到文献阅读器）
+    const paperTrans = usePaperTranslation();
+    useEffect(() => {
+        if (!paperTrans.deepLink) return;
+        const targetId = 'paperId' in paperTrans ? paperTrans.paperId : undefined;
+        if (!targetId) return;
+
+        if (paperTrans.status === 'ready' && 'paper' in paperTrans && paperTrans.paper) {
+            setActivePaper(paperTrans.paper);
+            setMode('paper_reader');
+            paperTranslationStore.clearDeepLink();
+        } else {
+            DB.getPaperById(targetId).then(p => {
+                if (p) {
+                    setActivePaper(p);
+                    setMode('paper_reader');
+                }
+                paperTranslationStore.clearDeepLink();
+            }).catch(() => {
+                paperTranslationStore.clearDeepLink();
+            });
+        }
+    }, [paperTrans.deepLink, paperTrans]);
     
     // Classroom State
     const [classroomState, setClassroomState] = useState<'idle' | 'teaching' | 'q_and_a' | 'finished'>('idle');

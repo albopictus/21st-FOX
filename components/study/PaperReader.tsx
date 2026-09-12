@@ -3,6 +3,7 @@ import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNet
 import type { StudyPaper, PaperBlock, PaperParagraphBlock, PaperFigureBlock, PaperHeadingBlock, APIConfig, PaperTypographyConfig } from '../../types';
 import { PaperFigureModal } from './PaperFigureModal';
 import { translateSingleBlock, translateStudyPaper, getPaperApiConfig } from '../../utils/paperTranslator';
+import { usePaperTranslation, paperTranslationStore } from '../../utils/paperTranslationStore';
 import { DB } from '../../utils/db';
 import { downloadPaperPdf } from '../../utils/paperDownload';
 import {
@@ -62,10 +63,21 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
     // 选中的插图（进入全屏灯箱）
     const [activeFigure, setActiveFigure] = useState<PaperFigureBlock | null>(null);
 
-    // 全文翻译状态
-    const [isTranslating, setIsTranslating] = useState(false);
-    const [transPercent, setTransPercent] = useState(0);
-    const [transStatus, setTransStatus] = useState('');
+    // 全文翻译状态（由全局 paperTranslationStore 托管，切走页面不中断）
+    const trans = usePaperTranslation();
+    const isTranslating = trans.status === 'loading' && trans.paperId === paper.id;
+    const transPercent = isTranslating ? trans.percent : 0;
+    const transStatus = isTranslating ? trans.statusText : '';
+
+    // 当后台翻译完成时（即便用户切走过再切回来，或一直停留在此），实时将新译文合入界面
+    useEffect(() => {
+        if (trans.status === 'ready' && trans.paperId === paper.id) {
+            onUpdatePaper(trans.paper);
+            const allIds = new Set(trans.paper.blocks.map(b => b.id));
+            setExpandedBlockIds(allIds);
+            paperTranslationStore.reset();
+        }
+    }, [trans, paper.id, onUpdatePaper]);
 
     // 单段翻译加载中 ID
     const [translatingBlockId, setTranslatingBlockId] = useState<string | null>(null);
@@ -133,7 +145,7 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
         }
     };
 
-    // 发起全文学术翻译
+    // 发起全文学术翻译（由全局 paperTranslationStore 在后台执行，切走页面不中断）
     const handleFullTranslate = async () => {
         const effectiveConfig = getPaperApiConfig(apiConfig);
         if (isTranslating) return;
@@ -142,24 +154,9 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
             return;
         }
         try {
-            setIsTranslating(true);
-            setTransPercent(5);
-            setTransStatus('准备发送学术文献积木块...');
-
-            const updated = await translateStudyPaper(paper, apiConfig, (pct, status) => {
-                setTransPercent(pct);
-                setTransStatus(status);
-            });
-
-            await DB.savePaper(updated);
-            onUpdatePaper(updated);
-            // 默认展开所有有译文的段落
-            const allIds = new Set(updated.blocks.map(b => b.id));
-            setExpandedBlockIds(allIds);
+            await paperTranslationStore.startTranslation(paper, apiConfig);
         } catch (e: any) {
             alert(`学术翻译出错: ${e.message || '网络异常'}`);
-        } finally {
-            setIsTranslating(false);
         }
     };
 
