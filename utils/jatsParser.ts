@@ -12,7 +12,28 @@ export interface ParsedJatsResult {
 }
 
 /**
- * 清理内联 JATS XML 标签（如 <bold>, <italic>, <ext-link>, <xref>, <tex-math> 等），转为清晰易读的 Markdown / 行内文本
+ * 清理 JATS XML 中 tex-math 元素内部附带的导言区与 processing instructions
+ */
+export function cleanTexMath(raw: string): string {
+    if (!raw) return '';
+    // 去掉 processing instructions (如 <?equation-image-...?>)
+    let cleaned = raw.replace(/<\?[^>]*\?>/g, '');
+    // 优先提取 \begin{document} ... \end{document} 之间的纯公式主体
+    const docMatch = cleaned.match(/\\begin\{document\}([\s\S]*?)\\end\{document\}/);
+    if (docMatch) {
+        cleaned = docMatch[1];
+    } else {
+        // 移除 LaTeX 文档导言区声明
+        cleaned = cleaned
+            .replace(/\\documentclass(\[[^\]]*\])?\{[^}]*\}/g, '')
+            .replace(/\\usepackage(\[[^\]]*\])?\{[^}]*\}/g, '')
+            .replace(/\\setlength\{[^}]*\}\{[^}]*\}/g, '');
+    }
+    return cleaned.replace(/^\$+|\$+$/g, '').trim();
+}
+
+/**
+ * 递归清洗内联 JATS XML 标签（如 <bold>, <italic>, <ext-link>, <xref>, <tex-math> 等），转为清晰易读的 Markdown / 行内文本
  */
 function cleanInlineXml(node: Element): string {
     let result = '';
@@ -36,12 +57,37 @@ function cleanInlineXml(node: Element): string {
             } else if (tagName === 'sub') {
                 result += `_(${cleanInlineXml(el).trim()})`;
             } else if (tagName === 'tex-math') {
-                const math = el.textContent || '';
-                result += ` $${math.replace(/^\$+|\$+$/g, '').trim()}$ `;
+                const math = cleanTexMath(el.textContent || '');
+                if (math) {
+                    result += ` $${math}$ `;
+                }
             } else if (tagName === 'mml:math' || tagName === 'math') {
-                // 尝试提取行内 tex 或 fallback
-                const altText = el.getAttribute('alttext') || el.textContent || '';
-                result += ` $${altText.trim()}$ `;
+                const altText = el.getAttribute('alttext');
+                if (altText && (/[\\_^]/.test(altText) || altText.includes('='))) {
+                    result += ` $${cleanTexMath(altText)}$ `;
+                } else {
+                    const mathHtml = (el.outerHTML || '')
+                        .replace(/<(\/?)mml:/gi, '<$1')
+                        .replace(/\sxmlns:mml="[^"]*"/gi, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+                    if (mathHtml) {
+                        result += ` ${mathHtml} `;
+                    } else if (el.textContent) {
+                        result += ` ${el.textContent.trim()} `;
+                    }
+                }
+            } else if (tagName === 'inline-formula' || tagName === 'disp-formula') {
+                const texChild = el.querySelector('tex-math');
+                if (texChild) {
+                    const math = cleanTexMath(texChild.textContent || '');
+                    if (math) {
+                        const isDisp = tagName === 'disp-formula';
+                        result += isDisp ? `\n$$${math}$$\n` : ` $${math}$ `;
+                        continue;
+                    }
+                }
+                result += cleanInlineXml(el);
             } else if (tagName === 'xref') {
                 // 交叉引用（如 [1], Fig. 1），保留文本
                 result += el.textContent || '';
@@ -59,31 +105,31 @@ function cleanInlineXml(node: Element): string {
 }
 
 /**
- * 从原始 JATS XML 中根据图名/xlink:href 查找 cloudpmc-urn 对应的高清图 CDN 地址
+ * 从原始 JATS XML 中根据图名/xlink:href 查找 cloudpmc 对应的高清图 CDN 地址
+ * 兼容 cloudpmc-path 与 image-cloudpmc-urn 等各种 PMC 标准处理指令
  */
-function resolveFigureImageUrl(xmlText: string, href: string, pmcidClean: string): { imageUrl: string; thumbUrl?: string } {
+function resolveFigureImageUrl(xmlText: string, href: string, pmcidClean: string, figSnippet?: string): { imageUrl: string; thumbUrl?: string } {
     if (!href) return { imageUrl: '' };
 
     const cleanFileName = href.replace(/^.*\//, ''); // 仅保留文件名
     const baseName = cleanFileName.replace(/\.[^/.]+$/, ''); // 去掉扩展名，如 Fig1.jpg -> Fig1
     const escapedFileName = cleanFileName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const escapedBaseName = baseName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = `(?:${escapedFileName}|${escapedBaseName})`;
 
     // 1. 尝试匹配 XML 中内置的 NCBI Cloud PMC processing instruction:
-    // 例：<?image-cloudpmc-urn urn:cdn:blobs/4f77/13522008/ef45731aaa14/10544_2026_843_Fig1_HTML.webp?>
-    // 绝大多数 JATS XML 的 xlink:href 没有后缀，或缩略图带有 _thumb 修饰，
-    // 因此正则支持在 baseName 前后允许任意字符与后缀。
-    const pattern = `[^?]*?(?:${escapedFileName}|${escapedBaseName})[^?]*`;
-    const regexFull = new RegExp(`<\\?image-cloudpmc-urn\\s+(urn:cdn:blobs\\/${pattern})\\?>`, 'i');
-    const matchFull = xmlText.match(regexFull);
+    // 支持 <?cloudpmc-path blobs/...?> 与 <?image-cloudpmc-urn urn:cdn:blobs/...?>
+    // 优先在当前 figure 节点片段内搜索，避免多图文献命中错误图
+    const regexFull = new RegExp(`(?:cloudpmc-path|image-cloudpmc-urn)[^?]*?\\s+(?:urn:cdn:)?(blobs\\/[^?]*?${pattern}[^?]*)\\?>`, 'i');
+    const regexThumb = new RegExp(`(?:thumb-cloudpmc-path|thumb-cloudpmc-urn)[^?]*?\\s+(?:urn:cdn:)?(blobs\\/[^?]*?${pattern}[^?]*)\\?>`, 'i');
 
-    const regexThumb = new RegExp(`<\\?thumb-cloudpmc-urn\\s+(urn:cdn:blobs\\/${pattern})\\?>`, 'i');
-    const matchThumb = xmlText.match(regexThumb);
+    const matchFull = (figSnippet && figSnippet.match(regexFull)) || xmlText.match(regexFull);
+    const matchThumb = (figSnippet && figSnippet.match(regexThumb)) || xmlText.match(regexThumb);
 
     if (matchFull && matchFull[1]) {
-        const cdnUrl = matchFull[1].replace(/^urn:cdn:blobs\//, 'https://cdn.ncbi.nlm.nih.gov/pmc/blobs/');
+        const cdnUrl = `https://cdn.ncbi.nlm.nih.gov/pmc/${matchFull[1].trim()}`;
         const thumbUrl = matchThumb && matchThumb[1]
-            ? matchThumb[1].replace(/^urn:cdn:blobs\//, 'https://cdn.ncbi.nlm.nih.gov/pmc/blobs/')
+            ? `https://cdn.ncbi.nlm.nih.gov/pmc/${matchThumb[1].trim()}`
             : undefined;
         return { imageUrl: cdnUrl, thumbUrl };
     }
@@ -267,7 +313,7 @@ export function parseJatsXml(xmlText: string, pmcid: string): ParsedJatsResult {
                 const graphicNode = child.querySelector('graphic');
                 const href = graphicNode?.getAttribute('xlink:href') || graphicNode?.getAttribute('href') || '';
 
-                const { imageUrl, thumbUrl } = resolveFigureImageUrl(xmlText, href, pmcidClean);
+                const { imageUrl, thumbUrl } = resolveFigureImageUrl(xmlText, href, pmcidClean, child.outerHTML);
 
                 if (imageUrl) {
                     blocks.push({
@@ -277,6 +323,49 @@ export function parseJatsXml(xmlText: string, pmcid: string): ParsedJatsResult {
                         caption,
                         imageUrl,
                         thumbUrl
+                    });
+                }
+            } else if (tag === 'disp-formula') {
+                const labelNode = child.querySelector('label');
+                const label = labelNode ? cleanInlineXml(labelNode).trim() : '';
+
+                // 优先提取 tex-math，次选 mml:math 或其他公式标签
+                const texNode = child.querySelector('tex-math');
+                let mathText = '';
+                if (texNode) {
+                    mathText = cleanTexMath(texNode.textContent || '');
+                } else {
+                    const mmlNode = child.querySelector('mml\\:math, math');
+                    if (mmlNode) {
+                        const altText = mmlNode.getAttribute('alttext');
+                        if (altText && (/[\\_^]/.test(altText) || altText.includes('='))) {
+                            mathText = cleanTexMath(altText);
+                        } else {
+                            mathText = (mmlNode.outerHTML || '')
+                                .replace(/<(\/?)mml:/gi, '<$1')
+                                .replace(/\sxmlns:mml="[^"]*"/gi, '')
+                                .replace(/\s+/g, ' ')
+                                .trim();
+                        }
+                    }
+                }
+
+                if (!mathText) {
+                    const cloned = child.cloneNode(true) as Element;
+                    const clonedLabel = cloned.querySelector('label');
+                    if (clonedLabel) clonedLabel.remove();
+                    mathText = cleanInlineXml(cloned).replace(/^\$+|\$+$/g, '').trim();
+                }
+
+                if (mathText) {
+                    const isMathMl = mathText.startsWith('<math');
+                    const formatted = isMathMl
+                        ? mathText
+                        : `$$${mathText.replace(/^\$+|\$+$/g, '').trim()}$$`;
+                    blocks.push({
+                        id: `block-${++blockIndex}`,
+                        type: 'paragraph',
+                        text: label ? `${formatted}\n\n${label}` : formatted
                     });
                 }
             }

@@ -168,12 +168,33 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
     const renderInlineContent = (content: string, isEnglishText: boolean = false) => {
         if (!content) return null;
 
-        // 识别数学公式: $$...$$, \[...\], $...$, \(...\)
-        const mathPattern = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^$]+?\$|\\\([\s\S]+?\\\))/g;
+        // 识别数学公式: $$...$$, \[...\], $...$, \(...\), 原生 MathML (<math>...</math>)
+        const mathPattern = /(\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\$[^$]+?\$|\\\([\s\S]+?\\\)|<math[\s\S]*?<\/math>)/gi;
         const parts = content.split(mathPattern);
 
         return parts.map((part, index) => {
             if (!part) return null;
+
+            // 原生 HTML5 MathML（移动端 iOS Safari / Android Chrome 原生硬件加速排版渲染）
+            if (part.toLowerCase().startsWith('<math')) {
+                const isDisplay = /display=["']block["']/i.test(part);
+                if (isDisplay) {
+                    return (
+                        <div
+                            key={index}
+                            dangerouslySetInnerHTML={{ __html: part }}
+                            className="my-3 max-w-full overflow-x-auto text-center py-2 px-1 text-emerald-950 font-serif select-all"
+                        />
+                    );
+                }
+                return (
+                    <span
+                        key={index}
+                        dangerouslySetInnerHTML={{ __html: part }}
+                        className="inline-block mx-1 align-baseline max-w-full overflow-x-auto text-emerald-900 font-serif select-all"
+                    />
+                );
+            }
 
             const isDisplayMath =
                 (part.startsWith('$$') && part.endsWith('$$') && part.length >= 4) ||

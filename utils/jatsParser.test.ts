@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect } from 'vitest';
-import { parseJatsXml } from './jatsParser';
+import { parseJatsXml, cleanTexMath } from './jatsParser';
 
 const SAMPLE_JATS_XML = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE article PUBLIC "-//NLM//DTD JATS (Z39.96) Journal Archiving and Interchange DTD with MathML3 v1.4 20241031//EN" "JATS-archivearticle1-4-mathml3.dtd">
@@ -110,5 +110,46 @@ describe('JATS XML Parser', () => {
         // Noise stripping check: <back> / <ref-list> must not be in blocks
         const noiseCheck = parsed.blocks.some(b => (b as any).text?.includes('Noise reference'));
         expect(noiseCheck).toBe(false);
+    });
+
+    it('cleanTexMath 成功剥离 LaTeX 导言区、宏包与 document 环境', () => {
+        const rawTex = `<?equation-image-name M1.gif?>\\documentclass[12pt]{minimal}
+\\usepackage{amsmath}
+\\usepackage{wasysym}
+\\begin{document}$$\\text{Magnitude} = \\sqrt{{x^{2}_{i}} + {y_{i}^{2}}+{z_{i}^{2}}} $$\\end{document}`;
+
+        const cleaned = cleanTexMath(rawTex);
+        expect(cleaned).toBe('\\text{Magnitude} = \\sqrt{{x^{2}_{i}} + {y_{i}^{2}}+{z_{i}^{2}}}');
+    });
+
+    it('支持 MDPI / Elsevier 常用的 <?cloudpmc-path blobs/...?> 图床指令与 disp-formula', () => {
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<article>
+  <body>
+    <sec>
+      <title>Methods</title>
+      <disp-formula id="FD1">
+        <label>(1)</label>
+        <tex-math>\\begin{document}$$\\lambda = \\frac{c}{f}$$\\end{document}</tex-math>
+      </disp-formula>
+      <fig id="fig1">
+        <label>Figure 1</label>
+        <graphic xmlns:xlink="http://www.w3.org/1999/xlink" xlink:href="sensors-g001.jpg">
+          <?cloudpmc-path blobs/b614/11358908/fd46e532b7ea/sensors-g001.jpg?>
+        </graphic>
+      </fig>
+    </sec>
+  </body>
+</article>`;
+
+        const parsed = parseJatsXml(xml, 'PMC11358908');
+        const fig = parsed.blocks.find(b => b.type === 'figure') as any;
+        expect(fig).toBeDefined();
+        expect(fig.imageUrl).toBe('https://cdn.ncbi.nlm.nih.gov/pmc/blobs/b614/11358908/fd46e532b7ea/sensors-g001.jpg');
+
+        const formula = parsed.blocks.find(b => b.type === 'paragraph' && (b as any).text.includes('\\lambda'));
+        expect(formula).toBeDefined();
+        expect((formula as any).text).toContain('$$\\lambda = \\frac{c}{f}$$');
+        expect((formula as any).text).toContain('(1)');
     });
 });
