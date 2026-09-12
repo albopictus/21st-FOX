@@ -602,8 +602,13 @@ const Launcher: React.FC = () => {
       const cellCap = isDesktop ? 108 : 82;
       const w = Math.min(raw, widthCap);
       const inner = w - PAGE_PAD_X * 2 - GRID_COL_GAP * (GRID_COLS - 1);
-      // 下限 72：自适应填满横向宽度，两侧间距对称饱满，避免小卡片被挤得过小
-      const size = Math.max(72, Math.min(cellCap, Math.floor(inner / GRID_COLS)));
+      // 72 原本是「尽量不要太小」的下限，是按手机最窄也有 375px 宽这个假设调的——
+      // 4 列 * 72px + 间距刚好卡在 375px 门槛内，手机上从没出过问题。但桌面模式
+      // 解除了宽度门槛后，浏览器窗口可以缩到任意窄，一旦窗口比这个门槛还窄，硬守
+      // 72 下限会让格子比容器实际能放的还宽，内容右侧被截断/点不到，比"格子小一
+      // 点不好看"严重得多。优先级倒过来：容器能放多大就多大，放不下就得收，48 只是
+      // 防止极端情况下格子缩成 0/负数的兜底，不是设计目标尺寸。
+      const size = Math.min(cellCap, Math.max(48, Math.floor(inner / GRID_COLS)));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
