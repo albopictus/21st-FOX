@@ -1308,6 +1308,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 katexRenderer={katexRenderer}
                 apiConfig={effectiveApi}
                 onUpdatePaper={(updated) => setActivePaper(updated)}
+                onOpenSettings={() => setShowStudySettings(true)}
             />
         );
     }
@@ -1322,6 +1323,7 @@ Answer in character. Be helpful and clear. If they're confused about a concept, 
                 }}
                 apiConfig={effectiveApi}
                 onBackToCourses={() => setMode('bookshelf')}
+                onOpenSettings={() => setShowStudySettings(true)}
             />
         );
     }

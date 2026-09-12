@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper } from '@phosphor-icons/react';
+import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, Gear } from '@phosphor-icons/react';
 import type { StudyPaper, APIConfig } from '../../types';
 import { DB } from '../../utils/db';
 import { searchEuropePmcArticles, fetchAndParseStudyPaper, EuropePmcArticleSummary } from '../../utils/europePmc';
@@ -8,6 +8,7 @@ interface PaperShelfProps {
     onSelectPaper: (paper: StudyPaper) => void;
     apiConfig: APIConfig;
     onBackToCourses: () => void;
+    onOpenSettings?: () => void;
 }
 
 const PRESET_KEYWORDS = [
@@ -105,12 +106,24 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                         </div>
                     </div>
 
-                    <button
-                        onClick={onBackToCourses}
-                        className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-xs text-slate-300 border border-white/10 active:scale-95 transition"
-                    >
-                        返回课程
-                    </button>
+                    <div className="flex items-center gap-2">
+                        {onOpenSettings && (
+                            <button
+                                onClick={onOpenSettings}
+                                className="px-2.5 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-xs text-slate-300 border border-white/10 active:scale-95 transition flex items-center gap-1.5"
+                                title="配置独立文献翻译 API 线路与模型"
+                            >
+                                <Gear size={14} className="text-emerald-400" />
+                                <span className="text-[11px]">API 线路</span>
+                            </button>
+                        )}
+                        <button
+                            onClick={onBackToCourses}
+                            className="px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 text-xs text-slate-300 border border-white/10 active:scale-95 transition"
+                        >
+                            返回课程
+                        </button>
+                    </div>
                 </div>
 
                 {/* 搜索框 */}

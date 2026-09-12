@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNetwork, Eye, CaretDown, CaretUp, CheckCircle, SpinnerGap } from '@phosphor-icons/react';
+import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNetwork, Eye, CaretDown, CaretUp, CheckCircle, SpinnerGap, Gear } from '@phosphor-icons/react';
 import type { StudyPaper, PaperBlock, PaperParagraphBlock, PaperFigureBlock, PaperHeadingBlock, APIConfig } from '../../types';
 import { PaperFigureModal } from './PaperFigureModal';
 import { translateSingleBlock, translateStudyPaper } from '../../utils/paperTranslator';
@@ -12,6 +12,7 @@ interface PaperReaderProps {
     katexRenderer?: { renderToString: (latex: string, options: any) => string } | null;
     apiConfig: APIConfig;
     onUpdatePaper: (updated: StudyPaper) => void;
+    onOpenSettings?: () => void;
 }
 
 export const PaperReader: React.FC<PaperReaderProps> = ({
@@ -20,7 +21,8 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
     onAskTutor,
     katexRenderer,
     apiConfig,
-    onUpdatePaper
+    onUpdatePaper,
+    onOpenSettings
 }) => {
     // 跟踪展开了中文对照的段落 ID 集合
     const [expandedBlockIds, setExpandedBlockIds] = useState<Set<string>>(new Set());
@@ -210,6 +212,16 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                         >
                             <ChatCircleText size={18} />
                         </button>
+
+                        {onOpenSettings && (
+                            <button
+                                onClick={onOpenSettings}
+                                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition active:scale-95 ml-1"
+                                title="配置独立文献翻译 API 线路与模型"
+                            >
+                                <Gear size={16} />
+                            </button>
+                        )}
                     </div>
                 </div>
 
