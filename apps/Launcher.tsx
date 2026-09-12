@@ -594,16 +594,22 @@ const Launcher: React.FC = () => {
   useLayoutEffect(() => {
     const measure = () => {
       const raw = scrollContainerRef.current?.clientWidth || 380;
-      const w = Math.min(raw, 27 * 16); // 27rem 上限（宽屏收窄居中）
+      // 电脑模式：允许桌面网格明显变宽变大，不再收窄成手机宽度——用户反馈过窄屏两侧
+      // 大片空白不好看。仍然设上限，避免超宽屏下格子被拉得过于夸张；GRID_COLS 依旧
+      // 是 4，不改列数（改列数要连带迁移所有已保存布局的坐标系，风险高得多），只是
+      // 让同样 4 列的格子本身更大。见 desktop-adaptation-plan.md 模块 4-C 的调整记录。
+      const widthCap = isDesktop ? 46 * 16 : 27 * 16; // 手机 27rem(432px)，桌面 46rem(736px)
+      const cellCap = isDesktop ? 108 : 82;
+      const w = Math.min(raw, widthCap);
       const inner = w - PAGE_PAD_X * 2 - GRID_COL_GAP * (GRID_COLS - 1);
-      // 下限 72，上限 82：自适应填满横向宽度，两侧间距对称饱满，避免小卡片被挤得过小
-      const size = Math.max(72, Math.min(82, Math.floor(inner / GRID_COLS)));
+      // 下限 72：自适应填满横向宽度，两侧间距对称饱满，避免小卡片被挤得过小
+      const size = Math.max(72, Math.min(cellCap, Math.floor(inner / GRID_COLS)));
       setCellPx(prev => (prev === size ? prev : size));
     };
     measure();
     window.addEventListener('resize', measure);
     return () => window.removeEventListener('resize', measure);
-  }, []);
+  }, [isDesktop]);
   const gridWidthPx = GRID_COLS * cellPx + (GRID_COLS - 1) * GRID_COL_GAP;
 
   // ───────── 页面数据 ─────────
