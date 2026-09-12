@@ -4018,6 +4018,14 @@ export interface StudyPaper {
     translatedAt?: number;
     readProgress?: number;
     isFavorite?: boolean;
+    hasPDF?: boolean;
+    pdfUrl?: string;
+}
+
+export interface PaperTypographyConfig {
+    fontFamily: 'sans' | 'serif' | 'mono' | 'dyslexic';
+    fontSize: 'sm' | 'base' | 'lg' | 'xl';
+    bionicReading: boolean;
 }
 
 export type GameTheme = 'fantasy' | 'cyber' | 'horror' | 'modern';

@@ -1,9 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNetwork, Eye, CaretDown, CaretUp, CheckCircle, SpinnerGap, Info, CalendarBlank } from '@phosphor-icons/react';
-import type { StudyPaper, PaperBlock, PaperParagraphBlock, PaperFigureBlock, PaperHeadingBlock, APIConfig } from '../../types';
+import { ArrowLeft, Translate, Sparkle, ChatCircleText, BookmarkSimple, ShareNetwork, Eye, CaretDown, CaretUp, CheckCircle, SpinnerGap, Info, CalendarBlank, DownloadSimple, TextAa, Check } from '@phosphor-icons/react';
+import type { StudyPaper, PaperBlock, PaperParagraphBlock, PaperFigureBlock, PaperHeadingBlock, APIConfig, PaperTypographyConfig } from '../../types';
 import { PaperFigureModal } from './PaperFigureModal';
 import { translateSingleBlock, translateStudyPaper, getPaperApiConfig } from '../../utils/paperTranslator';
 import { DB } from '../../utils/db';
+import { downloadPaperPdf } from '../../utils/paperDownload';
+import {
+    getSavedTypography,
+    saveTypography,
+    getFontFamilyStyle,
+    getFontSizeClasses
+} from '../../utils/paperTypography';
+import { applyBionicReading } from '../../utils/bionicReading';
+import Modal from '../os/Modal';
 
 interface PaperReaderProps {
     paper: StudyPaper;
@@ -22,6 +31,28 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
     apiConfig,
     onUpdatePaper
 }) => {
+    // 排版与字体状态（持久化存储）
+    const [typography, setTypography] = useState<PaperTypographyConfig>(getSavedTypography);
+    const [showTypographyModal, setShowTypographyModal] = useState(false);
+
+    const updateTypography = (patch: Partial<PaperTypographyConfig>) => {
+        setTypography(prev => {
+            const next = { ...prev, ...patch };
+            saveTypography(next);
+            return next;
+        });
+    };
+
+    const handleDownloadPdf = () => {
+        downloadPaperPdf({
+            pmcid: paper.pmcid,
+            pdfUrl: paper.pdfUrl,
+            title: paper.title,
+            pubYear: paper.pubDate,
+            doi: paper.doi
+        });
+    };
+
     // 跟踪展开了中文对照的段落 ID 集合
     const [expandedBlockIds, setExpandedBlockIds] = useState<Set<string>>(new Set());
     // 选中的插图（进入全屏灯箱）
@@ -128,8 +159,8 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
         }
     };
 
-    // 辅助渲染 KaTeX 公式与行内样式
-    const renderInlineContent = (content: string) => {
+    // 辅助渲染 KaTeX 公式与行内样式（支持 Bionic Reading 英文仿生阅读）
+    const renderInlineContent = (content: string, isEnglishText: boolean = false) => {
         if (!content) return null;
 
         // 识别 $...$ 行内数学公式
@@ -151,16 +182,25 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                 }
                 return <span key={index} className="text-emerald-800 font-mono text-xs font-semibold">{part}</span>;
             }
+            if (isEnglishText && typography.bionicReading) {
+                const bionicHtml = applyBionicReading(part);
+                return <span key={index} dangerouslySetInnerHTML={{ __html: bionicHtml }} />;
+            }
             return <span key={index}>{part}</span>;
         });
     };
 
+    const fontSizeClasses = getFontSizeClasses(typography.fontSize);
+
     return (
-        <div className="flex flex-col h-full w-full bg-[#fdfbf7] text-slate-800 select-text overflow-hidden relative font-sans">
+        <div
+            className="flex flex-col h-full w-full bg-[#fdfbf7] text-slate-800 select-text overflow-hidden relative"
+            style={{ fontFamily: getFontFamilyStyle(typography.fontFamily) }}
+        >
             {/* 顶栏进度与导航：自习室统一毛玻璃风格 */}
             <div className="bg-[#fdfbf7]/90 backdrop-blur-md border-b border-[#e5e5e5] shrink-0 sticky top-0 z-20" style={{ paddingTop: 'var(--safe-top)' }}>
-                <div className="flex items-center justify-between px-4 sm:px-6 py-2.5">
-                    <div className="flex items-center gap-2.5">
+                <div className="flex items-center justify-between px-3 sm:px-6 py-2.5">
+                    <div className="flex items-center gap-2">
                         <button
                             onClick={onBack}
                             className="p-2 -ml-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform"
@@ -176,17 +216,39 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                                 <span className="text-slate-300">•</span>
                                 <span className="text-slate-500 font-mono">{paper.pmcid}</span>
                             </div>
-                            <div className="text-xs font-semibold text-slate-800 line-clamp-1 max-w-[170px] sm:max-w-[340px]">
+                            <div className="text-xs font-semibold text-slate-800 line-clamp-1 max-w-[150px] sm:max-w-[340px]">
                                 {paper.titleZh || paper.title}
                             </div>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-1 sm:gap-2">
+                        {/* 下载官方原版 PDF */}
+                        <button
+                            onClick={handleDownloadPdf}
+                            className="p-2 rounded-full hover:bg-black/5 active:scale-90 transition-transform text-slate-600"
+                            title="下载官方原版 PDF"
+                        >
+                            <DownloadSimple size={18} />
+                        </button>
+
+                        {/* 排版与字体设置 */}
+                        <button
+                            onClick={() => setShowTypographyModal(true)}
+                            className={`p-2 rounded-full transition-transform active:scale-90 ${
+                                showTypographyModal
+                                    ? 'bg-amber-100 text-amber-800'
+                                    : 'hover:bg-black/5 text-slate-600'
+                            }`}
+                            title="排版与字体设置（含 ADHD 专区）"
+                        >
+                            <TextAa size={19} weight={typography.bionicReading || typography.fontFamily === 'dyslexic' ? 'bold' : 'regular'} />
+                        </button>
+
                         <button
                             onClick={handleFullTranslate}
                             disabled={isTranslating}
-                            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition active:scale-95 shadow-2xs ${
+                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition active:scale-95 shadow-2xs ${
                                 paper.translatedAt
                                     ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                                     : 'bg-emerald-600 hover:bg-emerald-500 text-white'
@@ -362,13 +424,13 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                                     {/* 英文段落：轻触展开/折叠双语对照 */}
                                     <p
                                         onClick={() => toggleBlockExpand(p)}
-                                        className={`font-serif text-[15px] sm:text-[16px] leading-relaxed text-slate-800 text-justify cursor-pointer p-3 -mx-3 rounded-xl transition-colors ${
+                                        className={`${fontSizeClasses.text} ${fontSizeClasses.leading} text-slate-800 text-justify cursor-pointer p-3 -mx-3 rounded-xl transition-colors ${
                                             isExpanded
                                                 ? 'bg-white shadow-2xs border border-slate-100'
                                                 : 'hover:bg-black/[0.02]'
                                         }`}
                                     >
-                                        {renderInlineContent(p.text)}
+                                        {renderInlineContent(p.text, true)}
                                     </p>
 
                                     {/* 右侧悬浮快捷操作胶囊 */}
@@ -489,6 +551,118 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                     })}
                 </div>
             </div>
+
+            {/* 排版与字体设置弹窗 */}
+            {showTypographyModal && (
+                <Modal
+                    isOpen={showTypographyModal}
+                    onClose={() => setShowTypographyModal(false)}
+                    title="排版与字体偏好"
+                >
+                    <div className="space-y-4 p-1 text-slate-700 select-none">
+                        {/* 字体选择 */}
+                        <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                英文正文字体
+                            </label>
+                            <div className="grid grid-cols-2 gap-2">
+                                {[
+                                    { key: 'sans', label: '标准无衬线', desc: 'Inter / 现代系统' },
+                                    { key: 'serif', label: '传统优雅衬线', desc: 'Georgia / 纸书感' },
+                                    { key: 'mono', label: '学术代码等宽', desc: 'Monospace / 等宽' },
+                                    { key: 'dyslexic', label: 'ADHD 专用英文字体', desc: 'OpenDyslexic (仅英文)' }
+                                ].map(f => {
+                                    const active = typography.fontFamily === f.key;
+                                    return (
+                                        <button
+                                            key={f.key}
+                                            onClick={() => updateTypography({ fontFamily: f.key as any })}
+                                            className={`p-2.5 rounded-xl border text-left transition-all relative ${
+                                                active
+                                                    ? 'bg-amber-50/80 border-amber-400 text-amber-900 font-semibold shadow-xs'
+                                                    : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                                            }`}
+                                        >
+                                            <div className="text-xs flex items-center justify-between">
+                                                <span>{f.label}</span>
+                                                {active && <Check size={14} className="text-amber-600 font-bold" />}
+                                            </div>
+                                            <div className="text-[10px] text-slate-400 font-normal mt-0.5">
+                                                {f.desc}
+                                            </div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* ADHD 仿生阅读模式开关 */}
+                        <div className="p-3 bg-amber-50/50 border border-amber-200/70 rounded-xl flex items-center justify-between">
+                            <div className="space-y-0.5 pr-3">
+                                <div className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                                    <span>仿生阅读 (Bionic Reading)</span>
+                                    <span className="text-[10px] bg-amber-200/70 text-amber-900 px-1.5 py-0.2 rounded-full font-mono font-semibold">ADHD 辅助</span>
+                                </div>
+                                <div className="text-[11px] text-slate-500">
+                                    英文单词前部加粗，引导视线跳跃聚光，大幅降低扫读疲劳。
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => updateTypography({ bionicReading: !typography.bionicReading })}
+                                className={`w-11 h-6 rounded-full transition-colors relative shrink-0 ${
+                                    typography.bionicReading ? 'bg-emerald-600' : 'bg-slate-300'
+                                }`}
+                            >
+                                <span
+                                    className={`block w-4 h-4 rounded-full bg-white transition-transform transform ${
+                                        typography.bionicReading ? 'translate-x-6' : 'translate-x-1'
+                                    } top-1 absolute shadow-xs`}
+                                />
+                            </button>
+                        </div>
+
+                        {/* 字号大小 */}
+                        <div className="space-y-1.5">
+                            <label className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                                字号大小
+                            </label>
+                            <div className="grid grid-cols-4 gap-2">
+                                {[
+                                    { key: 'sm', label: '小', px: '14px' },
+                                    { key: 'base', label: '标准', px: '16px' },
+                                    { key: 'lg', label: '大', px: '18px' },
+                                    { key: 'xl', label: '特大', px: '20px' }
+                                ].map(s => {
+                                    const active = typography.fontSize === s.key;
+                                    return (
+                                        <button
+                                            key={s.key}
+                                            onClick={() => updateTypography({ fontSize: s.key as any })}
+                                            className={`py-2 rounded-xl border text-center transition-all ${
+                                                active
+                                                    ? 'bg-amber-100 border-amber-400 text-amber-900 font-bold shadow-xs'
+                                                    : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'
+                                            }`}
+                                        >
+                                            <div className="text-xs font-semibold">{s.label}</div>
+                                            <div className="text-[10px] text-slate-400">{s.px}</div>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="pt-2 text-right">
+                            <button
+                                onClick={() => setShowTypographyModal(false)}
+                                className="px-5 py-1.5 rounded-full bg-slate-900 text-white text-xs font-medium hover:bg-slate-800 transition active:scale-95"
+                            >
+                                完成
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
 
             {/* 插图全屏灯箱 */}
             {activeFigure && (

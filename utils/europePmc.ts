@@ -18,17 +18,32 @@ export interface EuropePmcArticleSummary {
     hasFT?: string;
     pubType?: string;
     isAbstractOnly?: boolean;
+    hasPDF?: boolean;
+    pdfUrl?: string;
 }
 
 /**
- * 检索欧洲生物信息研究所（Europe PMC）的开放获取全文文献
- * @param query 学科或研究关键词（如 "CRISPR", "optogenetics", "microglia"）
+ * 检索欧洲生物信息研究所（Europe PMC）的开放获取全文文献（支持普通关键词与 DOI 精确反查）
+ * @param query 学科关键词或标准 DOI（如 "CRISPR", "10.1038/s41586-024-xxxx"）
  * @param limit 返回条数，默认 10
  */
 export async function searchEuropePmcArticles(query: string, limit: number = 8): Promise<EuropePmcArticleSummary[]> {
     const trimmed = query.trim() || 'bioengineering';
-    // 强制限制仅搜索具备开放获取（Open Access）与具备全文 XML 的文献
-    const queryString = `OPEN_ACCESS:Y AND HAS_FT:Y AND (${trimmed})`;
+
+    // 识别输入是否为标准 DOI（如 10.1038/... 或 doi: 10.xxxx/...）
+    const doiMatch = trimmed.match(/^(?:doi:\s*|https?:\/\/doi\.org\/)?(10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+)$/i);
+    const isDoi = Boolean(doiMatch);
+
+    let queryString: string;
+    if (isDoi && doiMatch) {
+        const cleanDoi = doiMatch[1];
+        // DOI 精准检索：放宽必须具备 XML 全文限制，以便精准定位该 DOI 并在元数据中展示 PDF
+        queryString = `(DOI:"${cleanDoi}" OR "${cleanDoi}")`;
+    } else {
+        // 普通学科关键词检索：限制开放获取与全文/PDF
+        queryString = `OPEN_ACCESS:Y AND (HAS_FT:Y OR HAS_PDF:Y) AND (${trimmed})`;
+    }
+
     const url = `${BASE_URL}/search?query=${encodeURIComponent(queryString)}&format=json&pageSize=${limit}&resultType=core`;
 
     const res = await fetch(url, {
@@ -63,9 +78,15 @@ export async function searchEuropePmcArticles(query: string, limit: number = 8):
         );
         const isAbstractOnly = /meeting|conference|abstract/i.test(pubTypes);
 
+        const cleanPmcid = item.pmcid || (item.source === 'PMC' ? `PMC${item.id}` : undefined);
+        const hasPdf = item.hasPDF === 'Y' || Boolean(cleanPmcid);
+        const pdfUrl = cleanPmcid
+            ? `https://europepmc.org/backend/ptpmcrender.fcgi?accid=${cleanPmcid.toUpperCase()}&blobtype=pdf`
+            : (item.fullTextUrlList?.fullTextUrl?.find((u: any) => u.documentStyle === 'pdf')?.url || undefined);
+
         return {
             id: item.id,
-            pmcid: item.pmcid || (item.source === 'PMC' ? `PMC${item.id}` : undefined),
+            pmcid: cleanPmcid,
             title: (item.title || '').replace(/\.$/, ''),
             authorString: item.authorString,
             journalTitle,
@@ -77,9 +98,11 @@ export async function searchEuropePmcArticles(query: string, limit: number = 8):
             isOpenAccess: item.isOpenAccess,
             hasFT: item.hasFT,
             pubType: pubTypes || undefined,
-            isAbstractOnly
+            isAbstractOnly,
+            hasPDF: hasPdf,
+            pdfUrl
         };
-    }).filter(item => Boolean(item.pmcid));
+    }).filter(item => Boolean(item.pmcid || item.hasPDF || isDoi));
 }
 
 /**
@@ -134,7 +157,48 @@ export async function fetchAndParseStudyPaper(
     summaryFallback?: Partial<EuropePmcArticleSummary>
 ): Promise<StudyPaper> {
     const cleanId = pmcid.toUpperCase().startsWith('PMC') ? pmcid.toUpperCase() : `PMC${pmcid}`;
-    const xml = await fetchEuropePmcFullTextXml(cleanId);
+    const pdfUrl = summaryFallback?.pdfUrl || (cleanId ? `https://europepmc.org/backend/ptpmcrender.fcgi?accid=${cleanId}&blobtype=pdf` : undefined);
+
+    let xml = '';
+    try {
+        xml = await fetchEuropePmcFullTextXml(cleanId);
+    } catch (err) {
+        // 如果 XML 获取失败（例如官方未收录 JATS XML，或只有 PDF/纯摘要），降级生成摘要阅读块，让用户可以顺畅研读摘要并一键下载原版 PDF
+        if (summaryFallback?.abstractText || summaryFallback?.title) {
+            return {
+                id: cleanId,
+                pmcid: cleanId,
+                doi: summaryFallback?.doi,
+                title: summaryFallback.title || cleanId,
+                journalTitle: summaryFallback.journalTitle || 'Academic',
+                pubDate: summaryFallback.pubDate || summaryFallback.pubYear,
+                pubType: summaryFallback.pubType,
+                authorString: summaryFallback.authorString,
+                keywords,
+                abstract: summaryFallback.abstractText,
+                blocks: [
+                    {
+                        id: 'abstract_heading',
+                        type: 'heading',
+                        level: 2,
+                        text: 'Abstract / 论文摘要'
+                    },
+                    {
+                        id: 'abstract_content',
+                        type: 'paragraph',
+                        text: summaryFallback.abstractText || '该文献暂未收录开放 JATS XML 结构化全文，可点击上方「下载原版 PDF」保存官方完整版。'
+                    }
+                ],
+                fetchedAt: Date.now(),
+                readProgress: 0,
+                isFavorite: false,
+                hasPDF: Boolean(summaryFallback.hasPDF || pdfUrl),
+                pdfUrl
+            };
+        }
+        throw err;
+    }
+
     const parsed = parseJatsXml(xml, cleanId);
 
     const paper: StudyPaper = {
@@ -151,7 +215,9 @@ export async function fetchAndParseStudyPaper(
         blocks: parsed.blocks,
         fetchedAt: Date.now(),
         readProgress: 0,
-        isFavorite: false
+        isFavorite: false,
+        hasPDF: Boolean(summaryFallback?.hasPDF || pdfUrl),
+        pdfUrl
     };
 
     return paper;

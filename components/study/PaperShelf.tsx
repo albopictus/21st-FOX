@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, X, Check, CalendarBlank, Article, CaretDown, CaretUp, Info } from '@phosphor-icons/react';
+import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Sparkle, ArrowRight, SpinnerGap, Plus, Newspaper, X, Check, CalendarBlank, Article, CaretDown, CaretUp, Info, ArrowClockwise } from '@phosphor-icons/react';
 import type { StudyPaper, APIConfig } from '../../types';
 import { DB } from '../../utils/db';
 import { searchEuropePmcArticles, fetchAndParseStudyPaper, EuropePmcArticleSummary } from '../../utils/europePmc';
+import { downloadPaperPdf } from '../../utils/paperDownload';
+import { getDailyDiscoveryPaper, DailyPaperDiscovery } from '../../utils/dailyPaper';
 import Modal from '../os/Modal';
 
 interface PaperShelfProps {
@@ -37,6 +39,10 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     const [fetchingPmcid, setFetchingPmcid] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'my_papers' | 'discover'>('my_papers');
     const [expandedAbstractIds, setExpandedAbstractIds] = useState<Set<string>>(new Set());
+
+    // 今日学术偶遇（每日随机高分文献与灵感）
+    const [dailyDiscovery, setDailyDiscovery] = useState<DailyPaperDiscovery | null>(null);
+    const [isDailyLoading, setIsDailyLoading] = useState(false);
 
     const toggleAbstract = (id: string, e?: React.MouseEvent) => {
         if (e) e.stopPropagation();
@@ -92,8 +98,21 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
         }
     };
 
+    const loadDaily = async (force: boolean = false) => {
+        setIsDailyLoading(true);
+        try {
+            const item = await getDailyDiscoveryPaper(tags, force);
+            if (item) setDailyDiscovery(item);
+        } catch (e) {
+            console.error('获取今日学术偶遇失败:', e);
+        } finally {
+            setIsDailyLoading(false);
+        }
+    };
+
     useEffect(() => {
         loadPapers();
+        loadDaily();
     }, []);
 
     const loadPapers = async () => {
@@ -125,17 +144,18 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
     };
 
     const handleFetchPaper = async (summary: EuropePmcArticleSummary) => {
-        if (!summary.pmcid) return;
+        const fetchId = summary.pmcid || summary.id;
+        if (!fetchId) return;
         try {
             setIsFetchingPaper(true);
-            setFetchingPmcid(summary.pmcid);
+            setFetchingPmcid(fetchId);
 
-            const paper = await fetchAndParseStudyPaper(summary.pmcid, searchKeyword ? [searchKeyword] : [], summary);
+            const paper = await fetchAndParseStudyPaper(fetchId, searchKeyword ? [searchKeyword] : [], summary);
             await DB.savePaper(paper);
             await loadPapers();
             onSelectPaper(paper);
         } catch (e: any) {
-            alert(`抓取文献 JATS XML 失败: ${e.message || '未知错误'}`);
+            alert(`抓取文献失败: ${e.message || '未知错误'}`);
         } finally {
             setIsFetchingPaper(false);
             setFetchingPmcid(null);
@@ -181,24 +201,49 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
             {/* 搜索栏与快捷标签区 */}
             <div className={embedded ? "space-y-2.5" : "px-4 sm:px-6 pb-3 space-y-2.5 shrink-0 bg-[#fdfbf7]/90 backdrop-blur-md border-b border-[#e5e5e5]"}>
                 {/* 搜索框：符合 ui-writing-rules 带图标的胶囊输入框 */}
-                <div className="relative flex items-center">
-                    <input
-                        type="text"
-                        value={searchKeyword}
-                        onChange={e => setSearchKeyword(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && handleSearch()}
-                        placeholder="检索学科或前沿文献（例：CRISPR, microglia, optogenetics）"
-                        className="w-full bg-white border border-slate-200/90 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 rounded-2xl py-2.5 pl-10 pr-24 text-xs text-slate-800 placeholder-slate-400 outline-none transition shadow-xs"
-                    />
-                    <MagnifyingGlass size={16} className="absolute left-3.5 text-slate-400 pointer-events-none" />
-                    <button
-                        onClick={() => handleSearch()}
-                        disabled={isSearching}
-                        className="absolute right-1.5 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition active:scale-95 shadow-xs flex items-center gap-1 disabled:opacity-50"
-                    >
-                        {isSearching ? <SpinnerGap size={13} className="animate-spin" /> : <span>检索</span>}
-                    </button>
-                </div>
+                {/* 搜索框：符合 ui-writing-rules 带图标的胶囊输入框，支持 DOI 与关键词 */}
+                {(() => {
+                    const isDoiInput = /^(?:doi:\s*|https?:\/\/doi\.org\/)?10\.\d{4,9}\/[-._;()/:A-Za-z0-9]+$/i.test(searchKeyword.trim());
+                    return (
+                        <div className="relative flex items-center">
+                            <input
+                                type="text"
+                                value={searchKeyword}
+                                onChange={e => setSearchKeyword(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleSearch()}
+                                placeholder="输入学科关键词或粘贴 DOI (如 10.1038/...)"
+                                className="w-full bg-white border border-slate-200/90 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/10 rounded-2xl py-2.5 pl-10 pr-28 text-xs text-slate-800 placeholder-slate-400 outline-none transition shadow-xs"
+                            />
+                            <MagnifyingGlass size={16} className="absolute left-3.5 text-slate-400 pointer-events-none" />
+
+                            {/* DOI 模式标签 */}
+                            {isDoiInput && (
+                                <span className="absolute right-24 text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-mono font-bold tracking-tight">
+                                    DOI
+                                </span>
+                            )}
+
+                            {/* 一键清空输入 */}
+                            {searchKeyword && (
+                                <button
+                                    onClick={() => setSearchKeyword('')}
+                                    className={`absolute ${isDoiInput ? 'right-20' : 'right-16'} p-1 rounded-full text-slate-400 hover:text-slate-600 transition`}
+                                    title="清空输入"
+                                >
+                                    <X size={13} />
+                                </button>
+                            )}
+
+                            <button
+                                onClick={() => handleSearch()}
+                                disabled={isSearching}
+                                className="absolute right-1.5 px-3.5 py-1.5 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition active:scale-95 shadow-xs flex items-center gap-1 disabled:opacity-50"
+                            >
+                                {isSearching ? <SpinnerGap size={13} className="animate-spin" /> : <span>检索</span>}
+                            </button>
+                        </div>
+                    );
+                })()}
 
                 {/* 快捷标签胶囊 */}
                 <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-0.5 pb-1">
@@ -264,122 +309,221 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
             {/* 内容区：内嵌时自然向下流动，独立时自适应滚动 */}
             <div className={embedded ? "pt-1 pb-16" : "flex-1 overflow-y-auto p-4 sm:p-6 no-scrollbar"}>
                 {activeTab === 'my_papers' ? (
-                    papers.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-20 text-center space-y-3 text-slate-400">
-                            <BookOpen size={48} weight="thin" className="text-slate-300" />
-                            <div className="space-y-1">
-                                <p className="text-sm font-semibold text-slate-600">书架暂无文献</p>
-                                <p className="text-xs text-slate-400">在上方检索 Europe PMC 开放获取文献，抓取全文并晨读</p>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    const defaultKw = tags[0] || 'CRISPR';
-                                    setSearchKeyword(defaultKw);
-                                    handleSearch(defaultKw);
-                                }}
-                                className="mt-2 px-4 py-2 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition active:scale-95 shadow-sm"
-                            >
-                                快速抓取 {tags[0] || 'CRISPR'} 前沿
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-20">
-                            {papers.map(paper => {
-                                const figureBlock = paper.blocks.find(b => b.type === 'figure') as any;
-                                return (
-                                    <div
-                                        key={paper.id}
-                                        onClick={() => onSelectPaper(paper)}
-                                        className="p-5 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between group shadow-sm active:scale-[0.99]"
+                    <div className="space-y-4 pb-20">
+                        {/* 今日学术偶遇 (Daily Academic Discovery) */}
+                        {dailyDiscovery && (
+                            <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50/80 via-white to-orange-50/40 border border-amber-200/90 shadow-xs relative overflow-hidden transition-all">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-900 font-bold tracking-wide flex items-center gap-1 shadow-2xs">
+                                            <Sparkle size={12} weight="fill" className="text-amber-600" />
+                                            <span>今日偶遇 · {dailyDiscovery.date}</span>
+                                        </span>
+                                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-mono font-medium">
+                                            #{dailyDiscovery.tag}
+                                        </span>
+                                    </div>
+                                    <button
+                                        onClick={() => loadDaily(true)}
+                                        disabled={isDailyLoading}
+                                        className="p-1 rounded-full text-slate-400 hover:text-amber-700 hover:bg-amber-100/50 transition active:scale-90 flex items-center gap-1"
+                                        title="换一换 / 重新偶遇"
                                     >
-                                        <div className="space-y-2.5">
-                                            <div className="flex items-center justify-between text-[10px] gap-2 flex-wrap">
-                                                <span className="font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
-                                                    {paper.journalTitle || 'Academic'}
-                                                </span>
-                                                <div className="flex items-center gap-1.5 text-slate-400 font-mono shrink-0">
-                                                    <span>{paper.pmcid}</span>
-                                                    {paper.pubDate && (
-                                                        <span className="flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full text-[10px]">
-                                                            <CalendarBlank size={11} className="text-slate-400" />
-                                                            <span>Pub: {paper.pubDate}</span>
+                                        <ArrowClockwise size={14} className={isDailyLoading ? 'animate-spin text-amber-600' : ''} />
+                                        <span className="text-[10px] text-slate-500 font-medium">换一换</span>
+                                    </button>
+                                </div>
+
+                                <h4
+                                    onClick={() => handleFetchPaper(dailyDiscovery.paper)}
+                                    className="text-sm font-bold text-slate-800 line-clamp-2 leading-snug mb-1 cursor-pointer hover:text-emerald-700 transition-colors"
+                                >
+                                    {dailyDiscovery.paper.title}
+                                </h4>
+
+                                <div className="text-[11px] text-slate-500 flex items-center gap-2 mb-2">
+                                    <span className="font-semibold text-emerald-800">{dailyDiscovery.paper.journalTitle || 'Academic'}</span>
+                                    {dailyDiscovery.paper.pubYear && (
+                                        <>
+                                            <span>•</span>
+                                            <span>{dailyDiscovery.paper.pubYear}</span>
+                                        </>
+                                    )}
+                                    {dailyDiscovery.paper.authorString && (
+                                        <>
+                                            <span>•</span>
+                                            <span className="truncate max-w-[120px]">{dailyDiscovery.paper.authorString}</span>
+                                        </>
+                                    )}
+                                </div>
+
+                                {dailyDiscovery.paper.abstractText && (
+                                    <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed bg-white/80 p-2.5 rounded-xl border border-amber-100/80 mb-3 text-justify">
+                                        {dailyDiscovery.paper.abstractText}
+                                    </p>
+                                )}
+
+                                <div className="flex items-center justify-between pt-1">
+                                    <button
+                                        onClick={() => handleFetchPaper(dailyDiscovery.paper)}
+                                        disabled={isFetchingPaper}
+                                        className="px-3.5 py-1.5 rounded-full bg-amber-600 hover:bg-amber-500 text-white text-xs font-semibold flex items-center gap-1.5 shadow-2xs active:scale-95 transition disabled:opacity-50"
+                                    >
+                                        {fetchingPmcid === (dailyDiscovery.paper.pmcid || dailyDiscovery.paper.id) ? (
+                                            <SpinnerGap size={13} className="animate-spin" />
+                                        ) : (
+                                            <BookOpen size={13} weight="bold" />
+                                        )}
+                                        <span>开启今日研读</span>
+                                    </button>
+
+                                    {dailyDiscovery.paper.hasPDF && (
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                downloadPaperPdf({
+                                                    pmcid: dailyDiscovery.paper.pmcid,
+                                                    pdfUrl: dailyDiscovery.paper.pdfUrl,
+                                                    title: dailyDiscovery.paper.title,
+                                                    pubYear: dailyDiscovery.paper.pubYear,
+                                                    doi: dailyDiscovery.paper.doi
+                                                });
+                                            }}
+                                            className="px-3 py-1.5 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-xs font-medium text-slate-700 flex items-center gap-1 active:scale-95 transition shadow-2xs"
+                                            title="下载官方原版 PDF"
+                                        >
+                                            <DownloadSimple size={13} />
+                                            <span>下载 PDF</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+
+                        {papers.length === 0 ? (
+                            <div className="flex flex-col items-center justify-center py-12 text-center space-y-3 text-slate-400">
+                                <BookOpen size={44} weight="thin" className="text-slate-300" />
+                                <div className="space-y-1">
+                                    <p className="text-sm font-semibold text-slate-600">书架暂无已存文献</p>
+                                    <p className="text-xs text-slate-400">可在上方输入关键词/DOI检索，或直接阅读上方今日学术偶遇文献</p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {papers.map(paper => {
+                                    const figureBlock = paper.blocks.find(b => b.type === 'figure') as any;
+                                    return (
+                                        <div
+                                            key={paper.id}
+                                            onClick={() => onSelectPaper(paper)}
+                                            className="p-5 rounded-2xl bg-white border border-slate-100 hover:border-emerald-200 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between group shadow-sm active:scale-[0.99]"
+                                        >
+                                            <div className="space-y-2.5">
+                                                <div className="flex items-center justify-between text-[10px] gap-2 flex-wrap">
+                                                    <span className="font-mono text-emerald-800 bg-emerald-50 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                                                        {paper.journalTitle || 'Academic'}
+                                                    </span>
+                                                    <div className="flex items-center gap-1.5 text-slate-400 font-mono shrink-0">
+                                                        <span>{paper.pmcid}</span>
+                                                        {paper.pubDate && (
+                                                            <span className="flex items-center gap-1 text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full text-[10px]">
+                                                                <CalendarBlank size={11} className="text-slate-400" />
+                                                                <span>Pub: {paper.pubDate}</span>
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <h3 className="text-sm sm:text-base font-bold text-slate-800 font-serif line-clamp-2 leading-snug group-hover:text-emerald-700 transition-colors">
+                                                    {paper.title}
+                                                </h3>
+
+                                                {paper.titleZh && (
+                                                    <p className="text-xs font-medium text-emerald-800 line-clamp-1 font-sans">
+                                                        {paper.titleZh}
+                                                    </p>
+                                                )}
+
+                                                {/* 作者与 DOI */}
+                                                <div className="flex items-center justify-between gap-2 text-xs text-slate-500 flex-wrap">
+                                                    {paper.authorString && (
+                                                        <p className="line-clamp-1 flex-1 min-w-[120px]">
+                                                            {paper.authorString}
+                                                        </p>
+                                                    )}
+                                                    {paper.doi && (
+                                                        <span className="text-[10px] font-mono text-slate-400 shrink-0">
+                                                            DOI: {paper.doi}
                                                         </span>
                                                     )}
                                                 </div>
-                                            </div>
 
-                                            <h3 className="text-sm sm:text-base font-bold text-slate-800 font-serif line-clamp-2 leading-snug group-hover:text-emerald-700 transition-colors">
-                                                {paper.title}
-                                            </h3>
-
-                                            {paper.titleZh && (
-                                                <p className="text-xs font-medium text-emerald-800 line-clamp-1 font-sans">
-                                                    {paper.titleZh}
-                                                </p>
-                                            )}
-
-                                            {/* 作者与 DOI */}
-                                            <div className="flex items-center justify-between gap-2 text-xs text-slate-500 flex-wrap">
-                                                {paper.authorString && (
-                                                    <p className="line-clamp-1 flex-1 min-w-[120px]">
-                                                        {paper.authorString}
-                                                    </p>
+                                                {/* 百字晨读机理摘要预览 */}
+                                                {paper.summary100 && (
+                                                    <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 text-xs text-emerald-900 line-clamp-2 leading-relaxed font-sans">
+                                                        {paper.summary100}
+                                                    </div>
                                                 )}
-                                                {paper.doi && (
-                                                    <span className="text-[10px] font-mono text-slate-400 shrink-0">
-                                                        DOI: {paper.doi}
-                                                    </span>
+
+                                                {/* 图配缩略图 */}
+                                                {figureBlock?.imageUrl && (
+                                                    <div className="h-28 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex items-center justify-center p-1">
+                                                        <img
+                                                            src={figureBlock.imageUrl}
+                                                            alt="Figure thumbnail"
+                                                            className="max-h-full max-w-full object-contain rounded"
+                                                            loading="lazy"
+                                                        />
+                                                    </div>
                                                 )}
                                             </div>
 
-                                            {/* 百字晨读机理摘要预览 */}
-                                            {paper.summary100 && (
-                                                <div className="p-3 rounded-xl bg-emerald-50/70 border border-emerald-100 text-xs text-emerald-900 line-clamp-2 leading-relaxed font-sans">
-                                                    {paper.summary100}
+                                            <div className="pt-3.5 mt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
+                                                <div className="flex items-center gap-2 font-medium">
+                                                    <span>进度: {paper.readProgress || 0}%</span>
+                                                    {paper.translatedAt && (
+                                                        <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
+                                                            双语
+                                                        </span>
+                                                    )}
                                                 </div>
-                                            )}
 
-                                            {/* 图配缩略图 */}
-                                            {figureBlock?.imageUrl && (
-                                                <div className="h-28 rounded-xl overflow-hidden bg-slate-50 border border-slate-100 flex items-center justify-center p-1">
-                                                    <img
-                                                        src={figureBlock.imageUrl}
-                                                        alt="Figure thumbnail"
-                                                        className="max-h-full max-w-full object-contain rounded"
-                                                        loading="lazy"
-                                                    />
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        <div className="pt-3.5 mt-3 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400">
-                                            <div className="flex items-center gap-2 font-medium">
-                                                <span>进度: {paper.readProgress || 0}%</span>
-                                                {paper.translatedAt && (
-                                                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold">
-                                                        双语
-                                                    </span>
-                                                )}
-                                            </div>
-
-                                            <div className="flex items-center gap-1.5">
-                                                <button
-                                                    onClick={(e) => handleDeletePaper(e, paper.id)}
-                                                    className="w-8 h-8 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition active:scale-95"
-                                                    title="删除文献"
-                                                >
-                                                    <Trash size={15} />
-                                                </button>
-                                                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center transition shadow-2xs active:scale-95">
-                                                    <ArrowRight size={14} weight="bold" />
+                                                <div className="flex items-center gap-1.5">
+                                                    {/* 下载原版 PDF */}
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            downloadPaperPdf({
+                                                                pmcid: paper.pmcid,
+                                                                pdfUrl: paper.pdfUrl,
+                                                                title: paper.title,
+                                                                pubYear: paper.pubDate,
+                                                                doi: paper.doi
+                                                            });
+                                                        }}
+                                                        className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-400 hover:text-slate-700 flex items-center justify-center transition active:scale-95"
+                                                        title="下载官方原版 PDF"
+                                                    >
+                                                        <DownloadSimple size={15} />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleDeletePaper(e, paper.id)}
+                                                        className="w-8 h-8 rounded-full hover:bg-rose-50 text-slate-400 hover:text-rose-600 flex items-center justify-center transition active:scale-95"
+                                                        title="删除文献"
+                                                    >
+                                                        <Trash size={15} />
+                                                    </button>
+                                                    <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-700 group-hover:bg-emerald-600 group-hover:text-white flex items-center justify-center transition shadow-2xs active:scale-95">
+                                                        <ArrowRight size={14} weight="bold" />
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    )
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
                 ) : (
                     /* 检索结果展示区 */
                     <div className="space-y-3 pb-20">
@@ -488,32 +632,54 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                                                 )}
                                             </div>
 
-                                            <button
-                                                onClick={() => handleFetchPaper(res)}
-                                                disabled={isFetchingPaper}
-                                                className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-2xs shrink-0 ${
-                                                    isAlreadyDownloaded
-                                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
-                                                        : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                                                }`}
-                                            >
-                                                {isFetchingThis ? (
-                                                    <>
-                                                        <SpinnerGap size={13} className="animate-spin" />
-                                                        <span>抓取与解析中...</span>
-                                                    </>
-                                                ) : isAlreadyDownloaded ? (
-                                                    <>
-                                                        <BookOpen size={13} />
-                                                        <span>打开阅读</span>
-                                                    </>
-                                                ) : (
-                                                    <>
+                                            <div className="flex items-center gap-2">
+                                                {res.hasPDF && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            downloadPaperPdf({
+                                                                pmcid: res.pmcid,
+                                                                pdfUrl: res.pdfUrl,
+                                                                title: res.title,
+                                                                pubYear: res.pubYear,
+                                                                doi: res.doi
+                                                            });
+                                                        }}
+                                                        className="px-3 py-2 rounded-full bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-medium flex items-center gap-1 active:scale-95 transition shadow-2xs shrink-0"
+                                                        title="下载官方原版 PDF"
+                                                    >
                                                         <DownloadSimple size={13} />
-                                                        <span>抓取全文并晨读</span>
-                                                    </>
+                                                        <span>下载 PDF</span>
+                                                    </button>
                                                 )}
-                                            </button>
+
+                                                <button
+                                                    onClick={() => handleFetchPaper(res)}
+                                                    disabled={isFetchingPaper}
+                                                    className={`px-4 py-2 rounded-full text-xs font-semibold flex items-center gap-1.5 transition active:scale-95 shadow-2xs shrink-0 ${
+                                                        isAlreadyDownloaded
+                                                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                                                            : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                                                    }`}
+                                                >
+                                                    {isFetchingThis ? (
+                                                        <>
+                                                            <SpinnerGap size={13} className="animate-spin" />
+                                                            <span>抓取与解析中...</span>
+                                                        </>
+                                                    ) : isAlreadyDownloaded ? (
+                                                        <>
+                                                            <BookOpen size={13} />
+                                                            <span>打开阅读</span>
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <DownloadSimple size={13} />
+                                                            <span>抓取全文并晨读</span>
+                                                        </>
+                                                    )}
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
                                 );
