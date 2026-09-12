@@ -216,16 +216,6 @@ export const PaperReader: React.FC<PaperReaderProps> = ({
                         >
                             <ChatCircleText size={18} />
                         </button>
-
-                        {onOpenSettings && (
-                            <button
-                                onClick={onOpenSettings}
-                                className="w-8 h-8 rounded-full bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white flex items-center justify-center transition active:scale-95 ml-1"
-                                title="配置独立文献翻译 API 线路与模型"
-                            >
-                                <Gear size={16} />
-                            </button>
-                        )}
                     </div>
                 </div>
 
