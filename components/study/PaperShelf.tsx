@@ -3,6 +3,7 @@ import { BookOpen, MagnifyingGlass, DownloadSimple, Trash, BookmarkSimple, Spark
 import type { StudyPaper, APIConfig } from '../../types';
 import { DB } from '../../utils/db';
 import { searchEuropePmcArticles, fetchAndParseStudyPaper, EuropePmcArticleSummary } from '../../utils/europePmc';
+import Modal from '../os/Modal';
 
 interface PaperShelfProps {
     onSelectPaper: (paper: StudyPaper) => void;
@@ -45,8 +46,7 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
         } catch {}
         return DEFAULT_KEYWORDS;
     });
-    const [isManagingTags, setIsManagingTags] = useState(false);
-    const [isAddingTag, setIsAddingTag] = useState(false);
+    const [showTagModal, setShowTagModal] = useState(false);
     const [newTagText, setNewTagText] = useState('');
 
     const saveTags = (newTags: string[]) => {
@@ -58,23 +58,17 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
 
     const handleAddTag = () => {
         const trimmed = newTagText.trim();
-        if (!trimmed) {
-            setIsAddingTag(false);
-            return;
-        }
+        if (!trimmed) return;
         if (tags.includes(trimmed)) {
-            setIsAddingTag(false);
             setNewTagText('');
             return;
         }
         const updated = [...tags, trimmed];
         saveTags(updated);
         setNewTagText('');
-        setIsAddingTag(false);
     };
 
-    const handleDeleteTag = (e: React.MouseEvent, tagToDelete: string) => {
-        e.stopPropagation();
+    const handleDeleteTag = (tagToDelete: string) => {
         const updated = tags.filter(t => t !== tagToDelete);
         saveTags(updated);
     };
@@ -195,101 +189,35 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                         <div className="flex items-center gap-1 shrink-0">
                             <span className="text-[11px] text-slate-400 font-medium">标签：</span>
                             <button
-                                onClick={() => setIsManagingTags(!isManagingTags)}
-                                className={`text-[11px] px-2 py-0.5 rounded-full font-medium transition active:scale-95 ${
-                                    isManagingTags
-                                        ? 'bg-amber-100 text-amber-800 font-bold'
-                                        : 'text-slate-500 hover:text-slate-800 hover:bg-slate-100'
-                                }`}
-                                title={isManagingTags ? "完成管理" : "管理快捷标签"}
+                                onClick={() => setShowTagModal(true)}
+                                className="text-[11px] px-2 py-0.5 rounded-full font-medium text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition active:scale-95"
+                                title="管理快捷标签"
                             >
-                                {isManagingTags ? '完成' : '编辑'}
+                                编辑
                             </button>
-                            {isManagingTags && (
-                                <button
-                                    onClick={handleResetTags}
-                                    className="text-[10px] text-slate-400 hover:text-slate-600 underline ml-0.5"
-                                    title="恢复默认标签"
-                                >
-                                    重置
-                                </button>
-                            )}
                         </div>
 
                         {tags.map(kw => (
-                            <div
+                            <button
                                 key={kw}
                                 onClick={() => {
-                                    if (!isManagingTags) {
-                                        setSearchKeyword(kw);
-                                        handleSearch(kw);
-                                    }
+                                    setSearchKeyword(kw);
+                                    handleSearch(kw);
                                 }}
-                                className={`px-3 py-1 rounded-full text-xs transition-all shrink-0 flex items-center gap-1.5 border shadow-2xs ${
-                                    isManagingTags
-                                        ? 'bg-amber-50 border-amber-300/80 text-amber-900 cursor-default'
-                                        : 'bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-600 hover:text-emerald-800 border-slate-200/80 cursor-pointer active:scale-95'
-                                }`}
+                                className="px-3 py-1 rounded-full text-xs transition-all shrink-0 bg-white hover:bg-emerald-50 hover:border-emerald-300 text-slate-600 hover:text-emerald-800 border border-slate-200/80 cursor-pointer active:scale-95 shadow-2xs"
                             >
-                                <span>{kw}</span>
-                                {isManagingTags && (
-                                    <button
-                                        onClick={(e) => handleDeleteTag(e, kw)}
-                                        className="w-3.5 h-3.5 rounded-full hover:bg-rose-100 text-slate-400 hover:text-rose-600 flex items-center justify-center transition -mr-1"
-                                        title={`删除标签 "${kw}"`}
-                                    >
-                                        <X size={10} weight="bold" />
-                                    </button>
-                                )}
-                            </div>
+                                {kw}
+                            </button>
                         ))}
 
-                        {/* 添加新标签 */}
-                        {isAddingTag ? (
-                            <div className="flex items-center gap-1 shrink-0 bg-white border border-emerald-400 rounded-full px-2.5 py-0.5 shadow-2xs">
-                                <input
-                                    type="text"
-                                    autoFocus
-                                    value={newTagText}
-                                    onChange={e => setNewTagText(e.target.value)}
-                                    onKeyDown={e => {
-                                        if (e.key === 'Enter') handleAddTag();
-                                        if (e.key === 'Escape') {
-                                            setIsAddingTag(false);
-                                            setNewTagText('');
-                                        }
-                                    }}
-                                    placeholder="新标签..."
-                                    className="bg-transparent text-xs text-slate-800 outline-none w-16 placeholder-slate-400"
-                                />
-                                <button
-                                    onClick={handleAddTag}
-                                    className="text-emerald-600 hover:text-emerald-700 p-0.5 active:scale-90"
-                                    title="确认添加"
-                                >
-                                    <Check size={12} weight="bold" />
-                                </button>
-                                <button
-                                    onClick={() => {
-                                        setIsAddingTag(false);
-                                        setNewTagText('');
-                                    }}
-                                    className="text-slate-400 hover:text-slate-600 p-0.5 active:scale-90"
-                                    title="取消"
-                                >
-                                    <X size={12} />
-                                </button>
-                            </div>
-                        ) : (
-                            <button
-                                onClick={() => setIsAddingTag(true)}
-                                className="px-2.5 py-1 rounded-full bg-white hover:bg-emerald-50 text-xs text-slate-500 hover:text-emerald-700 transition shrink-0 border border-dashed border-slate-300 hover:border-emerald-400 flex items-center gap-1 shadow-2xs active:scale-95"
-                                title="添加新标签"
-                            >
-                                <Plus size={11} weight="bold" />
-                                <span>添加</span>
-                            </button>
-                        )}
+                        <button
+                            onClick={() => setShowTagModal(true)}
+                            className="px-2.5 py-1 rounded-full bg-white hover:bg-emerald-50 text-xs text-slate-500 hover:text-emerald-700 transition shrink-0 border border-dashed border-slate-300 hover:border-emerald-400 flex items-center gap-1 shadow-2xs active:scale-95"
+                            title="添加或管理标签"
+                        >
+                            <Plus size={11} weight="bold" />
+                            <span>添加</span>
+                        </button>
                     </div>
 
                     {/* 视图 Tab 切换：符合自习室分栏设计 */}
@@ -491,6 +419,86 @@ export const PaperShelf: React.FC<PaperShelfProps> = ({
                     </div>
                 )}
             </div>
+
+            {/* 快捷标签管理弹窗 */}
+            <Modal
+                isOpen={showTagModal}
+                title="管理快捷标签"
+                onClose={() => {
+                    setShowTagModal(false);
+                    setNewTagText('');
+                }}
+                footer={
+                    <button
+                        onClick={() => {
+                            setShowTagModal(false);
+                            setNewTagText('');
+                        }}
+                        className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-2xl active:scale-95 transition-all text-xs shadow-md shadow-emerald-200"
+                    >
+                        完成
+                    </button>
+                }
+            >
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1.5 block">
+                            添加新标签
+                        </label>
+                        <div className="flex gap-2">
+                            <input
+                                type="text"
+                                autoFocus
+                                value={newTagText}
+                                onChange={e => setNewTagText(e.target.value)}
+                                onKeyDown={e => e.key === 'Enter' && handleAddTag()}
+                                placeholder="输入新学科标签（如：Cardiology）"
+                                className="flex-1 bg-slate-100 rounded-xl px-3 py-2 text-xs text-slate-800 placeholder-slate-400 outline-none border border-slate-200/80 focus:border-emerald-500 focus:bg-white transition"
+                            />
+                            <button
+                                onClick={handleAddTag}
+                                disabled={!newTagText.trim()}
+                                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs disabled:opacity-40 active:scale-95 transition flex items-center gap-1 shrink-0 shadow-xs"
+                            >
+                                <Plus size={13} weight="bold" />
+                                <span>添加</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                                当前快捷标签 ({tags.length})
+                            </label>
+                            <button
+                                onClick={handleResetTags}
+                                className="text-[10px] text-slate-400 hover:text-emerald-700 underline transition"
+                            >
+                                恢复默认标签
+                            </button>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 max-h-52 overflow-y-auto no-scrollbar py-1">
+                            {tags.map(kw => (
+                                <div
+                                    key={kw}
+                                    className="px-3 py-1.5 rounded-full text-xs bg-slate-100 text-slate-700 border border-slate-200/80 flex items-center gap-1.5 shadow-2xs group"
+                                >
+                                    <span>{kw}</span>
+                                    <button
+                                        onClick={() => handleDeleteTag(kw)}
+                                        className="w-4 h-4 rounded-full hover:bg-rose-100 text-slate-400 hover:text-rose-600 flex items-center justify-center transition active:scale-90"
+                                        title={`删除 "${kw}"`}
+                                    >
+                                        <X size={11} weight="bold" />
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            </Modal>
         </div>
     );
 };
